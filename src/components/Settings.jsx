@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { BACKGROUNDS } from '../lib/data.js'
 
 // Gear button + settings popover (name, clock format, seconds, temp unit, quote).
-export default function Settings({ settings, onChange }) {
+export default function Settings({ settings, onChange, user, onLogout }) {
   const [open, setOpen] = useState(false)
   const set = (patch) => onChange({ ...settings, ...patch })
 
@@ -87,6 +87,23 @@ export default function Settings({ settings, onChange }) {
                 )
               })}
             </div>
+          </div>
+
+          {/* Account */}
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '14px 0 12px' }} />
+          <div style={{ marginBottom: 2 }}>
+            <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.6)', fontFamily: "'Noto Sans KR', sans-serif", marginBottom: 7 }}>계정</div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', fontFamily: "'Noto Sans KR', sans-serif", marginBottom: 9 }}>
+              {user?.name} · {user?.email}
+            </div>
+            <button
+              onClick={onLogout}
+              style={{
+                width: '100%', padding: '8px 0', borderRadius: 9, cursor: 'pointer',
+                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+                color: 'rgba(255,150,150,0.9)', fontSize: 12, fontFamily: "'Noto Sans KR', sans-serif",
+              }}
+            >로그아웃</button>
           </div>
         </div>
       )}

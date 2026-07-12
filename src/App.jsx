@@ -8,7 +8,9 @@ import MemoSection from './components/MemoSection.jsx'
 import StickyNotes from './components/StickyNotes.jsx'
 import DiaryModal from './components/DiaryModal.jsx'
 import Settings from './components/Settings.jsx'
+import Login from './components/Login.jsx'
 import { useLocalStorage } from './lib/useLocalStorage.js'
+import { useAuth } from './lib/useAuth.js'
 import { DAYS_KR, QUOTES, greetingFor, weatherIcon } from './lib/data.js'
 
 const DEFAULT_SETTINGS = {
@@ -16,6 +18,8 @@ const DEFAULT_SETTINGS = {
 }
 
 export default function App() {
+  const auth = useAuth()
+
   // Live clock — re-render every second.
   const [now, setNow] = useState(new Date())
   useEffect(() => {
@@ -106,6 +110,13 @@ export default function App() {
     [now.getFullYear(), now.getMonth(), now.getDate()],
   )
 
+  if (auth.status === 'booting') {
+    return <StarField background={settings.background} />
+  }
+  if (auth.status === 'anonymous') {
+    return <Login onLogin={auth.login} onSignup={auth.signup} />
+  }
+
   return (
     <>
       <StarField background={settings.background} />
@@ -150,7 +161,7 @@ export default function App() {
         </div>
       </div>
 
-      <Settings settings={settings} onChange={setSettings} />
+      <Settings settings={settings} onChange={setSettings} user={auth.user} onLogout={auth.logout} />
 
       {/* Copyright */}
       <div style={{

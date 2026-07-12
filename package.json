@@ -1,9 +1,9 @@
 {
-  "name": "byeolbit-todo",
+  "name": "moonlight-drawer",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "별빛 투두 — 별이 빛나는 밤 테마의 할 일 · 다이어리 앱 (React + Vite)",
+  "description": "달빛 서랍 — 별이 빛나는 밤 테마의 할 일 · 다이어리 앱 (React + Vite)",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

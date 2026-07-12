@@ -1,4 +1,4 @@
-// Static data ported from the original 별빛 투두 design.
+// Static data ported from the original 달빛 서랍 design.
 
 export const DAYS_KR = ['일', '월', '화', '수', '목', '금', '토']
 

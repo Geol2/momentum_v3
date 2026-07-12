@@ -1,4 +1,4 @@
-# 별빛 투두 (Byeolbit Todo)
+# 달빛 서랍 (Moonlight Drawer)
 
 별이 빛나는 밤 테마의 할 일 · 다이어리 대시보드. React + Vite로 구현했습니다.
 
