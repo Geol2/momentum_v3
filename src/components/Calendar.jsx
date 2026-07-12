@@ -33,7 +33,7 @@ export default function Calendar({ now, diaries, onOpenDiary }) {
 
   const cellStyle = (d) => {
     const base = {
-      width: 23, height: 23, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      width: 21, height: 21, display: 'flex', alignItems: 'center', justifyContent: 'center',
       borderRadius: '50%', fontSize: 10.5, fontFamily: 'Outfit, sans-serif', cursor: 'pointer',
       color: 'rgba(255,255,255,0.72)', transition: 'all 0.15s',
     }
@@ -83,7 +83,7 @@ export default function Calendar({ now, diaries, onOpenDiary }) {
           const hasDiary = d != null && !!diaries[dateKey(year, month, d)]
           const isToday = isCurrentMonth && d === todayD
           return (
-            <div key={i} style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 23 }}>
+            <div key={i} style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 23, minWidth: 0 }}>
               {d != null && (
                 <div role="button" onClick={() => setSelected(d)} style={cellStyle(d)}>{d}</div>
               )}
