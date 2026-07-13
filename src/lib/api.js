@@ -39,6 +39,31 @@ export async function apiFetch(path, options = {}) {
     throw new ApiError(res.status, message)
   }
 
-  if (res.status === 204) return null
-  return res.json()
+  const text = await res.text()
+  return text ? JSON.parse(text) : null
+}
+
+export const todosApi = {
+  list: () => apiFetch('/api/todos'),
+  create: (text) => apiFetch('/api/todos', { method: 'POST', body: JSON.stringify({ text }) }),
+  update: (id, patch) => apiFetch(`/api/todos/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  remove: (id) => apiFetch(`/api/todos/${id}`, { method: 'DELETE' }),
+}
+
+export const notesApi = {
+  list: () => apiFetch('/api/notes'),
+  create: (note) => apiFetch('/api/notes', { method: 'POST', body: JSON.stringify(note) }),
+  update: (id, patch) => apiFetch(`/api/notes/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  remove: (id) => apiFetch(`/api/notes/${id}`, { method: 'DELETE' }),
+}
+
+export const diariesApi = {
+  list: () => apiFetch('/api/diaries'),
+  upsert: (dateKey, entry) => apiFetch(`/api/diaries/${dateKey}`, { method: 'PUT', body: JSON.stringify(entry) }),
+  remove: (dateKey) => apiFetch(`/api/diaries/${dateKey}`, { method: 'DELETE' }),
+}
+
+export const settingsApi = {
+  get: () => apiFetch('/api/settings'),
+  update: (settings) => apiFetch('/api/settings', { method: 'PUT', body: JSON.stringify(settings) }),
 }

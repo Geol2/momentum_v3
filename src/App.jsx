@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import StarField from './components/StarField.jsx'
 import Clock from './components/Clock.jsx'
 import Calendar from './components/Calendar.jsx'
@@ -9,8 +9,8 @@ import StickyNotes from './components/StickyNotes.jsx'
 import DiaryModal from './components/DiaryModal.jsx'
 import Settings from './components/Settings.jsx'
 import Login from './components/Login.jsx'
-import { useLocalStorage } from './lib/useLocalStorage.js'
 import { useAuth } from './lib/useAuth.js'
+import { todosApi, notesApi, diariesApi, settingsApi } from './lib/api.js'
 import { DAYS_KR, QUOTES, greetingFor, weatherIcon } from './lib/data.js'
 
 const DEFAULT_SETTINGS = {
@@ -27,11 +27,40 @@ export default function App() {
     return () => clearInterval(id)
   }, [])
 
-  // Persisted state.
-  const [settings, setSettings] = useLocalStorage('byeolbit_settings', DEFAULT_SETTINGS)
-  const [todos, setTodos] = useLocalStorage('byeolbit_todos', [])
-  const [notes, setNotes] = useLocalStorage('byeolbit_notes', [])
-  const [diaries, setDiaries] = useLocalStorage('byeolbit_diaries', {})
+  // All persisted state lives in the backend, scoped per account.
+  const [settings, setSettingsLocal] = useState(DEFAULT_SETTINGS)
+  const [diaries, setDiaries] = useState({})
+  const [todos, setTodos] = useState([])
+  const [notes, setNotes] = useState([])
+  useEffect(() => {
+    if (auth.status !== 'authenticated') {
+      if (auth.status === 'anonymous') {
+        setSettingsLocal(DEFAULT_SETTINGS); setDiaries({}); setTodos([]); setNotes([])
+      }
+      return
+    }
+    let cancelled = false
+    Promise.all([settingsApi.get(), diariesApi.list(), todosApi.list(), notesApi.list()])
+      .then(([s, d, t, n]) => {
+        if (cancelled) return
+        setSettingsLocal(s)
+        setDiaries(Object.fromEntries(d.map((e) => [e.dateKey, { title: e.title, body: e.body, mood: e.mood }])))
+        setTodos(t)
+        setNotes(n)
+      }).catch((e) => console.error('failed to load account data', e))
+    return () => { cancelled = true }
+  }, [auth.status])
+
+  // Settings writes are debounced — the name field fires onChange per keystroke,
+  // and we don't want a PUT /api/settings for every character typed.
+  const settingsSaveTimer = useRef(null)
+  const setSettings = (next) => {
+    setSettingsLocal(next)
+    clearTimeout(settingsSaveTimer.current)
+    settingsSaveTimer.current = setTimeout(() => {
+      settingsApi.update(next).catch((e) => console.error('failed to save settings', e))
+    }, 500)
+  }
 
   // Quote (random on mount).
   const [quote, setQuote] = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)])
@@ -76,11 +105,13 @@ export default function App() {
     setDiaryInfo(info)
     setDiaryOpen(true)
   }
-  const saveDiary = (entry) => {
-    setDiaries((prev) => ({ ...prev, [diaryKey]: entry }))
+  const saveDiary = async (entry) => {
+    const saved = await diariesApi.upsert(diaryKey, entry)
+    setDiaries((prev) => ({ ...prev, [diaryKey]: { title: saved.title, body: saved.body, mood: saved.mood } }))
     setDiaryOpen(false)
   }
-  const deleteDiary = () => {
+  const deleteDiary = async () => {
+    await diariesApi.remove(diaryKey)
     setDiaries((prev) => {
       const copy = { ...prev }
       delete copy[diaryKey]
@@ -89,20 +120,40 @@ export default function App() {
     setDiaryOpen(false)
   }
 
-  // Todo handlers.
-  const addTodo = (text) => setTodos((t) => [...t, { id: Date.now(), text, done: false }])
-  const toggleTodo = (id) => setTodos((t) => t.map((x) => (x.id === id ? { ...x, done: !x.done } : x)))
-  const removeTodo = (id) => setTodos((t) => t.filter((x) => x.id !== id))
+  // Todo handlers — each mutates the backend, then syncs local state from the response.
+  const addTodo = async (text) => {
+    const created = await todosApi.create(text)
+    setTodos((t) => [...t, created])
+  }
+  const toggleTodo = async (id) => {
+    const target = todos.find((t) => t.id === id)
+    if (!target) return
+    const updated = await todosApi.update(id, { done: !target.done })
+    setTodos((t) => t.map((x) => (x.id === id ? updated : x)))
+  }
+  const removeTodo = async (id) => {
+    setTodos((t) => t.filter((x) => x.id !== id))
+    await todosApi.remove(id)
+  }
 
   // Sticky-note handlers.
-  const addNote = (text) => {
+  const addNote = async (text) => {
     const x = 60 + Math.random() * 120
     const y = 140 + Math.random() * 160
     const rot = (Math.random() - 0.5) * 8
-    setNotes((n) => [...n, { id: Date.now(), text, ts: Date.now(), x, y, rot }])
+    const created = await notesApi.create({ text, x, y, rot, ts: Date.now() })
+    setNotes((n) => [...n, created])
   }
+  // Live drag position — local only, no network call per mousemove.
   const moveNote = (id, x, y) => setNotes((n) => n.map((m) => (m.id === id ? { ...m, x, y } : m)))
-  const removeNote = (id) => setNotes((n) => n.filter((m) => m.id !== id))
+  // Fired once at drag end to persist the final position.
+  const persistNotePosition = (id, x, y) => {
+    notesApi.update(id, { x, y }).catch((e) => console.error('failed to save note position', e))
+  }
+  const removeNote = (id) => {
+    setNotes((n) => n.filter((m) => m.id !== id))
+    notesApi.remove(id).catch((e) => console.error('failed to delete note', e))
+  }
 
   const greeting = greetingFor(now.getHours(), settings.userName)
   const dateStr = useMemo(
@@ -131,7 +182,7 @@ export default function App() {
         tempUnit={settings.tempUnit}
       />
 
-      <StickyNotes notes={notes} onMove={moveNote} onRemove={removeNote} />
+      <StickyNotes notes={notes} onMove={moveNote} onMoveEnd={persistNotePosition} onRemove={removeNote} />
 
       {/* Main column */}
       <div style={{

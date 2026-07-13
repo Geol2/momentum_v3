@@ -2,29 +2,36 @@ import { useRef } from 'react'
 import { NOTE_COLORS } from '../lib/data.js'
 
 // Draggable pastel post-it notes. Each note stores its own {x, y} position.
-export default function StickyNotes({ notes, onMove, onRemove }) {
+export default function StickyNotes({ notes, onMove, onMoveEnd, onRemove }) {
   return (
     <>
       {notes.map((note, i) => (
-        <Note key={note.id} note={note} color={NOTE_COLORS[i % NOTE_COLORS.length]} onMove={onMove} onRemove={onRemove} />
+        <Note key={note.id} note={note} color={NOTE_COLORS[i % NOTE_COLORS.length]} onMove={onMove} onMoveEnd={onMoveEnd} onRemove={onRemove} />
       ))}
     </>
   )
 }
 
-function Note({ note, color, onMove, onRemove }) {
+function Note({ note, color, onMove, onMoveEnd, onRemove }) {
   const drag = useRef(null)
 
   const onMouseDown = (e) => {
     if (e.target.closest('button')) return
-    drag.current = { startX: e.clientX, startY: e.clientY, baseX: note.x, baseY: note.y }
+    drag.current = { startX: e.clientX, startY: e.clientY, baseX: note.x, baseY: note.y, lastX: note.x, lastY: note.y }
     const move = (ev) => {
       if (!drag.current) return
       const dx = ev.clientX - drag.current.startX
       const dy = ev.clientY - drag.current.startY
-      onMove(note.id, drag.current.baseX + dx, drag.current.baseY + dy)
+      const x = drag.current.baseX + dx
+      const y = drag.current.baseY + dy
+      drag.current.lastX = x
+      drag.current.lastY = y
+      onMove(note.id, x, y)
     }
     const up = () => {
+      // Only the final position is persisted to the backend — mousemove can fire
+      // dozens of times per drag and would otherwise flood the API with PATCH calls.
+      if (drag.current) onMoveEnd?.(note.id, drag.current.lastX, drag.current.lastY)
       drag.current = null
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
