@@ -51,7 +51,7 @@ export default function Login({ onLogin, onSignup }) {
           <div style={{
             fontFamily: 'Outfit, sans-serif', fontSize: 20, fontWeight: 300,
             color: 'rgba(255,255,255,0.9)', letterSpacing: '0.06em', marginBottom: 22, textAlign: 'center',
-          }}>달빛 서랍</div>
+          }}>{mode === 'signup' ? '회원가입' : '로그인'}</div>
 
           {mode === 'signup' && (
             <input style={inputStyle} type="text" placeholder="이름" value={name}

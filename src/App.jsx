@@ -154,6 +154,10 @@ export default function App() {
     setNotes((n) => n.filter((m) => m.id !== id))
     notesApi.remove(id).catch((e) => console.error('failed to delete note', e))
   }
+  const editNote = (id, text) => {
+    setNotes((n) => n.map((m) => (m.id === id ? { ...m, text } : m)))
+    notesApi.update(id, { text }).catch((e) => console.error('failed to save note text', e))
+  }
 
   const greeting = greetingFor(now.getHours(), settings.userName)
   const dateStr = useMemo(
@@ -182,7 +186,7 @@ export default function App() {
         tempUnit={settings.tempUnit}
       />
 
-      <StickyNotes notes={notes} onMove={moveNote} onMoveEnd={persistNotePosition} onRemove={removeNote} />
+      <StickyNotes notes={notes} onMove={moveNote} onMoveEnd={persistNotePosition} onRemove={removeNote} onEdit={editNote} />
 
       {/* Main column */}
       <div style={{
