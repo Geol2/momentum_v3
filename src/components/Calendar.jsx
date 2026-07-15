@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { DAYS_KR, dateKey } from '../lib/data.js'
 
 function buildCells(year, month) {
@@ -11,24 +11,42 @@ function buildCells(year, month) {
   return cells
 }
 
-export default function Calendar({ now, diaries, onOpenDiary }) {
+export default function Calendar({ now, diaries, todos = [], selectedDateKey, onSelectDate, onOpenDiary }) {
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth())
-  const [selected, setSelected] = useState(null)
 
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth()
   const todayD = now.getDate()
   const cells = buildCells(year, month)
 
+  // Count of todos per day, so we can mark days that have any.
+  const todoByDate = useMemo(() => {
+    const m = {}
+    for (const t of todos) {
+      if (!t.dateKey) continue
+      if (!m[t.dateKey]) m[t.dateKey] = { total: 0, done: 0 }
+      m[t.dateKey].total++
+      if (t.done) m[t.dateKey].done++
+    }
+    return m
+  }, [todos])
+
+  // The picked day, only if it falls inside the month currently on screen.
+  const selected =
+    selectedDateKey && selectedDateKey.startsWith(dateKey(year, month, 1).slice(0, 7))
+      ? parseInt(selectedDateKey.slice(8, 10), 10)
+      : null
+  const select = (d) => onSelectDate(dateKey(year, month, d))
+
   const prev = () => {
     let m = month - 1, y = year
     if (m < 0) { m = 11; y-- }
-    setMonth(m); setYear(y); setSelected(null)
+    setMonth(m); setYear(y)
   }
   const next = () => {
     let m = month + 1, y = year
     if (m > 11) { m = 0; y++ }
-    setMonth(m); setYear(y); setSelected(null)
+    setMonth(m); setYear(y)
   }
 
   const cellStyle = (d) => {
@@ -50,6 +68,7 @@ export default function Calendar({ now, diaries, onOpenDiary }) {
 
   const selKey = selected != null ? dateKey(year, month, selected) : null
   const selEntry = selKey ? diaries[selKey] : null
+  const selTodo = selKey ? todoByDate[selKey] : null
 
   return (
     <div style={{
@@ -80,18 +99,32 @@ export default function Calendar({ now, diaries, onOpenDiary }) {
       {/* Days grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
         {cells.map((d, i) => {
-          const hasDiary = d != null && !!diaries[dateKey(year, month, d)]
+          const key = d != null ? dateKey(year, month, d) : null
+          const hasDiary = !!(key && diaries[key])
+          const todoInfo = key ? todoByDate[key] : null
+          const hasOpenTodo = !!(todoInfo && todoInfo.done < todoInfo.total)
+          const hasDoneAllTodo = !!(todoInfo && todoInfo.total > 0 && todoInfo.done === todoInfo.total)
           const isToday = isCurrentMonth && d === todayD
           return (
             <div key={i} style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 23, minWidth: 0 }}>
               {d != null && (
-                <div role="button" onClick={() => setSelected(d)} style={cellStyle(d)}>{d}</div>
+                <div role="button" onClick={() => select(d)} style={cellStyle(d)}>{d}</div>
               )}
-              {hasDiary && !isToday && (
-                <div style={{
-                  position: 'absolute', bottom: 1, width: 5, height: 5, borderRadius: '50%',
-                  border: '1.5px solid rgba(99,179,237,0.75)', boxSizing: 'border-box',
-                }} />
+              {!isToday && (hasDiary || todoInfo) && (
+                <div style={{ position: 'absolute', bottom: 0, display: 'flex', gap: 2, alignItems: 'center' }}>
+                  {(hasOpenTodo || hasDoneAllTodo) && (
+                    <div style={{
+                      width: 5, height: 5, borderRadius: '50%', boxSizing: 'border-box',
+                      background: hasOpenTodo ? 'rgba(233,213,160,0.85)' : 'rgba(99,179,237,0.55)',
+                    }} />
+                  )}
+                  {hasDiary && (
+                    <div style={{
+                      width: 5, height: 5, borderRadius: '50%', boxSizing: 'border-box',
+                      border: '1.5px solid rgba(99,179,237,0.75)',
+                    }} />
+                  )}
+                </div>
               )}
             </div>
           )
@@ -99,14 +132,18 @@ export default function Calendar({ now, diaries, onOpenDiary }) {
       </div>
 
       {/* Legend */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12, paddingTop: 11, borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <div style={{ width: 11, height: 11, borderRadius: '50%', background: 'rgba(99,179,237,0.9)' }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 12, paddingTop: 11, borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'rgba(99,179,237,0.9)' }} />
           <span style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.4)', fontFamily: "'Noto Sans KR', sans-serif" }}>오늘</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <div style={{ width: 11, height: 11, borderRadius: '50%', border: '1.5px solid rgba(99,179,237,0.75)', boxSizing: 'border-box' }} />
-          <span style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.4)', fontFamily: "'Noto Sans KR', sans-serif" }}>기록 있음</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'rgba(233,213,160,0.85)' }} />
+          <span style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.4)', fontFamily: "'Noto Sans KR', sans-serif" }}>할 일</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ width: 10, height: 10, borderRadius: '50%', border: '1.5px solid rgba(99,179,237,0.75)', boxSizing: 'border-box' }} />
+          <span style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.4)', fontFamily: "'Noto Sans KR', sans-serif" }}>기록</span>
         </div>
       </div>
 
@@ -115,12 +152,26 @@ export default function Calendar({ now, diaries, onOpenDiary }) {
         <div style={{ marginTop: 11, paddingTop: 11, borderTop: '1px solid rgba(255,255,255,0.07)', animation: 'itemIn 0.3s ease both' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)', fontFamily: "'Noto Sans KR', sans-serif", letterSpacing: '0.03em' }}>
-              {month + 1}월 {selected}일 기록
+              {month + 1}월 {selected}일
             </span>
-            <button onClick={() => setSelected(null)} style={{
+            <button onClick={() => onSelectDate(null)} style={{
               width: 18, height: 18, border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.4)',
               fontSize: 14, lineHeight: 1, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
             }}>×</button>
+          </div>
+
+          {/* Todo summary — the panel below the calendar shows this day's list in full. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <span style={{ fontSize: 12, flexShrink: 0 }}>✅</span>
+            {selTodo && selTodo.total > 0 ? (
+              <span style={{ fontSize: 11, color: 'rgba(233,213,160,0.9)', fontFamily: "'Noto Sans KR', sans-serif" }}>
+                할 일 {selTodo.done}/{selTodo.total} 완료
+              </span>
+            ) : (
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: "'Noto Sans KR', sans-serif" }}>
+                이 날의 할 일이 없어요
+              </span>
+            )}
           </div>
 
           {selEntry ? (

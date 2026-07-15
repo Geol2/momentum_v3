@@ -11,7 +11,7 @@ import Settings from './components/Settings.jsx'
 import Login from './components/Login.jsx'
 import { useAuth } from './lib/useAuth.js'
 import { todosApi, notesApi, diariesApi, settingsApi } from './lib/api.js'
-import { DAYS_KR, QUOTES, greetingFor, weatherIcon } from './lib/data.js'
+import { DAYS_KR, QUOTES, greetingFor, weatherIcon, dateKey } from './lib/data.js'
 
 const DEFAULT_SETTINGS = {
   userName: '', use24h: true, showSeconds: true, tempUnit: 'C', showQuote: true, background: 'mountain',
@@ -32,6 +32,19 @@ export default function App() {
   const [diaries, setDiaries] = useState({})
   const [todos, setTodos] = useState([])
   const [notes, setNotes] = useState([])
+
+  // Which day the todo panel is showing. null = follow "today" live; a dateKey = a day the user picked on the calendar.
+  const [selectedDateKey, setSelectedDateKey] = useState(null)
+  const todayKey = dateKey(now.getFullYear(), now.getMonth(), now.getDate())
+  const activeDateKey = selectedDateKey || todayKey
+  const visibleTodos = useMemo(
+    () => todos.filter((t) => t.dateKey === activeDateKey),
+    [todos, activeDateKey],
+  )
+  const isViewingToday = activeDateKey === todayKey
+  const todoLabel = isViewingToday
+    ? '오늘 할 일'
+    : `${parseInt(activeDateKey.slice(5, 7), 10)}월 ${parseInt(activeDateKey.slice(8, 10), 10)}일 할 일`
   useEffect(() => {
     if (auth.status !== 'authenticated') {
       if (auth.status === 'anonymous') {
@@ -122,7 +135,7 @@ export default function App() {
 
   // Todo handlers — each mutates the backend, then syncs local state from the response.
   const addTodo = async (text) => {
-    const created = await todosApi.create(text)
+    const created = await todosApi.create(text, activeDateKey)
     setTodos((t) => [...t, created])
   }
   const toggleTodo = async (id) => {
@@ -176,7 +189,14 @@ export default function App() {
     <>
       <StarField background={settings.background} />
 
-      <Calendar now={now} diaries={diaries} onOpenDiary={openDiary} />
+      <Calendar
+        now={now}
+        diaries={diaries}
+        todos={todos}
+        selectedDateKey={selectedDateKey}
+        onSelectDate={setSelectedDateKey}
+        onOpenDiary={openDiary}
+      />
 
       <WeatherQuote
         quote={quote}
@@ -210,7 +230,15 @@ export default function App() {
         <div style={{ width: 1, height: 50, background: 'linear-gradient(180deg, transparent, rgba(255,255,255,0.15) 50%, transparent)', margin: '38px 0' }} />
 
         <div style={{ width: '100%', maxWidth: 520, animation: 'fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) 0.26s both' }}>
-          <TodoSection todos={todos} onAdd={addTodo} onToggle={toggleTodo} onRemove={removeTodo} />
+          <TodoSection
+            todos={visibleTodos}
+            label={todoLabel}
+            isToday={isViewingToday}
+            onAdd={addTodo}
+            onToggle={toggleTodo}
+            onRemove={removeTodo}
+            onResetToToday={() => setSelectedDateKey(null)}
+          />
           <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '22px 0' }} />
           <MemoSection count={notes.length} onAdd={addNote} />
         </div>

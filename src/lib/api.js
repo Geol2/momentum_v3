@@ -45,7 +45,7 @@ export async function apiFetch(path, options = {}) {
 
 export const todosApi = {
   list: () => apiFetch('/api/todos'),
-  create: (text) => apiFetch('/api/todos', { method: 'POST', body: JSON.stringify({ text }) }),
+  create: (text, dateKey) => apiFetch('/api/todos', { method: 'POST', body: JSON.stringify({ text, dateKey }) }),
   update: (id, patch) => apiFetch(`/api/todos/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   remove: (id) => apiFetch(`/api/todos/${id}`, { method: 'DELETE' }),
 }

@@ -11,7 +11,7 @@ const inputStyle = {
   fontWeight: 300, backdropFilter: 'blur(8px)',
 }
 
-export default function TodoSection({ todos, onAdd, onToggle, onRemove }) {
+export default function TodoSection({ todos, label = '오늘 할 일', isToday = true, onAdd, onToggle, onRemove, onResetToToday }) {
   const [val, setVal] = useState('')
   const done = todos.filter((t) => t.done).length
 
@@ -25,7 +25,15 @@ export default function TodoSection({ todos, onAdd, onToggle, onRemove }) {
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 13 }}>
-        <div style={{ fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.22)' }}>오늘 할 일</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.22)' }}>{label}</div>
+          {!isToday && onResetToToday && (
+            <button onClick={onResetToToday} style={{
+              border: 'none', background: 'transparent', cursor: 'pointer', padding: 0,
+              fontSize: 10, color: 'rgba(99,179,237,0.7)', fontFamily: "'Noto Sans KR', sans-serif", letterSpacing: '0.04em',
+            }}>← 오늘</button>
+          )}
+        </div>
         {todos.length > 0 && (
           <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.18)', letterSpacing: '0.06em' }}>{done} / {todos.length} 완료</div>
         )}
@@ -33,7 +41,7 @@ export default function TodoSection({ todos, onAdd, onToggle, onRemove }) {
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
         <input
-          type="text" placeholder="오늘 할 일을 입력하세요..." value={val}
+          type="text" placeholder={isToday ? '오늘 할 일을 입력하세요...' : '이 날의 할 일을 입력하세요...'} value={val}
           onChange={(e) => setVal(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && submit()}
           style={inputStyle}
@@ -76,7 +84,7 @@ export default function TodoSection({ todos, onAdd, onToggle, onRemove }) {
         </div>
       ) : (
         <div style={{ textAlign: 'center', padding: '26px 0 6px', color: 'rgba(255,255,255,0.14)', fontSize: 13, fontWeight: 300, letterSpacing: '0.06em' }}>
-          오늘의 할 일을 추가해보세요
+          {isToday ? '오늘의 할 일을 추가해보세요' : '이 날의 할 일을 추가해보세요'}
         </div>
       )}
     </>
