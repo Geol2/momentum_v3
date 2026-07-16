@@ -11,6 +11,7 @@ import Settings from './components/Settings.jsx'
 import Login from './components/Login.jsx'
 import HiddenGame from './game/HiddenGame.jsx'
 import { useAuth } from './lib/useAuth.js'
+import { useIsMobile } from './lib/useIsMobile.js'
 import { todosApi, notesApi, diariesApi, settingsApi } from './lib/api.js'
 import { DAYS_KR, QUOTES, greetingFor, weatherIcon, dateKey } from './lib/data.js'
 
@@ -20,6 +21,7 @@ const DEFAULT_SETTINGS = {
 
 export default function App() {
   const auth = useAuth()
+  const isMobile = useIsMobile()
 
   // Live clock — re-render every second.
   const [now, setNow] = useState(new Date())
@@ -190,29 +192,38 @@ export default function App() {
     <>
       <StarField background={settings.background} />
 
-      <Calendar
-        now={now}
-        diaries={diaries}
-        todos={todos}
-        selectedDateKey={selectedDateKey}
-        onSelectDate={setSelectedDateKey}
-        onOpenDiary={openDiary}
-      />
+      {/* Desktop: floating fixed widgets. Mobile: they drop into the column below. */}
+      {!isMobile && (
+        <Calendar
+          now={now}
+          diaries={diaries}
+          todos={todos}
+          selectedDateKey={selectedDateKey}
+          onSelectDate={setSelectedDateKey}
+          onOpenDiary={openDiary}
+        />
+      )}
 
-      <WeatherQuote
-        quote={quote}
-        showQuote={settings.showQuote}
-        onNewQuote={newQuote}
-        weather={weather}
-        tempUnit={settings.tempUnit}
-      />
+      {!isMobile && (
+        <WeatherQuote
+          quote={quote}
+          showQuote={settings.showQuote}
+          onNewQuote={newQuote}
+          weather={weather}
+          tempUnit={settings.tempUnit}
+        />
+      )}
 
-      <StickyNotes notes={notes} onMove={moveNote} onMoveEnd={persistNotePosition} onRemove={removeNote} onEdit={editNote} />
+      {/* Draggable notes only make sense on a pointer device — skip on mobile. */}
+      {!isMobile && (
+        <StickyNotes notes={notes} onMove={moveNote} onMoveEnd={persistNotePosition} onRemove={removeNote} onEdit={editNote} />
+      )}
 
       {/* Main column */}
       <div style={{
         position: 'relative', zIndex: 1, minHeight: '100vh', display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center', padding: '80px 24px 110px', fontFamily: "'Noto Sans KR', sans-serif",
+        alignItems: 'center', justifyContent: isMobile ? 'flex-start' : 'center',
+        padding: isMobile ? '58px 16px 96px' : '80px 24px 110px', fontFamily: "'Noto Sans KR', sans-serif",
       }}>
         <div style={{
           fontSize: 'clamp(14px, 1.6vw, 19px)', fontWeight: 300, color: 'rgba(255,255,255,0.62)',
@@ -243,6 +254,30 @@ export default function App() {
           <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '22px 0' }} />
           <MemoSection count={notes.length} onAdd={addNote} />
         </div>
+
+        {/* Mobile: calendar + weather stacked below the main content instead of
+            floating in the corners. */}
+        {isMobile && (
+          <div style={{ width: '100%', maxWidth: 340, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 26, marginTop: 40 }}>
+            <Calendar
+              now={now}
+              diaries={diaries}
+              todos={todos}
+              selectedDateKey={selectedDateKey}
+              onSelectDate={setSelectedDateKey}
+              onOpenDiary={openDiary}
+              mobile
+            />
+            <WeatherQuote
+              quote={quote}
+              showQuote={settings.showQuote}
+              onNewQuote={newQuote}
+              weather={weather}
+              tempUnit={settings.tempUnit}
+              mobile
+            />
+          </div>
+        )}
       </div>
 
       <Settings settings={settings} onChange={setSettings} user={auth.user} onLogout={auth.logout} />

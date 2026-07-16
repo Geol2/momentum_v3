@@ -5,7 +5,7 @@ const card = {
   padding: '18px 22px', minWidth: 158, backdropFilter: 'blur(20px)',
 }
 
-export default function WeatherQuote({ quote, showQuote, onNewQuote, weather, tempUnit }) {
+export default function WeatherQuote({ quote, showQuote, onNewQuote, weather, tempUnit, mobile = false }) {
   const [spin, setSpin] = useState(false)
 
   const refresh = () => {
@@ -22,13 +22,14 @@ export default function WeatherQuote({ quote, showQuote, onNewQuote, weather, te
 
   return (
     <div style={{
-      position: 'fixed', top: 26, right: 30, zIndex: 100, display: 'flex', flexDirection: 'column',
-      alignItems: 'flex-end', gap: 14, fontFamily: "'Noto Sans KR', sans-serif",
-      animation: 'slideFromRight 0.8s cubic-bezier(0.16,1,0.3,1) 0.5s both',
+      ...(mobile
+        ? { position: 'static', alignItems: 'center', margin: '0 auto', animation: 'fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) both' }
+        : { position: 'fixed', top: 26, right: 30, zIndex: 100, alignItems: 'flex-end', animation: 'slideFromRight 0.8s cubic-bezier(0.16,1,0.3,1) 0.5s both' }),
+      display: 'flex', flexDirection: 'column', gap: 14, fontFamily: "'Noto Sans KR', sans-serif",
     }}>
       {showQuote && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, maxWidth: 330 }}>
-          <div style={{ textAlign: 'right' }}>
+          <div style={{ textAlign: mobile ? 'center' : 'right' }}>
             <div style={{ fontSize: 12, fontWeight: 300, color: 'rgba(255,255,255,0.72)', lineHeight: 1.5, textShadow: '0 1px 8px rgba(0,0,0,0.65)' }}>
               “{quote.text}”
             </div>

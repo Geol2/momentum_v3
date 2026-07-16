@@ -11,7 +11,7 @@ function buildCells(year, month) {
   return cells
 }
 
-export default function Calendar({ now, diaries, todos = [], selectedDateKey, onSelectDate, onOpenDiary }) {
+export default function Calendar({ now, diaries, todos = [], selectedDateKey, onSelectDate, onOpenDiary, mobile = false }) {
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth())
 
@@ -72,7 +72,9 @@ export default function Calendar({ now, diaries, todos = [], selectedDateKey, on
 
   return (
     <div style={{
-      position: 'fixed', top: 24, left: 26, zIndex: 100, width: 196,
+      ...(mobile
+        ? { position: 'static', width: 216, margin: '0 auto' }
+        : { position: 'fixed', top: 24, left: 26, zIndex: 100, width: 196 }),
       background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16,
       padding: '12px 14px', backdropFilter: 'blur(20px)', fontFamily: 'Outfit, sans-serif',
       animation: 'fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) 0.55s both',

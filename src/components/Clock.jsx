@@ -39,7 +39,7 @@ export default function Clock({ now, use24h, showSeconds }) {
     <div
       style={{
         fontFamily: 'Outfit, sans-serif',
-        fontSize: 'clamp(52px, 12vw, 170px)',
+        fontSize: 'clamp(44px, 12vw, 170px)',
         fontWeight: 400,
         color: 'rgba(255,255,255,0.95)',
         letterSpacing: '-0.02em',
