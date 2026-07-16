@@ -16,6 +16,18 @@ const PLAYER_SPEED = 7
 const SPRINT_MULT = 1.7
 const ATTACK_RANGE = 3.2
 const ATTACK_COOLDOWN = 420 // ms
+// dodge roll
+const ROLL_TIME = 0.42   // seconds
+const ROLL_SPEED = 17    // burst speed
+const ROLL_COOL = 0.75   // cooldown after a roll
+const ROLL_IFRAME = 0.12 // roll ends its i-frames this many seconds before finishing
+// enemy combat
+const ENEMY_AGGRO = 15
+const ENEMY_REACH = 2.0     // gets this close, then telegraphs an attack
+const ENEMY_WINDUP = 0.6    // telegraph duration (time to dodge)
+const ENEMY_STRIKE = 0.22   // strike/lunge duration
+const ENEMY_HITRANGE = 2.6  // must still be this close at the strike to get hit
+const ENEMY_RECOVER = 0.55
 
 // Reused scratch vectors — the player's useFrame runs 60×/s, so allocating fresh
 // Vector3s each frame would churn the GC and cause periodic hitches (felt most
@@ -26,6 +38,7 @@ const _move = new THREE.Vector3()
 const _target = new THREE.Vector3()
 const _off = new THREE.Vector3()
 const _desired = new THREE.Vector3()
+const _rollDir = new THREE.Vector3()
 
 export default function Game3D({ onExit }) {
   // ALL live game state lives on this mutable bus. Mutating it never triggers a
@@ -39,6 +52,8 @@ export default function Game3D({ onExit }) {
     keys: {},
     attackAt: 0,       // timestamp of last swing, consumed by enemies
     attackSeq: 0,      // increments each swing
+    dodgeSeq: 0,       // increments each dodge roll
+    invuln: false,     // true during roll i-frames — enemy strikes pass through
     hp: 100, score: 0, kills: 0, dead: false,
     toast: '', toastAt: 0,
   }).current
@@ -60,7 +75,7 @@ export default function Game3D({ onExit }) {
       bus.keys[e.code] = true
       if (e.code === 'Space') {
         e.preventDefault()
-        bus.attackAt = performance.now(); bus.attackSeq++
+        bus.dodgeAt = performance.now(); bus.dodgeSeq++ // dodge roll
       }
     }
     const up = (e) => { bus.keys[e.code] = false }
@@ -198,8 +213,8 @@ function Player({ bus }) {
   const leftArm = useRef()
   const walkPhase = useRef(0)
   const swing = useRef({ seq: 0, t: 1 })
+  const roll = useRef({ seq: 0, t: 0, cool: 0 })
   const facing = useRef(Math.PI)
-  const vY = useRef(0)
   const { camera } = useThree()
 
   // A flat arrow that lies on the ground pointing out the character's front — the
@@ -217,7 +232,7 @@ function Player({ bus }) {
     const g = group.current
     if (!g) return
 
-    // Movement (camera-relative), frozen while dead.
+    // Desired move (camera-relative), frozen while dead.
     const k = bus.keys
     const yaw = bus.camera.yaw
     const fwd = _fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw))
@@ -229,22 +244,41 @@ function Player({ bus }) {
       if (k['KeyD'] || k['ArrowRight']) move.add(right)
       if (k['KeyA'] || k['ArrowLeft']) move.sub(right)
     }
-    const moving = move.lengthSq() > 0
-    if (moving) {
-      move.normalize()
-      const speed = PLAYER_SPEED * ((k['ShiftLeft'] || k['ShiftRight']) ? SPRINT_MULT : 1)
-      bus.playerPos.addScaledVector(move, speed * dt)
-      // keep inside the world
-      const r = Math.hypot(bus.playerPos.x, bus.playerPos.z)
-      if (r > WORLD_RADIUS) { bus.playerPos.x *= WORLD_RADIUS / r; bus.playerPos.z *= WORLD_RADIUS / r }
-      facing.current = Math.atan2(move.x, move.z)
-    }
+    const wantMove = move.lengthSq() > 0
+    if (wantMove) move.normalize()
 
-    // Jump / gravity
-    if (!bus.dead && (k['Space']) && bus.playerPos.y <= 0.001 && vY.current === 0) vY.current = 7.5
-    vY.current -= 22 * dt
-    bus.playerPos.y = Math.max(0, bus.playerPos.y + vY.current * dt)
-    if (bus.playerPos.y === 0 && vY.current < 0) vY.current = 0
+    // Start a dodge roll (Space), if off cooldown.
+    if (bus.dodgeSeq !== roll.current.seq) {
+      roll.current.seq = bus.dodgeSeq
+      if (!bus.dead && roll.current.t <= 0 && roll.current.cool <= 0) {
+        roll.current.t = ROLL_TIME
+        roll.current.cool = ROLL_TIME + ROLL_COOL
+        if (wantMove) _rollDir.copy(move)
+        else _rollDir.set(Math.sin(facing.current), 0, Math.cos(facing.current)) // roll forward
+      }
+    }
+    if (roll.current.cool > 0) roll.current.cool -= dt
+
+    const rolling = roll.current.t > 0
+    let moving = false
+    if (rolling) {
+      roll.current.t -= dt
+      const k2 = Math.max(0, roll.current.t) / ROLL_TIME
+      bus.playerPos.addScaledVector(_rollDir, ROLL_SPEED * (0.35 + k2 * 0.65) * dt)
+      facing.current = Math.atan2(_rollDir.x, _rollDir.z)
+      bus.invuln = roll.current.t > ROLL_IFRAME // i-frames for most of the roll
+    } else {
+      bus.invuln = false
+      if (wantMove) {
+        const speed = PLAYER_SPEED * ((k['ShiftLeft'] || k['ShiftRight']) ? SPRINT_MULT : 1)
+        bus.playerPos.addScaledVector(move, speed * dt)
+        facing.current = Math.atan2(move.x, move.z)
+        moving = true
+      }
+    }
+    // keep inside the world
+    const r = Math.hypot(bus.playerPos.x, bus.playerPos.z)
+    if (r > WORLD_RADIUS) { bus.playerPos.x *= WORLD_RADIUS / r; bus.playerPos.z *= WORLD_RADIUS / r }
 
     g.position.copy(bus.playerPos)
     // smooth turn toward facing
@@ -252,19 +286,27 @@ function Player({ bus }) {
     while (d > Math.PI) d -= Math.PI * 2
     while (d < -Math.PI) d += Math.PI * 2
     g.rotation.y += d * Math.min(1, dt * 12)
-    // walk cycle — bob + swinging legs & left arm while moving, easing to rest when idle
-    if (moving) {
-      walkPhase.current += dt * 9
-      const a = Math.sin(walkPhase.current) * 0.5
-      if (leftLeg.current) leftLeg.current.rotation.x = a
-      if (rightLeg.current) rightLeg.current.rotation.x = -a
-      if (leftArm.current) leftArm.current.rotation.x = -a * 0.8
-      if (bob.current) bob.current.position.y = Math.abs(Math.sin(walkPhase.current)) * 0.08
+    // roll tumble takes over the body; otherwise run the walk cycle
+    if (rolling) {
+      if (bob.current) {
+        bob.current.rotation.x = (1 - Math.max(0, roll.current.t) / ROLL_TIME) * Math.PI * 2
+        bob.current.position.y = Math.sin((1 - roll.current.t / ROLL_TIME) * Math.PI) * 0.18
+      }
     } else {
-      if (leftLeg.current) leftLeg.current.rotation.x *= 0.85
-      if (rightLeg.current) rightLeg.current.rotation.x *= 0.85
-      if (leftArm.current) leftArm.current.rotation.x *= 0.85
-      if (bob.current) bob.current.position.y *= 0.85
+      if (bob.current) bob.current.rotation.x *= 0.6 // settle out of a tumble
+      if (moving) {
+        walkPhase.current += dt * 9
+        const a = Math.sin(walkPhase.current) * 0.5
+        if (leftLeg.current) leftLeg.current.rotation.x = a
+        if (rightLeg.current) rightLeg.current.rotation.x = -a
+        if (leftArm.current) leftArm.current.rotation.x = -a * 0.8
+        if (bob.current) bob.current.position.y = Math.abs(Math.sin(walkPhase.current)) * 0.08
+      } else {
+        if (leftLeg.current) leftLeg.current.rotation.x *= 0.85
+        if (rightLeg.current) rightLeg.current.rotation.x *= 0.85
+        if (leftArm.current) leftArm.current.rotation.x *= 0.85
+        if (bob.current) bob.current.position.y *= 0.85
+      }
     }
 
     // sword swing — the whole right arm + blade sweep across the FRONT (+Z), never behind
@@ -370,27 +412,27 @@ function Player({ bus }) {
           <cylinderGeometry args={[0.1, 0.13, 0.12, 10]} />
           <meshStandardMaterial color="#e6d3b8" roughness={0.7} />
         </mesh>
-        <mesh castShadow position={[0, 1.62, 0]}>
-          <sphereGeometry args={[0.23, 18, 18]} />
+        <mesh castShadow position={[0, 1.58, 0]}>
+          <sphereGeometry args={[0.2, 18, 18]} />
           <meshStandardMaterial color="#3a4d8f" metalness={0.45} roughness={0.45} />
         </mesh>
         {/* dark visor slit on the front (+Z) */}
-        <mesh position={[0, 1.6, 0.16]}>
-          <boxGeometry args={[0.32, 0.08, 0.14]} />
+        <mesh position={[0, 1.56, 0.13]}>
+          <boxGeometry args={[0.27, 0.07, 0.12]} />
           <meshStandardMaterial color="#080b18" roughness={1} />
         </mesh>
         {/* glowing eyes — instantly read the facing direction up close */}
-        <mesh position={[-0.08, 1.6, 0.25]}>
-          <sphereGeometry args={[0.035, 10, 10]} />
+        <mesh position={[-0.07, 1.56, 0.2]}>
+          <sphereGeometry args={[0.03, 10, 10]} />
           <meshStandardMaterial color="#bfeaff" emissive="#5fd0ff" emissiveIntensity={2.6} toneMapped={false} />
         </mesh>
-        <mesh position={[0.08, 1.6, 0.25]}>
-          <sphereGeometry args={[0.035, 10, 10]} />
+        <mesh position={[0.07, 1.56, 0.2]}>
+          <sphereGeometry args={[0.03, 10, 10]} />
           <meshStandardMaterial color="#bfeaff" emissive="#5fd0ff" emissiveIntensity={2.6} toneMapped={false} />
         </mesh>
         {/* helmet crest / plume */}
-        <mesh castShadow position={[0, 1.82, -0.02]} rotation={[0.25, 0, 0]}>
-          <boxGeometry args={[0.05, 0.3, 0.24]} />
+        <mesh castShadow position={[0, 1.75, -0.02]} rotation={[0.25, 0, 0]}>
+          <boxGeometry args={[0.045, 0.26, 0.2]} />
           <meshStandardMaterial color="#7fe0ff" emissive="#4fd0ff" emissiveIntensity={1.1} toneMapped={false} />
         </mesh>
 
@@ -477,11 +519,20 @@ function SwingArc({ bus }) {
   )
 }
 
-// ── Enemies — shadow wisps that wander, chase, and bite ──────────────────────
+// ── Enemies — shadow wisps that stalk, telegraph a lunge, then strike ─────────
+// Dark-Souls-style: they DON'T hurt you by touching. They wind up a visible
+// attack (glow + red ground ring); if you're still in range when the strike
+// lands you take damage — dodge-roll or step out during the wind-up to avoid it.
 function Enemy({ data, bus, api }) {
   const group = useRef()
-  const state = useRef({ hp: data.hp, alive: true, x: data.x, z: data.z, lastBite: 0, seen: 0, hurtT: 0 })
+  const core = useRef()
   const bar = useRef()
+  const tele = useRef()
+  const teleMat = useRef()
+  const state = useRef({
+    hp: data.hp, alive: true, x: data.x, z: data.z, seen: 0, hurtT: 0,
+    mode: 'roam', timer: 0, cool: 0, struck: false, lx: 0, lz: 0,
+  })
 
   useFrame((_, dtRaw) => {
     const dt = Math.min(dtRaw, 0.05)
@@ -491,63 +542,97 @@ function Enemy({ data, bus, api }) {
 
     const p = bus.playerPos
     const dx = p.x - s.x, dz = p.z - s.z
-    const distToPlayer = Math.hypot(dx, dz)
+    const dist = Math.hypot(dx, dz) || 0.0001
+    const nx = dx / dist, nz = dz / dist
+    if (s.cool > 0) s.cool -= dt
 
-    // Chase when the player is near, else drift around the spawn point.
-    if (distToPlayer < 16) {
-      const inv = 1 / (distToPlayer || 1)
-      const spd = 3.4 * dt
-      s.x += dx * inv * spd; s.z += dz * inv * spd
+    // ── combat state machine ──
+    if (s.mode === 'windup') {
+      s.timer -= dt
+      s.x += nx * 0.5 * dt; s.z += nz * 0.5 * dt // creep in a touch
+      if (s.timer <= 0) { s.mode = 'strike'; s.timer = ENEMY_STRIKE; s.struck = false; s.lx = nx; s.lz = nz }
+    } else if (s.mode === 'strike') {
+      s.x += s.lx * 9.5 * dt; s.z += s.lz * 9.5 * dt // lunge along the locked direction
+      if (!s.struck) {
+        s.struck = true
+        // damage lands ONLY here, and only if still in range and not mid-dodge
+        if (dist < ENEMY_HITRANGE && !bus.invuln && !bus.dead) api.damage(16)
+      }
+      s.timer -= dt
+      if (s.timer <= 0) { s.mode = 'recover'; s.timer = ENEMY_RECOVER; s.cool = ENEMY_RECOVER + 0.5 }
+    } else if (s.mode === 'recover') {
+      s.timer -= dt
+      if (s.timer <= 0) s.mode = 'chase'
+    } else if (dist < ENEMY_AGGRO) {
+      if (dist > ENEMY_REACH) { s.x += nx * 3.4 * dt; s.z += nz * 3.4 * dt; s.mode = 'chase' }
+      else if (s.cool <= 0) { s.mode = 'windup'; s.timer = ENEMY_WINDUP } // in range → telegraph
+      else s.mode = 'chase'
     } else {
+      s.mode = 'roam'
       s.x += Math.sin(performance.now() * 0.0004 + data.id) * 0.6 * dt
       s.z += Math.cos(performance.now() * 0.0005 + data.id) * 0.6 * dt
     }
 
-    // Bite the player on contact (throttled).
-    if (distToPlayer < 1.6) {
-      const now = performance.now()
-      if (now - s.lastBite > 900) { s.lastBite = now; api.damage(9) }
-    }
-
-    // Resolve a swing: consume the current attack once, if we're in range & front.
+    // player attacking this enemy
     if (bus.attackSeq !== s.seen && performance.now() - bus.attackAt < 200) {
       s.seen = bus.attackSeq
-      if (distToPlayer < ATTACK_RANGE) {
+      if (dist < ATTACK_RANGE) {
         s.hp -= 34; s.hurtT = 1
-        if (s.hp <= 0) {
-          s.alive = false; g.visible = false
-          api.addScore(50); api.onKill()
-          return
-        }
+        if (s.hp <= 0) { s.alive = false; g.visible = false; api.addScore(50); api.onKill(); return }
       }
     }
 
-    // Apply transforms
+    // ── visuals ──
     const bobY = 1.1 + Math.sin(performance.now() * 0.003 + data.id) * 0.22
     g.position.set(s.x, bobY, s.z)
-    g.rotation.y += dt * 1.5
-    // face the player-ward billboard bar
+    g.rotation.y += dt * (s.mode === 'windup' ? 5 : 1.5) // spin up while charging
     if (bar.current) {
       bar.current.scale.x = Math.max(0.001, s.hp / data.hp)
-      bar.current.parent.lookAt(bus.playerPos.x, bobY, bus.playerPos.z)
+      bar.current.parent.lookAt(p.x, bobY, p.z)
     }
-    // hurt flash
-    if (s.hurtT > 0) { s.hurtT -= dt * 3; g.children[0].material.emissiveIntensity = 1.3 + s.hurtT * 2.5 }
+    // core glow: ramp up on wind-up (the tell), flare on strike, flash on hurt
+    if (core.current) {
+      let ei = 1.3
+      if (s.mode === 'windup') ei = 1.3 + (1 - s.timer / ENEMY_WINDUP) * 2.4
+      else if (s.mode === 'strike') ei = 3.8
+      if (s.hurtT > 0) { s.hurtT -= dt * 3; ei += s.hurtT * 2.5 }
+      core.current.material.emissiveIntensity = ei
+    }
+    // red danger ring on the ground during wind-up / strike
+    if (tele.current) {
+      tele.current.position.y = 0.05 - bobY // pin to the ground despite the bob
+      if (s.mode === 'windup') {
+        tele.current.visible = true
+        const w = 1 - s.timer / ENEMY_WINDUP
+        tele.current.scale.setScalar(0.7 + w * 0.7)
+        if (teleMat.current) teleMat.current.opacity = 0.18 + w * 0.5
+      } else if (s.mode === 'strike') {
+        tele.current.visible = true
+        tele.current.scale.setScalar(1.4)
+        if (teleMat.current) teleMat.current.opacity = 0.6
+      } else {
+        tele.current.visible = false
+      }
+    }
   })
 
   return (
     <group ref={group} position={[data.x, 1.1, data.z]}>
-      <mesh castShadow>
+      <mesh ref={core} castShadow>
         <icosahedronGeometry args={[0.55, 0]} />
-        {/* strong emissive replaces the old per-enemy point light — so killing an
-            enemy (hiding it) no longer changes the scene's light count and forces
-            a shader recompile (that was the kill-time hitch). */}
+        {/* strong emissive (no per-enemy light) so killing/hiding it never changes
+            the scene light count → no shader recompile hitch on kill. */}
         <meshStandardMaterial color="#2a1140" emissive="#7b2fd6" emissiveIntensity={1.3} roughness={0.4} toneMapped={false} />
       </mesh>
       {/* spiky aura */}
       <mesh>
         <icosahedronGeometry args={[0.75, 0]} />
         <meshStandardMaterial color="#b060ff" wireframe transparent opacity={0.4} toneMapped={false} />
+      </mesh>
+      {/* telegraph danger ring (shown only while winding up / striking) */}
+      <mesh ref={tele} visible={false} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.15, 1.25, 36]} />
+        <meshBasicMaterial ref={teleMat} color="#ff3b3b" transparent opacity={0} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} />
       </mesh>
       {/* health bar (billboarded group) */}
       <group position={[0, 1.05, 0]}>
@@ -834,7 +919,7 @@ function Hud({ hp, score, kills, toast, onExit }) {
       {/* controls hint */}
       <div style={{ position: 'absolute', bottom: 18, left: 22, fontSize: 12, lineHeight: 1.7, color: 'rgba(200,215,255,0.55)' }}>
         <div><b>WASD</b> 이동 · <b>마우스 드래그</b> 시점 · <b>휠</b> 줌</div>
-        <div><b>좌클릭 / Space</b> 공격 · <b>Shift</b> 질주 · <b>ESC</b> 종료</div>
+        <div><b>좌클릭</b> 공격 · <b>Space</b> 회피 구르기 · <b>Shift</b> 질주 · <b>ESC</b> 종료</div>
       </div>
 
       {/* toast */}
