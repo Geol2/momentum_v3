@@ -9,6 +9,7 @@ import StickyNotes from './components/StickyNotes.jsx'
 import DiaryModal from './components/DiaryModal.jsx'
 import Settings from './components/Settings.jsx'
 import Login from './components/Login.jsx'
+import HiddenGame from './game/HiddenGame.jsx'
 import { useAuth } from './lib/useAuth.js'
 import { todosApi, notesApi, diariesApi, settingsApi } from './lib/api.js'
 import { DAYS_KR, QUOTES, greetingFor, weatherIcon, dateKey } from './lib/data.js'
@@ -261,6 +262,9 @@ export default function App() {
         onDelete={deleteDiary}
         onClose={() => setDiaryOpen(false)}
       />
+
+      {/* 우측 하단 구석을 3초 안에 5번 클릭하면 숨겨진 3D RPG가 열린다 🌙 */}
+      <HiddenGame />
     </>
   )
 }
