@@ -281,31 +281,56 @@ function Player({ bus }) {
     if (r > WORLD_RADIUS) { bus.playerPos.x *= WORLD_RADIUS / r; bus.playerPos.z *= WORLD_RADIUS / r }
 
     g.position.copy(bus.playerPos)
-    // smooth turn toward facing
+    // smooth turn toward facing; remember the turn amount so we can bank into it
     let d = facing.current - g.rotation.y
     while (d > Math.PI) d -= Math.PI * 2
     while (d < -Math.PI) d += Math.PI * 2
     g.rotation.y += d * Math.min(1, dt * 12)
-    // roll tumble takes over the body; otherwise run the walk cycle
+
+    // ── body animation (idle breathing · walk/run weight · lean · roll) ──
+    const b = bob.current
+    const isSprint = !!(k['ShiftLeft'] || k['ShiftRight'])
+    const tNow = performance.now()
     if (rolling) {
-      if (bob.current) {
-        bob.current.rotation.x = (1 - Math.max(0, roll.current.t) / ROLL_TIME) * Math.PI * 2
-        bob.current.position.y = Math.sin((1 - roll.current.t / ROLL_TIME) * Math.PI) * 0.18
+      // forward tumble owns the body
+      if (b) {
+        const rp = 1 - Math.max(0, roll.current.t) / ROLL_TIME
+        b.rotation.x = rp * Math.PI * 2
+        b.rotation.z = 0
+        b.position.y = Math.sin(rp * Math.PI) * 0.18
       }
+      if (leftLeg.current) leftLeg.current.rotation.x *= 0.7
+      if (rightLeg.current) rightLeg.current.rotation.x *= 0.7
+      if (leftArm.current) leftArm.current.rotation.x *= 0.7
     } else {
-      if (bob.current) bob.current.rotation.x *= 0.6 // settle out of a tumble
+      // legs & arms
       if (moving) {
-        walkPhase.current += dt * 9
-        const a = Math.sin(walkPhase.current) * 0.5
+        walkPhase.current += dt * (isSprint ? 13 : 9)
+        const amp = isSprint ? 0.72 : 0.5
+        const a = Math.sin(walkPhase.current) * amp
         if (leftLeg.current) leftLeg.current.rotation.x = a
         if (rightLeg.current) rightLeg.current.rotation.x = -a
-        if (leftArm.current) leftArm.current.rotation.x = -a * 0.8
-        if (bob.current) bob.current.position.y = Math.abs(Math.sin(walkPhase.current)) * 0.08
+        if (leftArm.current) leftArm.current.rotation.x = -a * 0.95
       } else {
         if (leftLeg.current) leftLeg.current.rotation.x *= 0.85
         if (rightLeg.current) rightLeg.current.rotation.x *= 0.85
         if (leftArm.current) leftArm.current.rotation.x *= 0.85
-        if (bob.current) bob.current.position.y *= 0.85
+      }
+      // torso: lean into the run, bounce with steps, breathe when idle, bank on turns
+      if (b) {
+        const leanTarget = moving ? (isSprint ? 0.3 : 0.17) : 0
+        b.rotation.x += (leanTarget - b.rotation.x) * Math.min(1, dt * 8)
+
+        const yTarget = moving
+          ? Math.abs(Math.sin(walkPhase.current)) * (isSprint ? 0.13 : 0.08)
+          : 0.02 + Math.sin(tNow * 0.0018) * 0.02 // gentle breathing
+        b.position.y += (yTarget - b.position.y) * Math.min(1, dt * 12)
+
+        const stepRoll = moving
+          ? Math.sin(walkPhase.current) * (isSprint ? 0.09 : 0.06)
+          : Math.sin(tNow * 0.0011) * 0.02 // idle sway
+        const bank = THREE.MathUtils.clamp(d * 0.9, -0.22, 0.22) // lean into turns
+        b.rotation.z += (stepRoll + bank - b.rotation.z) * Math.min(1, dt * 10)
       }
     }
 
@@ -319,10 +344,16 @@ function Player({ bus }) {
         const s = 1 - Math.pow(1 - t, 2) // ease-out
         sp.rotation.y = 1.15 - s * 2.05 // +1.15 (front-right) → −0.9 (front-left)
         sp.rotation.x = 0.5 - Math.sin(t * Math.PI) * 0.5 // dip through the middle
+        // throw the torso into the swing: wound-up twist → follow-through + forward lunge
+        if (b) {
+          b.rotation.y = 0.35 - s * 0.7
+          b.rotation.x = Math.max(b.rotation.x, Math.sin(t * Math.PI) * 0.28)
+        }
       } else {
         // ease back to the resting guard pose
         sp.rotation.y += (0.45 - sp.rotation.y) * Math.min(1, dt * 10)
         sp.rotation.x += (0.5 - sp.rotation.x) * Math.min(1, dt * 10)
+        if (b) b.rotation.y += (0 - b.rotation.y) * Math.min(1, dt * 8) // untwist
       }
     }
 
