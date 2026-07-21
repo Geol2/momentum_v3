@@ -337,16 +337,29 @@ function Player({ bus }) {
     const tNow = performance.now()
     if (rolling) {
       // forward tumble owns the body
+      roll.current.was = true
+      const rp = 1 - Math.max(0, roll.current.t) / ROLL_TIME // 0 → 1 progress
       if (b) {
-        const rp = 1 - Math.max(0, roll.current.t) / ROLL_TIME
-        b.rotation.x = rp * Math.PI * 2
+        // eased 0→2π spin: zero angular velocity at both ends (starts & lands gently),
+        // and lands exactly on 2π so the pose is upright again — no snap, no mechanical spin.
+        b.rotation.x = rp * Math.PI * 2 - Math.sin(rp * Math.PI * 2)
         b.rotation.z = 0
-        b.position.y = Math.sin(rp * Math.PI) * 0.18
+        b.position.y = -Math.sin(rp * Math.PI) * 0.1 // duck low through the roll, not a hop
       }
-      if (leftLeg.current) leftLeg.current.rotation.x *= 0.7
-      if (rightLeg.current) rightLeg.current.rotation.x *= 0.7
-      if (leftArm.current) leftArm.current.rotation.x *= 0.7
+      // curl into a tight tuck at mid-roll, then unfurl — smooth in and out
+      const tuck = Math.sin(rp * Math.PI)
+      if (leftLeg.current) leftLeg.current.rotation.x = 1.0 * tuck
+      if (rightLeg.current) rightLeg.current.rotation.x = 1.0 * tuck
+      if (leftArm.current) leftArm.current.rotation.x = -1.15 * tuck
     } else {
+      // clean up the instant the roll finishes so the tumble doesn't unwind backwards
+      if (roll.current.was) {
+        roll.current.was = false
+        if (b) { b.rotation.x = 0; b.rotation.z = 0; b.position.y = 0 }
+        if (leftLeg.current) leftLeg.current.rotation.x = 0
+        if (rightLeg.current) rightLeg.current.rotation.x = 0
+        if (leftArm.current) leftArm.current.rotation.x = 0
+      }
       // legs & arms — stride direction follows walk / back-pedal / strafe
       let stepSwing = 0
       if (moving) {
