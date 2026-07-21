@@ -41,6 +41,42 @@ export const BACKGROUNDS = [
     k: 'sunrise', name: '일출',
     css: scenery('https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=1920&q=80'),
   },
+  {
+    k: 'starnight', name: '밤하늘',
+    css: scenery('https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=1920&q=80'),
+  },
+  {
+    k: 'galaxy', name: '은하수',
+    css: scenery('https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?auto=format&fit=crop&w=1920&q=80'),
+  },
+  {
+    k: 'city', name: '도시',
+    css: scenery('https://images.unsplash.com/photo-1449824913935-59a10b8d2000?auto=format&fit=crop&w=1920&q=80'),
+  },
+  {
+    k: 'blossom', name: '벚꽃',
+    css: scenery('https://images.unsplash.com/photo-1522383225653-ed111181a951?auto=format&fit=crop&w=1920&q=80'),
+  },
+  {
+    k: 'desert', name: '사막',
+    css: scenery('https://images.unsplash.com/photo-1509316785289-025f5b846b35?auto=format&fit=crop&w=1920&q=80'),
+  },
+  {
+    k: 'waterfall', name: '폭포',
+    css: scenery('https://images.unsplash.com/photo-1432405972618-c60b0225b8f9?auto=format&fit=crop&w=1920&q=80'),
+  },
+  {
+    k: 'valley', name: '계곡',
+    css: scenery('https://images.unsplash.com/photo-1426604966848-d7adac402bff?auto=format&fit=crop&w=1920&q=80'),
+  },
+  {
+    k: 'hills', name: '언덕',
+    css: scenery('https://images.unsplash.com/photo-1472214103451-9374bd1c798e?auto=format&fit=crop&w=1920&q=80'),
+  },
+  {
+    k: 'forestpath', name: '숲길',
+    css: scenery('https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?auto=format&fit=crop&w=1920&q=80'),
+  },
 ]
 
 export const QUOTES = [

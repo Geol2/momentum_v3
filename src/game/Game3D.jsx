@@ -16,6 +16,8 @@ const PLAYER_SPEED = 7
 const SPRINT_MULT = 1.7
 const ATTACK_RANGE = 3.2
 const ATTACK_COOLDOWN = 420 // ms
+const COMBO_WINDOW = 850    // ms since the last hit that a click chains into the next combo step
+const COMBO_GAP = 150       // ms minimum between swings (clicks faster than this are ignored)
 // dodge roll
 const ROLL_TIME = 0.42   // seconds
 const ROLL_SPEED = 17    // burst speed
@@ -50,8 +52,14 @@ export default function Game3D({ onExit }) {
     playerPos: new THREE.Vector3(0, 0, 0),
     camera: { yaw: 0, pitch: 0.62, dist: 12 },
     keys: {},
+    strafe: false,    // right-mouse held → body locks to camera-forward and strafes
     attackAt: 0,       // timestamp of last swing, consumed by enemies
     attackSeq: 0,      // increments each swing
+    comboStep: 0,      // 0→1→2 chain position of the current swing
+    attackDamage: 30,  // damage of the current swing (finisher hits harder)
+    attackRange: ATTACK_RANGE, // reach of the current swing (finisher cleaves wider)
+    attackKnock: 0.7,  // knockback of the current swing
+    shake: 0,          // camera-shake impulse, decays each frame
     dodgeSeq: 0,       // increments each dodge roll
     invuln: false,     // true during roll i-frames — enemy strikes pass through
     hp: 100, score: 0, kills: 0, dead: false,
@@ -90,8 +98,11 @@ export default function Game3D({ onExit }) {
   // Camera drag + zoom on the canvas wrapper.
   const dragging = useRef(false)
   const last = useRef({ x: 0, y: 0 })
-  const onPointerDown = (e) => { dragging.current = true; last.current = { x: e.clientX, y: e.clientY } }
-  const onPointerUp = () => { dragging.current = false }
+  const onPointerDown = (e) => {
+    dragging.current = true; last.current = { x: e.clientX, y: e.clientY }
+    if (e.button === 2) bus.strafe = true // right-drag turns/strafes WoW-style
+  }
+  const onPointerUp = () => { dragging.current = false; bus.strafe = false }
   const onPointerMove = (e) => {
     if (!dragging.current) return
     const dx = e.clientX - last.current.x
@@ -105,7 +116,19 @@ export default function Game3D({ onExit }) {
   }
   const onClickAttack = () => {
     if (bus.dead) return
-    bus.attackAt = performance.now(); bus.attackSeq++
+    const now = performance.now()
+    if (now - bus.attackAt < COMBO_GAP) return // ignore machine-gun clicks so hits stay distinct
+    // chain to the next step if the click lands inside the combo window (and we're not
+    // already at the finisher); otherwise start a fresh combo at step 0.
+    const step = (now - bus.attackAt < COMBO_WINDOW && bus.comboStep < 2) ? bus.comboStep + 1 : 0
+    const finisher = step === 2
+    bus.comboStep = step
+    bus.attackAt = now
+    bus.attackSeq++
+    bus.attackDamage = finisher ? 60 : 30
+    bus.attackRange = finisher ? 4.4 : ATTACK_RANGE
+    bus.attackKnock = finisher ? 2.4 : 0.7
+    bus.shake = finisher ? 0.5 : 0.16
   }
 
   const respawn = () => { bus.hp = 100; bus.dead = false; bus.playerPos.set(0, 0, 0) }
@@ -118,6 +141,7 @@ export default function Game3D({ onExit }) {
       onPointerLeave={onPointerUp}
       onPointerMove={onPointerMove}
       onWheel={onWheel}
+      onContextMenu={(e) => e.preventDefault()}
     >
       <Canvas
         shadows
@@ -171,20 +195,23 @@ function World({ bus, api }) {
 
   return (
     <>
-      <color attach="background" args={['#060811']} />
-      <fog attach="fog" args={['#0a0e1c', 28, 115]} />
+      {/* bright, mystical twilight — luminous lavender air instead of near-black night */}
+      <color attach="background" args={['#242c62']} />
+      {/* fog pushed far out so the whole clearing reads clearly, with a bright misty tint */}
+      <fog attach="fog" args={['#3c4890', 48, 170]} />
 
-      {/* Moonlit lighting */}
-      <ambientLight intensity={0.4} color="#5a6bb0" />
-      <hemisphereLight args={['#33477e', '#05060c', 0.65]} />
+      {/* Airy, magical lighting: strong soft ambient so the map is clearly visible */}
+      <ambientLight intensity={0.85} color="#aab6ee" />
+      <hemisphereLight args={['#93a3e4', '#3a4068', 1.0]} />
       <directionalLight
-        position={[30, 55, 20]} intensity={1.2} color="#cdd6ff"
+        position={[30, 55, 20]} intensity={1.7} color="#eef2ff"
         castShadow shadow-mapSize={[2048, 2048]}
         shadow-camera-left={-80} shadow-camera-right={80}
         shadow-camera-top={80} shadow-camera-bottom={-80}
       />
-      {/* cool rim light from the moon side */}
-      <directionalLight position={[-45, 25, -60]} intensity={0.5} color="#7f9bff" />
+      {/* cool moon rim + a soft mystic teal accent from the far side */}
+      <directionalLight position={[-45, 25, -60]} intensity={0.7} color="#9fb6ff" />
+      <directionalLight position={[0, 18, 55]} intensity={0.5} color="#8fe6d8" />
 
       <Stars radius={180} depth={60} count={4500} factor={5} saturation={0} fade speed={0.6} />
       <Moon />
@@ -194,9 +221,10 @@ function World({ bus, api }) {
       {stars.map((s) => <Collectible key={s.id} data={s} bus={bus} api={api} />)}
       {enemies.map((e) => <Enemy key={e.id} data={e} bus={bus} api={api} />)}
 
-      {/* fireflies drifting across the whole clearing */}
-      <Sparkles count={130} scale={[WORLD_RADIUS * 2, 7, WORLD_RADIUS * 2]} position={[0, 3.5, 0]} size={2.6} speed={0.3} opacity={0.7} color="#bcd0ff" />
-      <Sparkles count={40} scale={[WORLD_RADIUS * 1.4, 2, WORLD_RADIUS * 1.4]} position={[0, 0.8, 0]} size={3.5} speed={0.15} opacity={0.55} color="#ffe6a8" />
+      {/* fireflies & mystic motes drifting across the whole clearing */}
+      <Sparkles count={170} scale={[WORLD_RADIUS * 2, 8, WORLD_RADIUS * 2]} position={[0, 3.8, 0]} size={2.8} speed={0.3} opacity={0.85} color="#cfe0ff" />
+      <Sparkles count={55} scale={[WORLD_RADIUS * 1.4, 2, WORLD_RADIUS * 1.4]} position={[0, 0.8, 0]} size={3.6} speed={0.15} opacity={0.7} color="#ffe6a8" />
+      <Sparkles count={45} scale={[WORLD_RADIUS * 1.7, 5, WORLD_RADIUS * 1.7]} position={[0, 2.4, 0]} size={3.2} speed={0.22} opacity={0.6} color="#9ff0dd" />
 
       <Player bus={bus} />
     </>
@@ -211,10 +239,14 @@ function Player({ bus }) {
   const leftLeg = useRef()
   const rightLeg = useRef()
   const leftArm = useRef()
+  const head = useRef()
+  const bladeMat = useRef()
   const walkPhase = useRef(0)
-  const swing = useRef({ seq: 0, t: 1 })
-  const roll = useRef({ seq: 0, t: 0, cool: 0 })
+  const swing = useRef({ seq: 0, t: 1, step: 0 })
+  const roll = useRef({ seq: 0, t: 0, cool: 0, was: false })
   const facing = useRef(Math.PI)
+  // idle-gesture scheduler: after a few still seconds, play a random little motion
+  const idle = useRef({ t: 0, next: 3, kind: null, gt: 0, dur: 0 })
   const { camera } = useThree()
 
   // A flat arrow that lies on the ground pointing out the character's front — the
@@ -260,7 +292,9 @@ function Player({ bus }) {
     if (roll.current.cool > 0) roll.current.cool -= dt
 
     const rolling = roll.current.t > 0
+    const strafing = bus.strafe && !bus.dead
     let moving = false
+    let locF = 1, locS = 0 // move direction relative to facing: forward(+)/back(−), right(+)/left(−)
     if (rolling) {
       roll.current.t -= dt
       const k2 = Math.max(0, roll.current.t) / ROLL_TIME
@@ -272,8 +306,18 @@ function Player({ bus }) {
       if (wantMove) {
         const speed = PLAYER_SPEED * ((k['ShiftLeft'] || k['ShiftRight']) ? SPRINT_MULT : 1)
         bus.playerPos.addScaledVector(move, speed * dt)
-        facing.current = Math.atan2(move.x, move.z)
         moving = true
+      }
+      // Facing: in strafe mode the body locks to camera-forward so A/D side-step and
+      // S back-pedal instead of spinning; otherwise the body turns to face the move.
+      if (strafing) facing.current = Math.atan2(fwd.x, fwd.z)
+      else if (wantMove) facing.current = Math.atan2(move.x, move.z)
+      // Split the move into forward/sideways relative to where we now face, so the
+      // walk cycle can play back-pedal and side-step variants — not just a forward walk.
+      if (moving) {
+        const sf = Math.sin(facing.current), cf = Math.cos(facing.current)
+        locF = move.x * sf + move.z * cf
+        locS = move.x * cf - move.z * sf
       }
     }
     // keep inside the world
@@ -303,11 +347,15 @@ function Player({ bus }) {
       if (rightLeg.current) rightLeg.current.rotation.x *= 0.7
       if (leftArm.current) leftArm.current.rotation.x *= 0.7
     } else {
-      // legs & arms
+      // legs & arms — stride direction follows walk / back-pedal / strafe
+      let stepSwing = 0
       if (moving) {
-        walkPhase.current += dt * (isSprint ? 13 : 9)
-        const amp = isSprint ? 0.72 : 0.5
-        const a = Math.sin(walkPhase.current) * amp
+        const gait = Math.min(1, Math.hypot(locF, locS) || 1)
+        walkPhase.current += dt * (isSprint ? 13 : 9) * (0.6 + gait * 0.4)
+        const amp = (isSprint ? 0.72 : 0.5) * gait
+        const dir = locF < -0.15 ? -1 : 1 // back-pedalling flips the stride
+        const a = Math.sin(walkPhase.current) * amp * dir
+        stepSwing = a
         if (leftLeg.current) leftLeg.current.rotation.x = a
         if (rightLeg.current) rightLeg.current.rotation.x = -a
         if (leftArm.current) leftArm.current.rotation.x = -a * 0.95
@@ -316,9 +364,10 @@ function Player({ bus }) {
         if (rightLeg.current) rightLeg.current.rotation.x *= 0.85
         if (leftArm.current) leftArm.current.rotation.x *= 0.85
       }
-      // torso: lean into the run, bounce with steps, breathe when idle, bank on turns
+      // torso: lean toward travel (forward/back), bounce with steps, breathe when idle,
+      // bank on turns AND into side-steps
       if (b) {
-        const leanTarget = moving ? (isSprint ? 0.3 : 0.17) : 0
+        const leanTarget = moving ? locF * (isSprint ? 0.3 : 0.17) : 0
         b.rotation.x += (leanTarget - b.rotation.x) * Math.min(1, dt * 8)
 
         const yTarget = moving
@@ -326,35 +375,95 @@ function Player({ bus }) {
           : 0.02 + Math.sin(tNow * 0.0018) * 0.02 // gentle breathing
         b.position.y += (yTarget - b.position.y) * Math.min(1, dt * 12)
 
-        const stepRoll = moving
-          ? Math.sin(walkPhase.current) * (isSprint ? 0.09 : 0.06)
-          : Math.sin(tNow * 0.0011) * 0.02 // idle sway
-        const bank = THREE.MathUtils.clamp(d * 0.9, -0.22, 0.22) // lean into turns
-        b.rotation.z += (stepRoll + bank - b.rotation.z) * Math.min(1, dt * 10)
+        const stepRoll = moving ? stepSwing * (isSprint ? 0.16 : 0.11) : Math.sin(tNow * 0.0011) * 0.02
+        const strafeBank = moving ? -locS * 0.2 : 0 // lean into a side-step
+        const turnBank = THREE.MathUtils.clamp(d * 0.9, -0.22, 0.22) // lean into turns
+        b.rotation.z += (stepRoll + strafeBank + turnBank - b.rotation.z) * Math.min(1, dt * 10)
       }
     }
 
-    // sword swing — the whole right arm + blade sweep across the FRONT (+Z), never behind
+    // sword swing — 3-hit combo, each step a distinct sweep across the FRONT (+Z)
     const sp = swordPivot.current
     if (sp) {
-      if (bus.attackSeq !== swing.current.seq) { swing.current.seq = bus.attackSeq; swing.current.t = 0 }
+      if (bus.attackSeq !== swing.current.seq) {
+        swing.current.seq = bus.attackSeq
+        swing.current.t = 0
+        swing.current.step = bus.comboStep // lock in which combo step this swing plays
+      }
       if (swing.current.t < 1) {
-        swing.current.t = Math.min(1, swing.current.t + dt * 3.2)
+        const st = swing.current.step
+        swing.current.t = Math.min(1, swing.current.t + dt * (st === 2 ? 2.9 : 3.7))
         const t = swing.current.t
         const s = 1 - Math.pow(1 - t, 2) // ease-out
-        sp.rotation.y = 1.15 - s * 2.05 // +1.15 (front-right) → −0.9 (front-left)
-        sp.rotation.x = 0.5 - Math.sin(t * Math.PI) * 0.5 // dip through the middle
-        // throw the torso into the swing: wound-up twist → follow-through + forward lunge
-        if (b) {
-          b.rotation.y = 0.35 - s * 0.7
-          b.rotation.x = Math.max(b.rotation.x, Math.sin(t * Math.PI) * 0.28)
+        const arc = Math.sin(t * Math.PI)
+        if (st === 0) {
+          // ① right → left horizontal slash
+          sp.rotation.y = 1.25 - s * 2.25
+          sp.rotation.x = 0.5 - arc * 0.55
+          if (b) { b.rotation.y = 0.42 - s * 0.85; b.rotation.x = Math.max(b.rotation.x, arc * 0.3) }
+        } else if (st === 1) {
+          // ② left → right backhand slash (mirror of ①)
+          sp.rotation.y = -1.0 + s * 2.25
+          sp.rotation.x = 0.5 - arc * 0.55
+          if (b) { b.rotation.y = -0.42 + s * 0.85; b.rotation.x = Math.max(b.rotation.x, arc * 0.3) }
+        } else {
+          // ③ overhead smash finisher — raise high, chop straight down with a big lunge
+          sp.rotation.x = -1.2 + s * 2.0
+          sp.rotation.y = 0.15 * (1 - s)
+          if (b) { b.rotation.y = 0; b.rotation.x = Math.max(b.rotation.x, arc * 0.5) }
         }
+        // dynamic forward lunge into the strike (biggest on the finisher)
+        const lunge = (st === 2 ? 7 : 3.4) * arc
+        bus.playerPos.x += Math.sin(facing.current) * lunge * dt
+        bus.playerPos.z += Math.cos(facing.current) * lunge * dt
+        const rr = Math.hypot(bus.playerPos.x, bus.playerPos.z)
+        if (rr > WORLD_RADIUS) { bus.playerPos.x *= WORLD_RADIUS / rr; bus.playerPos.z *= WORLD_RADIUS / rr }
+        g.position.copy(bus.playerPos)
+        // blade flares bright as it sweeps, brightest at the start of the swing
+        if (bladeMat.current) bladeMat.current.emissiveIntensity = 0.6 + (1 - t) * (st === 2 ? 3.6 : 2.4)
       } else {
-        // ease back to the resting guard pose
+        // ease back to the resting guard pose — but let the sword arm swing with the
+        // stride (counter to the left arm) so the walk doesn't look one-armed
+        const swordArm = moving ? Math.sin(walkPhase.current + Math.PI) * (isSprint ? 0.22 : 0.15) : 0
         sp.rotation.y += (0.45 - sp.rotation.y) * Math.min(1, dt * 10)
-        sp.rotation.x += (0.5 - sp.rotation.x) * Math.min(1, dt * 10)
+        sp.rotation.x += ((0.5 + swordArm) - sp.rotation.x) * Math.min(1, dt * 10)
         if (b) b.rotation.y += (0 - b.rotation.y) * Math.min(1, dt * 8) // untwist
+        if (bladeMat.current) bladeMat.current.emissiveIntensity += (0.6 - bladeMat.current.emissiveIntensity) * Math.min(1, dt * 8)
       }
+    }
+
+    // ── idle gestures — after a few still seconds the knight glances around, nods,
+    // or takes a lazy practice swing, so standing still never looks frozen ──
+    const hd = head.current
+    const idl = idle.current
+    const trulyIdle = !moving && !rolling && !strafing && !bus.dead && swing.current.t >= 1
+    if (trulyIdle) {
+      idl.t += dt
+      if (!idl.kind && idl.t > idl.next) {
+        idl.kind = ['lookL', 'lookR', 'scan', 'nod', 'swing'][Math.floor(Math.random() * 5)]
+        idl.gt = 0
+        idl.dur = idl.kind === 'swing' ? 0.6 : idl.kind === 'scan' ? 2.2 : 1.4
+        if (idl.kind === 'swing') swing.current.t = 0 // cosmetic swing — no hit, no arc
+      }
+      if (idl.kind) {
+        idl.gt += dt
+        const p = Math.min(1, idl.gt / idl.dur)
+        if (hd && idl.kind !== 'swing') {
+          const s = Math.sin(p * Math.PI)
+          if (idl.kind === 'lookL') hd.rotation.y = s * 0.6
+          else if (idl.kind === 'lookR') hd.rotation.y = -s * 0.6
+          else if (idl.kind === 'nod') hd.rotation.x = s * 0.32
+          else if (idl.kind === 'scan') hd.rotation.y = Math.sin(p * Math.PI * 2) * 0.55
+        }
+        if (idl.gt >= idl.dur) { idl.kind = null; idl.t = 0; idl.next = 2.5 + Math.random() * 3.5 }
+      }
+    } else {
+      idl.t = 0; idl.kind = null
+    }
+    // ease the head back to neutral whenever nothing is driving it
+    if (hd && !idl.kind) {
+      hd.rotation.y += (0 - hd.rotation.y) * Math.min(1, dt * 6)
+      hd.rotation.x += (0 - hd.rotation.x) * Math.min(1, dt * 6)
     }
 
     // WoW camera: orbit behind the player.
@@ -363,135 +472,196 @@ function Player({ bus }) {
     _off.set(Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch), Math.cos(pitch) * Math.cos(yaw)).multiplyScalar(dist)
     _desired.set(target.x + _off.x, target.y + _off.y, target.z + _off.z)
     camera.position.lerp(_desired, Math.min(1, dt * 10))
+    // impact punch — a quick decaying shake on hit (biggest on the finisher)
+    if (bus.shake > 0) {
+      bus.shake = Math.max(0, bus.shake - dt * 1.8)
+      camera.position.x += (Math.random() - 0.5) * bus.shake
+      camera.position.y += (Math.random() - 0.5) * bus.shake
+      camera.position.z += (Math.random() - 0.5) * bus.shake
+    }
     camera.lookAt(target)
   })
 
   return (
     <group ref={group}>
       <group ref={bob}>
-        {/* ===== LEGS (swing while walking) ===== */}
-        <group ref={leftLeg} position={[-0.13, 0.56, 0]}>
-          <mesh castShadow position={[0, -0.26, 0]}>
-            <capsuleGeometry args={[0.09, 0.34, 4, 8]} />
-            <meshStandardMaterial color="#2a3566" roughness={0.7} />
+        {/* ===== CHIBI KNIGHT — 2-head-tall, round & pastel so it reads cute, not robotic.
+             Same refs/pivots as before so every animation still drives it. ===== */}
+
+        {/* ===== LEGS — stubby thigh + rounded boot (swing while walking) ===== */}
+        <group ref={leftLeg} position={[-0.12, 0.34, 0]}>
+          <mesh castShadow position={[0, -0.12, 0]}>
+            <capsuleGeometry args={[0.1, 0.1, 5, 12]} />
+            <meshStandardMaterial color="#6377c8" roughness={0.7} />
           </mesh>
-          <mesh castShadow position={[0, -0.5, 0.06]}>
-            <boxGeometry args={[0.16, 0.13, 0.3]} />
-            <meshStandardMaterial color="#141a34" roughness={0.85} />
+          <mesh castShadow position={[0, -0.26, 0.05]} scale={[1, 0.85, 1.3]}>
+            <sphereGeometry args={[0.13, 14, 12]} />
+            <meshStandardMaterial color="#3a4788" roughness={0.85} />
           </mesh>
         </group>
-        <group ref={rightLeg} position={[0.13, 0.56, 0]}>
-          <mesh castShadow position={[0, -0.26, 0]}>
-            <capsuleGeometry args={[0.09, 0.34, 4, 8]} />
-            <meshStandardMaterial color="#2a3566" roughness={0.7} />
+        <group ref={rightLeg} position={[0.12, 0.34, 0]}>
+          <mesh castShadow position={[0, -0.12, 0]}>
+            <capsuleGeometry args={[0.1, 0.1, 5, 12]} />
+            <meshStandardMaterial color="#6377c8" roughness={0.7} />
           </mesh>
-          <mesh castShadow position={[0, -0.5, 0.06]}>
-            <boxGeometry args={[0.16, 0.13, 0.3]} />
-            <meshStandardMaterial color="#141a34" roughness={0.85} />
-          </mesh>
-        </group>
-
-        {/* ===== HIPS · BELT · TORSO ===== */}
-        <mesh castShadow position={[0, 0.64, 0]}>
-          <boxGeometry args={[0.42, 0.22, 0.28]} />
-          <meshStandardMaterial color="#222a52" roughness={0.7} />
-        </mesh>
-        <mesh position={[0, 0.75, 0]}>
-          <cylinderGeometry args={[0.3, 0.3, 0.1, 18]} />
-          <meshStandardMaterial color="#6b5320" metalness={0.5} roughness={0.5} />
-        </mesh>
-        <mesh castShadow position={[0, 1.02, 0]}>
-          <capsuleGeometry args={[0.27, 0.4, 6, 14]} />
-          <meshStandardMaterial color="#3a4d8f" metalness={0.35} roughness={0.5} />
-        </mesh>
-        {/* chest gem */}
-        <mesh position={[0, 1.08, 0.24]}>
-          <octahedronGeometry args={[0.09, 0]} />
-          <meshStandardMaterial color="#7fe0ff" emissive="#4fd0ff" emissiveIntensity={2} toneMapped={false} />
-        </mesh>
-
-        {/* ===== CAPE on the BACK (−Z) ===== */}
-        <mesh castShadow position={[0, 1.0, -0.24]} rotation={[0.14, 0, 0]}>
-          <boxGeometry args={[0.52, 1.0, 0.04]} />
-          <meshStandardMaterial color="#20264d" side={THREE.DoubleSide} roughness={0.85} />
-        </mesh>
-
-        {/* ===== PAULDRONS ===== */}
-        <mesh castShadow position={[-0.34, 1.32, 0]}>
-          <sphereGeometry args={[0.16, 14, 14]} />
-          <meshStandardMaterial color="#2c3a72" metalness={0.4} roughness={0.5} />
-        </mesh>
-        <mesh castShadow position={[0.34, 1.32, 0]}>
-          <sphereGeometry args={[0.16, 14, 14]} />
-          <meshStandardMaterial color="#2c3a72" metalness={0.4} roughness={0.5} />
-        </mesh>
-
-        {/* ===== LEFT ARM (swings while walking) ===== */}
-        <group ref={leftArm} position={[-0.34, 1.28, 0]}>
-          <mesh castShadow position={[0, -0.24, 0]}>
-            <capsuleGeometry args={[0.075, 0.34, 4, 8]} />
-            <meshStandardMaterial color="#33427d" roughness={0.6} />
-          </mesh>
-          <mesh castShadow position={[0, -0.47, 0.02]}>
-            <sphereGeometry args={[0.09, 10, 10]} />
-            <meshStandardMaterial color="#e6d3b8" roughness={0.7} />
+          <mesh castShadow position={[0, -0.26, 0.05]} scale={[1, 0.85, 1.3]}>
+            <sphereGeometry args={[0.13, 14, 12]} />
+            <meshStandardMaterial color="#3a4788" roughness={0.85} />
           </mesh>
         </group>
 
-        {/* ===== NECK · HELMET · FACE ===== */}
-        <mesh position={[0, 1.44, 0]}>
-          <cylinderGeometry args={[0.1, 0.13, 0.12, 10]} />
-          <meshStandardMaterial color="#e6d3b8" roughness={0.7} />
+        {/* ===== BELT · ROUND BODY · BELLY ===== */}
+        <mesh position={[0, 0.46, 0]}>
+          <cylinderGeometry args={[0.26, 0.26, 0.09, 20]} />
+          <meshStandardMaterial color="#e0b866" metalness={0.5} roughness={0.5} />
         </mesh>
-        <mesh castShadow position={[0, 1.58, 0]}>
-          <sphereGeometry args={[0.2, 18, 18]} />
-          <meshStandardMaterial color="#3a4d8f" metalness={0.45} roughness={0.45} />
+        {/* egg-round torso */}
+        <mesh castShadow position={[0, 0.66, 0]} scale={[1, 1.05, 0.92]}>
+          <sphereGeometry args={[0.3, 20, 18]} />
+          <meshStandardMaterial color="#8ea6f0" roughness={0.55} />
         </mesh>
-        {/* dark visor slit on the front (+Z) */}
-        <mesh position={[0, 1.56, 0.13]}>
-          <boxGeometry args={[0.27, 0.07, 0.12]} />
-          <meshStandardMaterial color="#080b18" roughness={1} />
+        {/* lighter belly panel */}
+        <mesh position={[0, 0.62, 0.2]} scale={[0.78, 0.92, 0.4]}>
+          <sphereGeometry args={[0.24, 18, 16]} />
+          <meshStandardMaterial color="#bcc9f8" roughness={0.6} />
         </mesh>
-        {/* glowing eyes — instantly read the facing direction up close */}
-        <mesh position={[-0.07, 1.56, 0.2]}>
-          <sphereGeometry args={[0.03, 10, 10]} />
-          <meshStandardMaterial color="#bfeaff" emissive="#5fd0ff" emissiveIntensity={2.6} toneMapped={false} />
-        </mesh>
-        <mesh position={[0.07, 1.56, 0.2]}>
-          <sphereGeometry args={[0.03, 10, 10]} />
-          <meshStandardMaterial color="#bfeaff" emissive="#5fd0ff" emissiveIntensity={2.6} toneMapped={false} />
-        </mesh>
-        {/* helmet crest / plume */}
-        <mesh castShadow position={[0, 1.75, -0.02]} rotation={[0.25, 0, 0]}>
-          <boxGeometry args={[0.045, 0.26, 0.2]} />
-          <meshStandardMaterial color="#7fe0ff" emissive="#4fd0ff" emissiveIntensity={1.1} toneMapped={false} />
+        {/* chest heart-gem */}
+        <mesh position={[0, 0.74, 0.27]} rotation={[0, 0, Math.PI / 4]}>
+          <octahedronGeometry args={[0.075, 0]} />
+          <meshStandardMaterial color="#ffd0dc" emissive="#ff8fae" emissiveIntensity={1.6} toneMapped={false} />
         </mesh>
 
-        {/* ===== RIGHT ARM + SWORD (whole arm swings on the shoulder pivot) ===== */}
-        <group ref={swordPivot} position={[0.34, 1.3, 0.02]} rotation={[0.5, 0.45, 0]}>
-          {/* upper→fore arm reaching forward to the grip */}
-          <mesh castShadow position={[0, -0.1, 0.2]} rotation={[1.15, 0, 0]}>
-            <capsuleGeometry args={[0.075, 0.4, 4, 8]} />
-            <meshStandardMaterial color="#33427d" roughness={0.6} />
+        {/* ===== little rounded CAPE on the back (−Z) ===== */}
+        <mesh castShadow position={[0, 0.74, -0.22]} rotation={[0.16, 0, 0]}>
+          <boxGeometry args={[0.44, 0.66, 0.04]} />
+          <meshStandardMaterial color="#a98fe6" side={THREE.DoubleSide} roughness={0.8} />
+        </mesh>
+
+        {/* ===== round PAULDRONS ===== */}
+        <mesh castShadow position={[-0.3, 0.86, 0]}>
+          <sphereGeometry args={[0.15, 16, 16]} />
+          <meshStandardMaterial color="#7f93e6" roughness={0.5} />
+        </mesh>
+        <mesh castShadow position={[0.3, 0.86, 0]}>
+          <sphereGeometry args={[0.15, 16, 16]} />
+          <meshStandardMaterial color="#7f93e6" roughness={0.5} />
+        </mesh>
+
+        {/* ===== LEFT ARM — stubby + round mitten (swings while walking) ===== */}
+        <group ref={leftArm} position={[-0.3, 0.84, 0]}>
+          <mesh castShadow position={[0, -0.15, 0]}>
+            <capsuleGeometry args={[0.08, 0.14, 5, 10]} />
+            <meshStandardMaterial color="#8ea6f0" roughness={0.6} />
           </mesh>
-          {/* gauntlet hand */}
-          <mesh castShadow position={[0, -0.15, 0.42]}>
-            <sphereGeometry args={[0.1, 10, 10]} />
-            <meshStandardMaterial color="#cbd6ee" metalness={0.5} roughness={0.5} />
+          <mesh castShadow position={[0, -0.32, 0.02]}>
+            <sphereGeometry args={[0.11, 12, 12]} />
+            <meshStandardMaterial color="#6377c8" roughness={0.6} />
+          </mesh>
+        </group>
+
+        {/* ===== BIG CUTE HEAD (group pivots at the neck for glances/nods) ===== */}
+        <group ref={head} position={[0, 0.95, 0]}>
+          {/* collar / neck */}
+          <mesh position={[0, -0.02, 0]}>
+            <cylinderGeometry args={[0.1, 0.13, 0.08, 12]} />
+            <meshStandardMaterial color="#7f93e6" roughness={0.6} />
+          </mesh>
+          {/* big round head */}
+          <mesh castShadow position={[0, 0.34, 0]}>
+            <sphereGeometry args={[0.36, 24, 22]} />
+            <meshStandardMaterial color="#93a4ee" roughness={0.5} />
+          </mesh>
+          {/* side ear-guards */}
+          <mesh castShadow position={[-0.35, 0.32, 0]}>
+            <sphereGeometry args={[0.1, 12, 12]} />
+            <meshStandardMaterial color="#7f93e6" roughness={0.55} />
+          </mesh>
+          <mesh castShadow position={[0.35, 0.32, 0]}>
+            <sphereGeometry args={[0.1, 12, 12]} />
+            <meshStandardMaterial color="#7f93e6" roughness={0.55} />
+          </mesh>
+          {/* ---- FACE (+Z front) ---- */}
+          {/* big glossy eyes: white base + dark pupil + sparkle */}
+          <mesh position={[-0.13, 0.33, 0.29]}>
+            <sphereGeometry args={[0.1, 16, 16]} />
+            <meshStandardMaterial color="#f6f9ff" roughness={0.3} />
+          </mesh>
+          <mesh position={[0.13, 0.33, 0.29]}>
+            <sphereGeometry args={[0.1, 16, 16]} />
+            <meshStandardMaterial color="#f6f9ff" roughness={0.3} />
+          </mesh>
+          <mesh position={[-0.14, 0.32, 0.37]}>
+            <sphereGeometry args={[0.06, 14, 14]} />
+            <meshStandardMaterial color="#2b2f52" roughness={0.25} />
+          </mesh>
+          <mesh position={[0.14, 0.32, 0.37]}>
+            <sphereGeometry args={[0.06, 14, 14]} />
+            <meshStandardMaterial color="#2b2f52" roughness={0.25} />
+          </mesh>
+          {/* eye sparkles */}
+          <mesh position={[-0.11, 0.37, 0.42]}>
+            <sphereGeometry args={[0.022, 8, 8]} />
+            <meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={1.4} toneMapped={false} />
+          </mesh>
+          <mesh position={[0.16, 0.37, 0.42]}>
+            <sphereGeometry args={[0.022, 8, 8]} />
+            <meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={1.4} toneMapped={false} />
+          </mesh>
+          {/* rosy cheeks */}
+          <mesh position={[-0.23, 0.24, 0.26]} scale={[1, 0.7, 0.5]}>
+            <sphereGeometry args={[0.07, 12, 12]} />
+            <meshStandardMaterial color="#ff9db1" emissive="#ff7d9b" emissiveIntensity={0.35} toneMapped={false} />
+          </mesh>
+          <mesh position={[0.23, 0.24, 0.26]} scale={[1, 0.7, 0.5]}>
+            <sphereGeometry args={[0.07, 12, 12]} />
+            <meshStandardMaterial color="#ff9db1" emissive="#ff7d9b" emissiveIntensity={0.35} toneMapped={false} />
+          </mesh>
+          {/* tiny happy mouth */}
+          <mesh position={[0, 0.22, 0.34]}>
+            <boxGeometry args={[0.07, 0.02, 0.02]} />
+            <meshStandardMaterial color="#4a3340" roughness={0.8} />
+          </mesh>
+          {/* antenna crest with a glowing bead */}
+          <mesh position={[0, 0.66, -0.02]}>
+            <cylinderGeometry args={[0.02, 0.02, 0.16, 8]} />
+            <meshStandardMaterial color="#7f93e6" roughness={0.6} />
+          </mesh>
+          <mesh position={[0, 0.77, -0.02]}>
+            <sphereGeometry args={[0.07, 14, 14]} />
+            <meshStandardMaterial color="#8fe0ff" emissive="#4fd0ff" emissiveIntensity={1.7} toneMapped={false} />
+          </mesh>
+        </group>
+
+        {/* ===== RIGHT ARM + LITTLE SWORD (whole arm swings on the shoulder pivot) ===== */}
+        <group ref={swordPivot} position={[0.3, 0.86, 0.02]} rotation={[0.5, 0.45, 0]}>
+          {/* stubby arm reaching forward to the grip */}
+          <mesh castShadow position={[0, -0.08, 0.16]} rotation={[1.15, 0, 0]}>
+            <capsuleGeometry args={[0.08, 0.22, 5, 10]} />
+            <meshStandardMaterial color="#8ea6f0" roughness={0.6} />
+          </mesh>
+          {/* round mitten hand */}
+          <mesh castShadow position={[0, -0.12, 0.34]}>
+            <sphereGeometry args={[0.11, 12, 12]} />
+            <meshStandardMaterial color="#6377c8" roughness={0.6} />
+          </mesh>
+          {/* round pommel */}
+          <mesh position={[0, -0.12, 0.26]}>
+            <sphereGeometry args={[0.06, 12, 12]} />
+            <meshStandardMaterial color="#e0b866" metalness={0.6} roughness={0.4} />
           </mesh>
           {/* crossguard */}
-          <mesh position={[0, -0.15, 0.5]}>
-            <boxGeometry args={[0.32, 0.07, 0.08]} />
-            <meshStandardMaterial color="#8a6b3a" metalness={0.6} roughness={0.4} />
+          <mesh position={[0, -0.12, 0.4]}>
+            <boxGeometry args={[0.28, 0.06, 0.07]} />
+            <meshStandardMaterial color="#e0b866" metalness={0.6} roughness={0.4} />
           </mesh>
-          {/* blade extends forward (+Z) */}
-          <mesh castShadow position={[0, -0.15, 1.02]}>
-            <boxGeometry args={[0.08, 0.08, 1.04]} />
-            <meshStandardMaterial color="#dbe8ff" emissive="#3a5fd0" emissiveIntensity={0.6} metalness={0.7} roughness={0.3} />
+          {/* short chunky blade (+Z) — flares bright mid-swing via bladeMat */}
+          <mesh castShadow position={[0, -0.12, 0.82]}>
+            <boxGeometry args={[0.1, 0.1, 0.8]} />
+            <meshStandardMaterial ref={bladeMat} color="#e3edff" emissive="#5f8bff" emissiveIntensity={0.6} metalness={0.6} roughness={0.3} toneMapped={false} />
           </mesh>
-          {/* glowing tip */}
-          <mesh position={[0, -0.15, 1.56]}>
-            <sphereGeometry args={[0.08, 10, 10]} />
+          {/* rounded glowing tip */}
+          <mesh position={[0, -0.12, 1.24]}>
+            <sphereGeometry args={[0.09, 12, 12]} />
             <meshStandardMaterial color="#bcd4ff" emissive="#5f8bff" emissiveIntensity={2.2} toneMapped={false} />
           </mesh>
         </group>
@@ -515,36 +685,67 @@ function Player({ bus }) {
   )
 }
 
-// A crescent slash that flashes in front along the blade's path, then fades fast.
-// It hugs the character (fixed radius) instead of ballooning outward like the old
-// shockwave ring — so it reads as a sword arc, not a wind blast.
+// The combo VFX: a crescent slash that flashes in front along each blade sweep
+// (mirrored on the 2nd hit), plus a ground shockwave ring + radial flash that only
+// fire on the 3rd-hit finisher. All hug the character and fade fast.
 function SwingArc({ bus }) {
-  const ref = useRef()
-  const mat = useRef()
+  const arc = useRef()
+  const arcMat = useRef()
+  const ring = useRef()
+  const ringMat = useRef()
+  const flash = useRef()
+  const flashMat = useRef()
   const seen = useRef(0)
   const t = useRef(1)
+  const step = useRef(0)
   useFrame((_, dt) => {
-    const g = ref.current
-    if (!g) return
-    if (bus.attackSeq !== seen.current) { seen.current = bus.attackSeq; t.current = 0 }
+    const a = arc.current
+    if (!a) return
+    if (bus.attackSeq !== seen.current) { seen.current = bus.attackSeq; t.current = 0; step.current = bus.comboStep }
+    const finisher = step.current === 2
     if (t.current < 1) {
-      t.current = Math.min(1, t.current + dt * 4.5) // ~0.22s, snappy
-      const e = 1 - Math.pow(1 - t.current, 2)
-      g.visible = true
-      g.scale.setScalar(0.9 + e * 0.2) // barely grows
-      if (mat.current) mat.current.opacity = 0.85 * (1 - t.current) ** 1.4
+      t.current = Math.min(1, t.current + dt * (finisher ? 3.8 : 5.2))
+      const tt = t.current
+      const e = 1 - Math.pow(1 - tt, 2)
+      // crescent slash — mirror the backhand (step 1), fatter & brighter on the finisher
+      a.visible = true
+      const mir = step.current === 1 ? -1 : 1
+      const grow = finisher ? 1.05 + e * 0.55 : 0.92 + e * 0.22
+      a.scale.set(mir * grow, grow, 1)
+      if (arcMat.current) arcMat.current.opacity = (finisher ? 0.95 : 0.85) * (1 - tt) ** 1.3
+      // finisher-only: expanding ground shockwave + bright radial flash
+      if (finisher) {
+        if (ring.current) { ring.current.visible = true; ring.current.scale.setScalar(0.5 + e * 3.0) }
+        if (ringMat.current) ringMat.current.opacity = 0.75 * (1 - tt) ** 1.2
+        const ft = Math.min(1, tt * 1.7)
+        if (flash.current) { flash.current.visible = true; flash.current.scale.setScalar(0.6 + ft * 1.6) }
+        if (flashMat.current) flashMat.current.opacity = 0.85 * (1 - ft)
+      }
     } else {
-      g.visible = false
+      a.visible = false
+      if (ring.current) ring.current.visible = false
+      if (flash.current) flash.current.visible = false
     }
   })
   return (
-    <group ref={ref} visible={false} position={[0, 1.05, 0]}>
-      {/* wide-but-thin arc. rotation +π/2 about X maps the ring's centre (local +Y)
-          to world +Z, so the slash lands in FRONT of the character — matching the
-          blade sweep and the facing arrow. (−π/2 put it behind, toward the camera.) */}
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[0.85, 1.28, 48, 1, Math.PI / 2 - 0.9, 1.8]} />
-        <meshBasicMaterial ref={mat} color="#cfe4ff" transparent opacity={0.85} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} />
+    <group position={[0, 0.78, 0]}>
+      {/* crescent arc. rotation +π/2 about X maps the ring's centre (local +Y) to
+          world +Z, so the slash lands in FRONT of the character. */}
+      <group ref={arc} visible={false}>
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[0.82, 1.34, 48, 1, Math.PI / 2 - 0.95, 1.9]} />
+          <meshBasicMaterial ref={arcMat} color="#e6f2ff" transparent opacity={0.9} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} />
+        </mesh>
+      </group>
+      {/* finisher shockwave ring on the ground (parent sits at y=0.78 → drop to the floor) */}
+      <mesh ref={ring} visible={false} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.74, 0]}>
+        <ringGeometry args={[0.7, 1.02, 64]} />
+        <meshBasicMaterial ref={ringMat} color="#a9d4ff" transparent opacity={0} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} />
+      </mesh>
+      {/* finisher radial flash in front */}
+      <mesh ref={flash} visible={false} rotation={[Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.06, 1.5, 40]} />
+        <meshBasicMaterial ref={flashMat} color="#dbe8ff" transparent opacity={0} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} />
       </mesh>
     </group>
   )
@@ -604,11 +805,13 @@ function Enemy({ data, bus, api }) {
       s.z += Math.cos(performance.now() * 0.0005 + data.id) * 0.6 * dt
     }
 
-    // player attacking this enemy
+    // player attacking this enemy — damage / reach / knockback come from the current combo step
     if (bus.attackSeq !== s.seen && performance.now() - bus.attackAt < 200) {
       s.seen = bus.attackSeq
-      if (dist < ATTACK_RANGE) {
-        s.hp -= 34; s.hurtT = 1
+      if (dist < (bus.attackRange || ATTACK_RANGE)) {
+        s.hp -= (bus.attackDamage || 30); s.hurtT = 1
+        const kb = bus.attackKnock || 0.7
+        s.x -= nx * kb; s.z -= nz * kb // shove the wisp away from the player
         if (s.hp <= 0) { s.alive = false; g.visible = false; api.addScore(50); api.onKill(); return }
       }
     }
@@ -715,20 +918,20 @@ function Collectible({ data, bus, api }) {
 function Ground() {
   return (
     <group>
-      {/* dark forest floor */}
+      {/* moonlit forest floor — brighter so the terrain is clearly legible */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <circleGeometry args={[WORLD_RADIUS + 14, 96]} />
-        <meshStandardMaterial color="#0e1524" roughness={1} metalness={0} />
+        <meshStandardMaterial color="#2a3660" roughness={1} metalness={0} />
       </mesh>
-      {/* lighter mossy central clearing */}
+      {/* luminous enchanted central clearing (soft teal-blue) */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.008, 0]} receiveShadow>
         <circleGeometry args={[WORLD_RADIUS * 0.5, 72]} />
-        <meshStandardMaterial color="#17253c" roughness={1} />
+        <meshStandardMaterial color="#3a5578" roughness={1} />
       </mesh>
-      {/* faint ring marking the clearing edge */}
+      {/* glowing ring marking the clearing edge */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.012, 0]}>
         <ringGeometry args={[WORLD_RADIUS * 0.5 - 0.35, WORLD_RADIUS * 0.5, 96]} />
-        <meshBasicMaterial color="#2b3d63" transparent opacity={0.45} side={THREE.DoubleSide} />
+        <meshBasicMaterial color="#6f8ad0" transparent opacity={0.55} side={THREE.DoubleSide} toneMapped={false} />
       </mesh>
       {/* glowing world boundary */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, 0]}>
@@ -949,8 +1152,8 @@ function Hud({ hp, score, kills, toast, onExit }) {
 
       {/* controls hint */}
       <div style={{ position: 'absolute', bottom: 18, left: 22, fontSize: 12, lineHeight: 1.7, color: 'rgba(200,215,255,0.55)' }}>
-        <div><b>WASD</b> 이동 · <b>마우스 드래그</b> 시점 · <b>휠</b> 줌</div>
-        <div><b>좌클릭</b> 공격 · <b>Space</b> 회피 구르기 · <b>Shift</b> 질주 · <b>ESC</b> 종료</div>
+        <div><b>WASD</b> 이동 · <b>마우스 드래그</b> 시점 · <b>우클릭 드래그</b> 스트레이프 · <b>휠</b> 줌</div>
+        <div><b>좌클릭 연타</b> 3타 콤보 · <b>Space</b> 회피 구르기 · <b>Shift</b> 질주 · <b>ESC</b> 종료</div>
       </div>
 
       {/* toast */}
