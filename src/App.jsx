@@ -8,6 +8,7 @@ import MemoSection from './components/MemoSection.jsx'
 import StickyNotes from './components/StickyNotes.jsx'
 import DiaryModal from './components/DiaryModal.jsx'
 import Settings from './components/Settings.jsx'
+import Search from './components/Search.jsx'
 import Login from './components/Login.jsx'
 import HiddenGame from './game/HiddenGame.jsx'
 import { useAuth } from './lib/useAuth.js'
@@ -281,6 +282,9 @@ export default function App() {
       </div>
 
       <Settings settings={settings} onChange={setSettings} user={auth.user} onLogout={auth.logout} />
+
+      {/* unified account search across diaries · todos · notes */}
+      <Search onOpenDiary={openDiary} onJumpToDate={(k) => setSelectedDateKey(k)} />
 
       {/* Copyright */}
       <div style={{

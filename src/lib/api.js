@@ -67,3 +67,15 @@ export const settingsApi = {
   get: () => apiFetch('/api/settings'),
   update: (settings) => apiFetch('/api/settings', { method: 'PUT', body: JSON.stringify(settings) }),
 }
+
+// Unified search across the account's diaries / todos / notes.
+export const searchApi = {
+  query: ({ q, from, to, types } = {}) => {
+    const p = new URLSearchParams()
+    if (q) p.set('q', q)
+    if (from) p.set('from', from)
+    if (to) p.set('to', to)
+    if (types && types.length) p.set('types', types.join(','))
+    return apiFetch(`/api/search?${p.toString()}`)
+  },
+}

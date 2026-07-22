@@ -18,11 +18,18 @@ const ATTACK_RANGE = 3.2
 const ATTACK_COOLDOWN = 420 // ms
 const COMBO_WINDOW = 850    // ms since the last hit that a click chains into the next combo step
 const COMBO_GAP = 150       // ms minimum between swings (clicks faster than this are ignored)
-// dodge roll
-const ROLL_TIME = 0.42   // seconds
-const ROLL_SPEED = 17    // burst speed
-const ROLL_COOL = 0.75   // cooldown after a roll
-const ROLL_IFRAME = 0.12 // roll ends its i-frames this many seconds before finishing
+const FINISHER_WINDUP = 360   // ms the knight rears the blade back before the heavy 3rd-hit smash lands
+const FINISHER_RECOVER = 620  // ms of rooted recovery lag AFTER the smash — hunched over, can't act (roll cancels)
+const HITSTUN = 320           // ms the player is staggered & fully locked after taking a hit
+// locomotion feel — momentum so the knight eases up to speed & glides to a stop
+const MOVE_ACCEL = 17         // how quickly velocity ramps toward the target speed
+const MOVE_DECEL = 13         // how quickly it bleeds off when you release (lower = more glide)
+const MOVE_STOP = 30          // near-instant stop when rooted (attacking / stunned / dead)
+// dodge — a low, quick GROUND ROLL in the pressed direction (forward if standing still)
+const ROLL_TIME = 0.44    // roll duration (seconds)
+const ROLL_SPEED = 17     // roll burst speed
+const ROLL_COOL = 0.7     // cooldown after a roll
+const ROLL_IFRAME = 0.12  // i-frames end this many seconds before finishing
 // enemy combat
 const ENEMY_AGGRO = 15
 const ENEMY_REACH = 2.0     // gets this close, then telegraphs an attack
@@ -30,6 +37,9 @@ const ENEMY_WINDUP = 0.6    // telegraph duration (time to dodge)
 const ENEMY_STRIKE = 0.22   // strike/lunge duration
 const ENEMY_HITRANGE = 2.6  // must still be this close at the strike to get hit
 const ENEMY_RECOVER = 0.55
+// player hit reaction
+const HIT_TIME = 0.4     // seconds the flinch owns the body
+const HIT_KNOCK = 4.0    // knockback burst speed at the moment of impact
 
 // Reused scratch vectors — the player's useFrame runs 60×/s, so allocating fresh
 // Vector3s each frame would churn the GC and cause periodic hitches (felt most
@@ -56,25 +66,65 @@ export default function Game3D({ onExit }) {
     attackAt: 0,       // timestamp of last swing, consumed by enemies
     attackSeq: 0,      // increments each swing
     comboStep: 0,      // 0→1→2 chain position of the current swing
+    finisherPending: false, // a 3rd-hit smash is charging; it fires (damage+impact) after the wind-up
+    finisherFireAt: 0, // timestamp the charged smash releases
+    chargeSeq: 0,      // increments when a finisher wind-up begins → drives the rear-back pose
+    stunUntil: 0,      // performance.now() until which a hit-stagger locks all input
+    recoverUntil: 0,   // performance.now() until which post-finisher recovery locks move/attack
+    recoverFrom: 0,    // when that recovery window started (for the hunch→rise pose curve)
     attackDamage: 30,  // damage of the current swing (finisher hits harder)
     attackRange: ATTACK_RANGE, // reach of the current swing (finisher cleaves wider)
     attackKnock: 0.7,  // knockback of the current swing
     shake: 0,          // camera-shake impulse, decays each frame
     dodgeSeq: 0,       // increments each dodge roll
     invuln: false,     // true during roll i-frames — enemy strikes pass through
-    hp: 100, score: 0, kills: 0, dead: false,
+    attackMoving: false, // was the player moving when the current swing started (running-slash vs planted)
+    hitSeq: 0,         // increments each time an enemy strike connects → drives the flinch
+    hitDirX: 0, hitDirZ: 0, // world direction the hit shoves the player (away from the enemy)
+    hp: 100, maxHp: 100, score: 0, kills: 0, dead: false,
+    level: 1, xp: 0, xpNext: 80, atk: 30, // leveling: kills/shards give XP → level up raises maxHp & atk
     toast: '', toastAt: 0,
   }).current
 
-  const api = useMemo(() => ({
+  const api = useMemo(() => {
+    // grant XP and roll over into level-ups; each level raises max HP & attack, and heals full
+    const gainXp = (n) => {
+      bus.xp += n
+      while (bus.xp >= bus.xpNext) {
+        bus.xp -= bus.xpNext
+        bus.level += 1
+        bus.xpNext = 80 + (bus.level - 1) * 60 // rising curve
+        bus.maxHp += 20
+        bus.atk += 6
+        bus.hp = bus.maxHp // full heal on level up
+        bus.toast = `레벨 업!  Lv.${bus.level}`
+        bus.toastAt = performance.now()
+      }
+    }
+    return {
     addScore: (n) => { bus.score += n },
-    heal: (n) => { bus.hp = Math.min(100, bus.hp + n) },
-    onKill: () => { bus.kills += 1; bus.toast = '처치! +50'; bus.toastAt = performance.now() },
-    damage: (n) => {
+    heal: (n) => { bus.hp = Math.min(bus.maxHp, bus.hp + n) },
+    gainXp,
+    onKill: () => {
+      bus.kills += 1
+      bus.toast = '처치! +50'; bus.toastAt = performance.now()
+      gainXp(40) // XP per kill — may override the toast with a level-up
+    },
+    damage: (n, dirX = 0, dirZ = 0) => {
+      if (bus.dead) return
       bus.hp = Math.max(0, bus.hp - n)
+      // trigger the flinch: remember which way to reel and shove, and give the camera a jolt
+      bus.hitSeq++
+      bus.hitDirX = dirX; bus.hitDirZ = dirZ
+      bus.shake = Math.max(bus.shake, 0.34)
+      // hit-stun: lock the player briefly (staggered). Getting hit also interrupts your
+      // own attack recovery — you're knocked out of it into the flinch.
+      bus.stunUntil = performance.now() + HITSTUN
+      bus.recoverUntil = 0
       if (bus.hp === 0) bus.dead = true
     },
-  }), [bus])
+    }
+  }, [bus])
 
   // Keyboard + swing input.
   useEffect(() => {
@@ -115,8 +165,9 @@ export default function Game3D({ onExit }) {
     bus.camera.dist = THREE.MathUtils.clamp(bus.camera.dist + Math.sign(e.deltaY) * 1.1, 5, 26)
   }
   const onClickAttack = () => {
-    if (bus.dead) return
+    if (bus.dead || bus.finisherPending) return // ignore clicks while a smash is already charging
     const now = performance.now()
+    if (now < bus.stunUntil || now < bus.recoverUntil) return // locked in hit-stun / finisher recovery
     if (now - bus.attackAt < COMBO_GAP) return // ignore machine-gun clicks so hits stay distinct
     // chain to the next step if the click lands inside the combo window (and we're not
     // already at the finisher); otherwise start a fresh combo at step 0.
@@ -124,14 +175,29 @@ export default function Game3D({ onExit }) {
     const finisher = step === 2
     bus.comboStep = step
     bus.attackAt = now
-    bus.attackSeq++
-    bus.attackDamage = finisher ? 60 : 30
-    bus.attackRange = finisher ? 4.4 : ATTACK_RANGE
-    bus.attackKnock = finisher ? 2.4 : 0.7
-    bus.shake = finisher ? 0.5 : 0.16
+    // capture movement at the click so the swing plays its running-slash / planted variant.
+    // (read from keys here so the Player and the VFX agree on the same frame — no race.)
+    const k = bus.keys
+    bus.attackMoving = !bus.dead && !!(k['KeyW'] || k['KeyS'] || k['KeyA'] || k['KeyD'] ||
+      k['ArrowUp'] || k['ArrowDown'] || k['ArrowLeft'] || k['ArrowRight'])
+    if (finisher) {
+      // ── HEAVY 3rd-HIT SMASH — don't strike instantly. Rear the blade back NOW and let
+      //    it CHARGE; the actual hit (damage · impact · VFX) releases after a wind-up so
+      //    the finisher lands with weight instead of firing off too fast. ──
+      bus.finisherPending = true
+      bus.finisherFireAt = now + FINISHER_WINDUP
+      bus.chargeSeq++     // kick off the rear-back pose in the Player
+      bus.shake = 0.06    // faint tension as it loads
+    } else {
+      bus.attackSeq++
+      bus.attackDamage = bus.atk
+      bus.attackRange = ATTACK_RANGE
+      bus.attackKnock = 0.7
+      bus.shake = 0.16
+    }
   }
 
-  const respawn = () => { bus.hp = 100; bus.dead = false; bus.playerPos.set(0, 0, 0) }
+  const respawn = () => { bus.hp = bus.maxHp; bus.dead = false; bus.playerPos.set(0, 0, 0) }
 
   return (
     <div
@@ -163,15 +229,16 @@ export default function Game3D({ onExit }) {
 // this is the ONLY React state that updates during gameplay, and it touches
 // nothing inside the <Canvas>.
 function GameHud({ bus, onExit, onRespawn }) {
-  const [ui, setUi] = useState({ hp: 100, score: 0, kills: 0, dead: false, toast: '' })
+  const [ui, setUi] = useState({ hp: 100, maxHp: 100, score: 0, kills: 0, dead: false, toast: '', level: 1, xp: 0, xpNext: 80, atk: 30 })
   useEffect(() => {
     let raf
-    let prev = { hp: -1, score: -1, kills: -1, dead: null, toast: null }
+    let prev = { hp: -1, maxHp: -1, score: -1, kills: -1, dead: null, toast: null, level: -1, xp: -1, atk: -1 }
     const tick = () => {
       const toast = bus.toastAt && performance.now() - bus.toastAt < 1400 ? bus.toast : ''
-      if (bus.hp !== prev.hp || bus.score !== prev.score || bus.kills !== prev.kills || bus.dead !== prev.dead || toast !== prev.toast) {
-        prev = { hp: bus.hp, score: bus.score, kills: bus.kills, dead: bus.dead, toast }
-        setUi(prev)
+      if (bus.hp !== prev.hp || bus.maxHp !== prev.maxHp || bus.score !== prev.score || bus.kills !== prev.kills ||
+          bus.dead !== prev.dead || toast !== prev.toast || bus.level !== prev.level || bus.xp !== prev.xp || bus.atk !== prev.atk) {
+        prev = { hp: bus.hp, maxHp: bus.maxHp, score: bus.score, kills: bus.kills, dead: bus.dead, toast, level: bus.level, xp: bus.xp, atk: bus.atk }
+        setUi({ hp: bus.hp, maxHp: bus.maxHp, score: bus.score, kills: bus.kills, dead: bus.dead, toast, level: bus.level, xp: bus.xp, xpNext: bus.xpNext, atk: bus.atk })
       }
       raf = requestAnimationFrame(tick)
     }
@@ -181,8 +248,9 @@ function GameHud({ bus, onExit, onRespawn }) {
 
   return (
     <>
-      <Hud hp={ui.hp} score={ui.score} kills={ui.kills} toast={ui.toast} onExit={onExit} />
-      {ui.dead && <DeathScreen score={ui.score} kills={ui.kills} onRespawn={onRespawn} onExit={onExit} />}
+      <Hud hp={ui.hp} maxHp={ui.maxHp} score={ui.score} kills={ui.kills} toast={ui.toast}
+        level={ui.level} xp={ui.xp} xpNext={ui.xpNext} atk={ui.atk} onExit={onExit} />
+      {ui.dead && <DeathScreen score={ui.score} kills={ui.kills} level={ui.level} onRespawn={onRespawn} onExit={onExit} />}
     </>
   )
 }
@@ -217,7 +285,14 @@ function World({ bus, api }) {
       <Moon />
 
       <Ground />
+      <LightPools />
+      <RuneCircle />
+      {/* great luminous trees framing the clearing as scenic landmarks */}
+      <WorldTree position={[-20, 0, -42]} scale={1.25} />
+      <WorldTree position={[34, 0, -30]} scale={0.95} />
+      <WorldTree position={[8, 0, 46]} scale={1.05} />
       {decorations.map((d, i) => <Decoration key={i} {...d} />)}
+      <Lanterns />
       {stars.map((s) => <Collectible key={s.id} data={s} bus={bus} api={api} />)}
       {enemies.map((e) => <Enemy key={e.id} data={e} bus={bus} api={api} />)}
 
@@ -242,8 +317,13 @@ function Player({ bus }) {
   const head = useRef()
   const bladeMat = useRef()
   const walkPhase = useRef(0)
-  const swing = useRef({ seq: 0, t: 1, step: 0 })
+  const vel = useRef(new THREE.Vector3())  // smoothed horizontal velocity → momentum
+  const prevSpd = useRef(0)                // last frame's speed, for the acceleration weight-shift
+  const swing = useRef({ seq: 0, t: 1, step: 0, moving: false })
+  const charge = useRef({ seq: 0, t: 0, active: false }) // finisher rear-back wind-up
   const roll = useRef({ seq: 0, t: 0, cool: 0, was: false })
+  const hit = useRef({ seq: 0, t: 0, fwd: 0, side: 0, was: false }) // enemy-strike flinch
+  const hurtMat = useRef() // red flash shell that pulses when struck
   const facing = useRef(Math.PI)
   // idle-gesture scheduler: after a few still seconds, play a random little motion
   const idle = useRef({ t: 0, next: 3, kind: null, gt: 0, dur: 0 })
@@ -270,7 +350,15 @@ function Player({ bus }) {
     const fwd = _fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw))
     const right = _right.set(Math.cos(yaw), 0, -Math.sin(yaw))
     const move = _move.set(0, 0, 0)
-    if (!bus.dead) {
+    // The knight ROOTS while committing to an action — mid-swing, charging a finisher,
+    // staggered by a hit, or in a finisher's recovery lag — so attacks feel weighty and
+    // you can't just walk through them. (attack lunges/knockback still move you; input can't.)
+    const nowMs = performance.now()
+    const stunned = nowMs < bus.stunUntil
+    const recovering = nowMs < bus.recoverUntil
+    const attacking = swing.current.t < 1 || charge.current.active || bus.finisherPending
+    const locked = bus.dead || stunned || recovering || attacking
+    if (!locked) {
       if (k['KeyW'] || k['ArrowUp']) move.add(fwd)
       if (k['KeyS'] || k['ArrowDown']) move.sub(fwd)
       if (k['KeyD'] || k['ArrowRight']) move.add(right)
@@ -282,43 +370,84 @@ function Player({ bus }) {
     // Start a dodge roll (Space), if off cooldown.
     if (bus.dodgeSeq !== roll.current.seq) {
       roll.current.seq = bus.dodgeSeq
-      if (!bus.dead && roll.current.t <= 0 && roll.current.cool <= 0) {
+      // can't roll while stunned by a hit; otherwise a roll cancels a swing / charge / recovery
+      if (!bus.dead && !stunned && roll.current.t <= 0 && roll.current.cool <= 0) {
         roll.current.t = ROLL_TIME
         roll.current.cool = ROLL_TIME + ROLL_COOL
+        bus.finisherPending = false      // dodging cancels a charging smash
+        charge.current.active = false
+        bus.recoverUntil = 0             // …and cancels post-finisher recovery lag
+        swing.current.t = 1              // …and interrupts any in-progress swing
+        vel.current.set(0, 0, 0)         // …and drops walking momentum (the roll gives its own burst)
+        // roll in the pressed direction (forward if standing). Orient to it RIGHT AWAY so the
+        // whole thing is one clean, natural, grounded forward roll — no flips, no spin-in-place.
         if (wantMove) _rollDir.copy(move)
-        else _rollDir.set(Math.sin(facing.current), 0, Math.cos(facing.current)) // roll forward
+        else _rollDir.set(Math.sin(facing.current), 0, Math.cos(facing.current))
+        facing.current = Math.atan2(_rollDir.x, _rollDir.z)
+        g.rotation.y = facing.current
       }
     }
     if (roll.current.cool > 0) roll.current.cool -= dt
 
+    // An enemy strike just connected → kick off the flinch. Resolve the incoming shove
+    // into forward/side components relative to where we face, so we reel BACKWARD when
+    // hit from the front and twist toward the struck flank when hit from the side.
+    if (bus.hitSeq !== hit.current.seq) {
+      hit.current.seq = bus.hitSeq
+      if (!bus.dead) {
+        hit.current.t = HIT_TIME
+        const sf = Math.sin(facing.current), cf = Math.cos(facing.current)
+        hit.current.fwd = bus.hitDirX * sf + bus.hitDirZ * cf
+        hit.current.side = bus.hitDirX * cf - bus.hitDirZ * sf
+      }
+    }
+
     const rolling = roll.current.t > 0
     const strafing = bus.strafe && !bus.dead
     let moving = false
+    let spd = 0            // actual travel speed this frame (drives the walk animation)
     let locF = 1, locS = 0 // move direction relative to facing: forward(+)/back(−), right(+)/left(−)
     if (rolling) {
       roll.current.t -= dt
       const k2 = Math.max(0, roll.current.t) / ROLL_TIME
-      bus.playerPos.addScaledVector(_rollDir, ROLL_SPEED * (0.35 + k2 * 0.65) * dt)
-      facing.current = Math.atan2(_rollDir.x, _rollDir.z)
+      bus.playerPos.addScaledVector(_rollDir, ROLL_SPEED * (0.4 + k2 * 0.6) * dt)
+      // already oriented to the roll direction at the start → nothing to turn mid-roll
       bus.invuln = roll.current.t > ROLL_IFRAME // i-frames for most of the roll
     } else {
       bus.invuln = false
-      if (wantMove) {
-        const speed = PLAYER_SPEED * ((k['ShiftLeft'] || k['ShiftRight']) ? SPRINT_MULT : 1)
-        bus.playerPos.addScaledVector(move, speed * dt)
-        moving = true
-      }
+      // ── momentum: ease velocity toward the desired speed instead of snapping. You ramp
+      //    up when you press and glide to a stop when you release — but a rooted action
+      //    (attack/stun) bleeds it off fast so committing still stops you crisply. ──
+      const sprint = !!(k['ShiftLeft'] || k['ShiftRight'])
+      const targetSpeed = wantMove ? PLAYER_SPEED * (sprint ? SPRINT_MULT : 1) : 0
+      const tvx = move.x * targetSpeed, tvz = move.z * targetSpeed
+      const rate = locked ? MOVE_STOP : (wantMove ? MOVE_ACCEL : MOVE_DECEL)
+      const kk = 1 - Math.exp(-rate * dt) // frame-rate-independent smoothing factor
+      vel.current.x += (tvx - vel.current.x) * kk
+      vel.current.z += (tvz - vel.current.z) * kk
+      bus.playerPos.x += vel.current.x * dt
+      bus.playerPos.z += vel.current.z * dt
+      spd = Math.hypot(vel.current.x, vel.current.z)
+      moving = spd > 0.12
       // Facing: in strafe mode the body locks to camera-forward so A/D side-step and
-      // S back-pedal instead of spinning; otherwise the body turns to face the move.
+      // S back-pedal instead of spinning; otherwise steer toward the pressed direction
+      // (while gliding with no key held we hold facing and coast straight).
       if (strafing) facing.current = Math.atan2(fwd.x, fwd.z)
       else if (wantMove) facing.current = Math.atan2(move.x, move.z)
-      // Split the move into forward/sideways relative to where we now face, so the
-      // walk cycle can play back-pedal and side-step variants — not just a forward walk.
+      // Split the actual VELOCITY into forward/sideways relative to facing, so a glide keeps
+      // matching the feet and the walk plays back-pedal / side-step variants correctly.
       if (moving) {
         const sf = Math.sin(facing.current), cf = Math.cos(facing.current)
-        locF = move.x * sf + move.z * cf
-        locS = move.x * cf - move.z * sf
+        const nvx = vel.current.x / spd, nvz = vel.current.z / spd
+        locF = nvx * sf + nvz * cf
+        locS = nvx * cf - nvz * sf
       }
+    }
+    // hit knockback — a quick burst that decays across the flinch, shoved away from the enemy
+    if (hit.current.t > 0) {
+      const hk = hit.current.t / HIT_TIME // 1 → 0
+      bus.playerPos.x += bus.hitDirX * HIT_KNOCK * hk * dt
+      bus.playerPos.z += bus.hitDirZ * HIT_KNOCK * hk * dt
     }
     // keep inside the world
     const r = Math.hypot(bus.playerPos.x, bus.playerPos.z)
@@ -336,97 +465,161 @@ function Player({ bus }) {
     const isSprint = !!(k['ShiftLeft'] || k['ShiftRight'])
     const tNow = performance.now()
     if (rolling) {
-      // forward tumble owns the body
+      // a natural forward roll owns the body — a quick tuck-and-tumble
       roll.current.was = true
       const rp = 1 - Math.max(0, roll.current.t) / ROLL_TIME // 0 → 1 progress
+      const arc = Math.sin(rp * Math.PI) // 0→1→0 envelope for the limb tuck
+      // eased 0→2π somersault: gentle angular velocity at both ends, lands exactly on 2π upright
+      const ang = rp * Math.PI * 2 - Math.sin(rp * Math.PI * 2)
+      const H = 0.55 // ROLL AROUND THE CENTRE OF MASS (belly height), not the feet — pivoting on
+                     // the feet was the awkward bit: it pole-vaulted the head around the toes.
       if (b) {
-        // eased 0→2π spin: zero angular velocity at both ends (starts & lands gently),
-        // and lands exactly on 2π so the pose is upright again — no snap, no mechanical spin.
-        b.rotation.x = rp * Math.PI * 2 - Math.sin(rp * Math.PI * 2)
+        b.rotation.x = ang
         b.rotation.z = 0
-        b.position.y = -Math.sin(rp * Math.PI) * 0.1 // duck low through the roll, not a hop
+        b.rotation.y = 0
+        // hold that centre pivot fixed while the body spins around it, so the knight rolls OVER
+        // its own middle like a real tuck-roll (forward travel is handled by the whole group).
+        b.position.y = H * (1 - Math.cos(ang))
+        b.position.z = -H * Math.sin(ang)
       }
-      // curl into a tight tuck at mid-roll, then unfurl — smooth in and out
-      const tuck = Math.sin(rp * Math.PI)
-      if (leftLeg.current) leftLeg.current.rotation.x = 1.0 * tuck
-      if (rightLeg.current) rightLeg.current.rotation.x = 1.0 * tuck
-      if (leftArm.current) leftArm.current.rotation.x = -1.15 * tuck
+      // curl into a tight ball through the roll, then unfurl back onto the feet
+      if (leftLeg.current) leftLeg.current.rotation.x = 1.4 * arc
+      if (rightLeg.current) rightLeg.current.rotation.x = 1.4 * arc
+      if (leftArm.current) leftArm.current.rotation.x = -1.35 * arc
     } else {
       // clean up the instant the roll finishes so the tumble doesn't unwind backwards
       if (roll.current.was) {
         roll.current.was = false
-        if (b) { b.rotation.x = 0; b.rotation.z = 0; b.position.y = 0 }
+        if (b) { b.rotation.x = 0; b.rotation.z = 0; b.rotation.y = 0; b.position.y = 0; b.position.z = 0 }
         if (leftLeg.current) leftLeg.current.rotation.x = 0
         if (rightLeg.current) rightLeg.current.rotation.x = 0
         if (leftArm.current) leftArm.current.rotation.x = 0
       }
-      // legs & arms — stride direction follows walk / back-pedal / strafe
-      let stepSwing = 0
-      if (moving) {
-        const gait = Math.min(1, Math.hypot(locF, locS) || 1)
-        walkPhase.current += dt * (isSprint ? 13 : 9) * (0.6 + gait * 0.4)
-        const amp = (isSprint ? 0.72 : 0.5) * gait
-        const dir = locF < -0.15 ? -1 : 1 // back-pedalling flips the stride
-        const a = Math.sin(walkPhase.current) * amp * dir
-        stepSwing = a
-        if (leftLeg.current) leftLeg.current.rotation.x = a
-        if (rightLeg.current) rightLeg.current.rotation.x = -a
-        if (leftArm.current) leftArm.current.rotation.x = -a * 0.95
-      } else {
-        if (leftLeg.current) leftLeg.current.rotation.x *= 0.85
-        if (rightLeg.current) rightLeg.current.rotation.x *= 0.85
-        if (leftArm.current) leftArm.current.rotation.x *= 0.85
-      }
-      // torso: lean toward travel (forward/back), bounce with steps, breathe when idle,
-      // bank on turns AND into side-steps
+      // legs & arms — a continuous gait driven by REAL speed: the stride winds up as you
+      // accelerate and unwinds as you glide to a stop, cadence locked to ground speed so the
+      // feet keep pace with the floor (much less sliding).
+      const gaitN = THREE.MathUtils.clamp(spd / PLAYER_SPEED, 0, 1.7) // 0 … 1(walk) … ~1.7(sprint)
+      const walkAmt = THREE.MathUtils.clamp(spd / 1.8, 0, 1)          // idle→walk blend for the torso
+      walkPhase.current += dt * (3.5 + spd * 0.95)                    // steps keep pace with speed
+      const amp = 0.5 * Math.min(gaitN, 1.45)
+      const dir = locF < -0.15 ? -1 : 1 // back-pedalling flips the stride
+      const a = Math.sin(walkPhase.current) * amp * dir
+      const stepSwing = a
+      // ease limbs toward the stride pose so start & stop BLEND instead of popping; as amp→0
+      // near a standstill the legs settle to neutral on their own.
+      const legK = Math.min(1, dt * 14)
+      if (leftLeg.current) leftLeg.current.rotation.x += (a - leftLeg.current.rotation.x) * legK
+      if (rightLeg.current) rightLeg.current.rotation.x += (-a - rightLeg.current.rotation.x) * legK
+      if (leftArm.current) leftArm.current.rotation.x += (-a * 0.95 - leftArm.current.rotation.x) * legK
+      // torso: lean into travel + a weight-shift from acceleration; step-bounce blends into breathing
       if (b) {
-        const leanTarget = moving ? locF * (isSprint ? 0.3 : 0.17) : 0
+        // pitch forward as you speed up, rock back as you brake — a believable weight shift
+        const accelLean = THREE.MathUtils.clamp((spd - prevSpd.current) / Math.max(dt, 0.001) * 0.004, -0.09, 0.09)
+        const leanTarget = locF * 0.18 * gaitN + accelLean
         b.rotation.x += (leanTarget - b.rotation.x) * Math.min(1, dt * 8)
 
-        const yTarget = moving
-          ? Math.abs(Math.sin(walkPhase.current)) * (isSprint ? 0.13 : 0.08)
-          : 0.02 + Math.sin(tNow * 0.0018) * 0.02 // gentle breathing
+        const bounce = Math.abs(Math.sin(walkPhase.current)) * 0.085 * Math.min(gaitN, 1.6)
+        const breathe = 0.02 + Math.sin(tNow * 0.0018) * 0.02 // gentle idle breathing
+        const yTarget = THREE.MathUtils.lerp(breathe, bounce, walkAmt)
         b.position.y += (yTarget - b.position.y) * Math.min(1, dt * 12)
 
-        const stepRoll = moving ? stepSwing * (isSprint ? 0.16 : 0.11) : Math.sin(tNow * 0.0011) * 0.02
-        const strafeBank = moving ? -locS * 0.2 : 0 // lean into a side-step
+        const stepRoll = stepSwing * 0.12 * walkAmt + Math.sin(tNow * 0.0011) * 0.02 * (1 - walkAmt)
+        const strafeBank = -locS * 0.2 * gaitN // lean into a side-step
         const turnBank = THREE.MathUtils.clamp(d * 0.9, -0.22, 0.22) // lean into turns
         b.rotation.z += (stepRoll + strafeBank + turnBank - b.rotation.z) * Math.min(1, dt * 10)
+      }
+    }
+
+    // release the charged finisher once its wind-up elapses → THIS is the moment the
+    // smash actually fires (damage · impact · VFX all keyed off the attackSeq bump).
+    if (bus.finisherPending && (bus.dead || tNow >= bus.finisherFireAt)) {
+      bus.finisherPending = false
+      if (bus.dead) {
+        charge.current.active = false
+      } else {
+        bus.attackAt = tNow
+        bus.attackSeq++
+        bus.comboStep = 2
+        bus.attackDamage = bus.atk * 2 // finisher hits for double
+        bus.attackRange = 4.4
+        bus.attackKnock = 2.4
+        bus.shake = 0.62 // the big weighty jolt lands HERE, not at the click
+        // rooted recovery lag — after the smash the knight is locked, hunched over,
+        // for a beat before he can move/attack again (a dodge-roll can cancel it).
+        bus.recoverFrom = tNow
+        bus.recoverUntil = tNow + FINISHER_RECOVER
       }
     }
 
     // sword swing — 3-hit combo, each step a distinct sweep across the FRONT (+Z)
     const sp = swordPivot.current
     if (sp) {
+      // a finisher just began charging → start the rear-back wind-up
+      if (bus.chargeSeq !== charge.current.seq) {
+        charge.current.seq = bus.chargeSeq
+        charge.current.active = true
+        charge.current.t = 0
+      }
       if (bus.attackSeq !== swing.current.seq) {
         swing.current.seq = bus.attackSeq
         swing.current.t = 0
         swing.current.step = bus.comboStep // lock in which combo step this swing plays
+        swing.current.moving = bus.attackMoving // running-slash vs planted, decided at the click
+        charge.current.active = false // the smash released — hand the pose off to the swing
       }
-      if (swing.current.t < 1) {
+      if (charge.current.active) {
+        // ── FINISHER WIND-UP: heave the blade high overhead, lean back & load onto
+        //    braced legs, holding the tension (glow builds, a rising quiver) so the
+        //    smash that follows feels earned instead of instant ──
+        charge.current.t = Math.min(1, charge.current.t + dt * (1000 / FINISHER_WINDUP))
+        const c = charge.current.t
+        const e = 1 - Math.pow(1 - c, 2)
+        sp.rotation.x += (-2.1 - sp.rotation.x) * Math.min(1, dt * 12) // rear WAY back
+        sp.rotation.y += (0 - sp.rotation.y) * Math.min(1, dt * 10)
+        if (b) {
+          b.rotation.x += (-0.32 * e - b.rotation.x) * Math.min(1, dt * 8) // lean back to load
+          b.rotation.y += (0 - b.rotation.y) * Math.min(1, dt * 8)
+        }
+        const quiver = Math.sin(tNow * 0.06) * 0.05 * e // muscles straining as it nears release
+        if (leftLeg.current) leftLeg.current.rotation.x = 0.3 * e + quiver
+        if (rightLeg.current) rightLeg.current.rotation.x = -0.3 * e - quiver
+        if (bladeMat.current) bladeMat.current.emissiveIntensity = 0.6 + e * 3.6 // charge up bright
+      } else if (swing.current.t < 1) {
         const st = swing.current.step
-        swing.current.t = Math.min(1, swing.current.t + dt * (st === 2 ? 2.9 : 3.7))
+        const mv = swing.current.moving
+        // MOVING → a fast, flowing running-slash (no wind-up, wider sweep, deep lunge).
+        // PLANTED → the knight cocks the blade back (anticipation), plants a foot, then
+        // lands the blow with weight — reads slower and heavier. Two clearly different attacks.
+        // the finisher whips DOWN fast — the wind-up already supplied the delay, so the
+        // release itself should be snappy & violent, not slow
+        const spd = (st === 2 ? 4.7 : 3.7) * (mv ? 1.15 : 0.9)
+        swing.current.t = Math.min(1, swing.current.t + dt * spd)
         const t = swing.current.t
         const s = 1 - Math.pow(1 - t, 2) // ease-out
         const arc = Math.sin(t * Math.PI)
+        const ant = mv ? 0 : (1 - s) * arc  // planted-only coil: winds the blade back before it fires
+        const widen = mv ? 0.5 : 0          // moving swings carry through a wider arc
         if (st === 0) {
           // ① right → left horizontal slash
-          sp.rotation.y = 1.25 - s * 2.25
-          sp.rotation.x = 0.5 - arc * 0.55
-          if (b) { b.rotation.y = 0.42 - s * 0.85; b.rotation.x = Math.max(b.rotation.x, arc * 0.3) }
+          sp.rotation.y = (1.25 + ant * 1.2) - s * (2.25 + widen)
+          sp.rotation.x = 0.5 - arc * (mv ? 0.62 : 0.5) - ant * 0.5
+          if (b) { b.rotation.y = (0.42 + ant * 0.55) - s * 0.85; b.rotation.x = Math.max(b.rotation.x, arc * (mv ? 0.42 : 0.3)) }
         } else if (st === 1) {
           // ② left → right backhand slash (mirror of ①)
-          sp.rotation.y = -1.0 + s * 2.25
-          sp.rotation.x = 0.5 - arc * 0.55
-          if (b) { b.rotation.y = -0.42 + s * 0.85; b.rotation.x = Math.max(b.rotation.x, arc * 0.3) }
+          sp.rotation.y = (-1.0 - ant * 1.2) + s * (2.25 + widen)
+          sp.rotation.x = 0.5 - arc * (mv ? 0.62 : 0.5) - ant * 0.5
+          if (b) { b.rotation.y = (-0.42 - ant * 0.55) + s * 0.85; b.rotation.x = Math.max(b.rotation.x, arc * (mv ? 0.42 : 0.3)) }
         } else {
-          // ③ overhead smash finisher — raise high, chop straight down with a big lunge
-          sp.rotation.x = -1.2 + s * 2.0
-          sp.rotation.y = 0.15 * (1 - s)
-          if (b) { b.rotation.y = 0; b.rotation.x = Math.max(b.rotation.x, arc * 0.5) }
+          // ③ overhead smash finisher — released from the charged rear-back (~-2.1) it
+          // whips straight down in a big heavy arc; body drives forward over the blow
+          sp.rotation.x = -2.1 + s * 2.95
+          sp.rotation.y = 0.12 * (1 - s)
+          if (b) { b.rotation.y = 0; b.rotation.x = Math.max(b.rotation.x, arc * 0.6) }
         }
-        // dynamic forward lunge into the strike (biggest on the finisher)
-        const lunge = (st === 2 ? 7 : 3.4) * arc
+        // planted attacks sink onto a braced foot; moving attacks stay tall & carry forward
+        if (b && !mv) b.position.y -= arc * 0.05
+        // dynamic forward lunge into the strike — deep on a running-slash, a short step when planted
+        const lunge = (st === 2 ? 7 : 3.4) * arc * (mv ? 1.7 : 0.75)
         bus.playerPos.x += Math.sin(facing.current) * lunge * dt
         bus.playerPos.z += Math.cos(facing.current) * lunge * dt
         const rr = Math.hypot(bus.playerPos.x, bus.playerPos.z)
@@ -449,14 +642,16 @@ function Player({ bus }) {
     // or takes a lazy practice swing, so standing still never looks frozen ──
     const hd = head.current
     const idl = idle.current
-    const trulyIdle = !moving && !rolling && !strafing && !bus.dead && swing.current.t >= 1
+    const trulyIdle = !moving && !rolling && !strafing && !bus.dead && swing.current.t >= 1 &&
+      hit.current.t <= 0 && nowMs >= bus.recoverUntil && nowMs >= bus.stunUntil
     if (trulyIdle) {
       idl.t += dt
       if (!idl.kind && idl.t > idl.next) {
         idl.kind = ['lookL', 'lookR', 'scan', 'nod', 'swing'][Math.floor(Math.random() * 5)]
         idl.gt = 0
         idl.dur = idl.kind === 'swing' ? 0.6 : idl.kind === 'scan' ? 2.2 : 1.4
-        if (idl.kind === 'swing') swing.current.t = 0 // cosmetic swing — no hit, no arc
+        // cosmetic practice swing — force a LIGHT step (never the heavy finisher pose), no hit, no arc
+        if (idl.kind === 'swing') { swing.current.step = 0; swing.current.moving = false; swing.current.t = 0 }
       }
       if (idl.kind) {
         idl.gt += dt
@@ -474,10 +669,59 @@ function Player({ bus }) {
       idl.t = 0; idl.kind = null
     }
     // ease the head back to neutral whenever nothing is driving it
-    if (hd && !idl.kind) {
+    if (hd && !idl.kind && hit.current.t <= 0) {
       hd.rotation.y += (0 - hd.rotation.y) * Math.min(1, dt * 6)
       hd.rotation.x += (0 - hd.rotation.x) * Math.min(1, dt * 6)
     }
+
+    // ── hit flinch — a sharp, full-body recoil the instant an enemy strike lands.
+    // Runs LAST so it overrides the walk/idle/swing poses: the knight is briefly
+    // staggered — torso jolts away from the blow, head whips, arms fling up defensively,
+    // and a red shell flashes — then everything springs back with a damped shudder. ──
+    if (hit.current.t > 0) {
+      hit.current.was = true
+      hit.current.t -= dt
+      const h = Math.max(0, hit.current.t) / HIT_TIME        // 1 → 0 across the flinch
+      const damp = Math.pow(h, 0.55)                         // hardest at impact, eases out
+      const shud = Math.cos((1 - h) * Math.PI * 2.4) * damp  // damped shudder, +1 at impact
+      const crumple = Math.sin(Math.min(1, (1 - h) * 2) * Math.PI) * damp // quick knee-buckle dip
+      const fwd = hit.current.fwd, side = hit.current.side
+      if (b) {
+        b.rotation.x = -fwd * 0.7 * shud   // reel backward from a frontal blow
+        b.rotation.z = side * 0.55 * shud  // fold toward the struck flank
+        b.rotation.y = -side * 0.4 * shud  // twist off the hit
+        b.position.y = -0.09 * crumple     // sink briefly, then rise
+      }
+      if (hd) {
+        hd.rotation.x = fwd * 0.6 * shud   // head snaps back
+        hd.rotation.y = -side * 0.5 * shud
+      }
+      if (leftLeg.current) leftLeg.current.rotation.x = -0.4 * crumple  // stagger-step
+      if (rightLeg.current) rightLeg.current.rotation.x = 0.3 * crumple
+      if (leftArm.current) leftArm.current.rotation.x = -1.3 * damp     // arms fling up
+      if (sp) sp.rotation.x = Math.max(sp.rotation.x, 0.5 + 1.0 * damp) // guard the sword arm high
+      if (hurtMat.current) hurtMat.current.opacity = 0.6 * damp         // red flash blooms & fades
+    } else if (hit.current.was) {
+      // clean up the frame the flinch ends so it doesn't leave the shell lit
+      hit.current.was = false
+      if (hurtMat.current) hurtMat.current.opacity = 0
+    }
+
+    // ── finisher recovery pose — once the smash has landed, the knight is hunched over
+    //    from the effort, blade hanging low, and slowly straightens back to guard over the
+    //    recovery window (input stays locked through it — see the movement gate). ──
+    if (swing.current.step === 2 && swing.current.t >= 1 && nowMs < bus.recoverUntil && hit.current.t <= 0) {
+      const span = bus.recoverUntil - bus.recoverFrom
+      const rp = span > 0 ? THREE.MathUtils.clamp((bus.recoverUntil - nowMs) / span, 0, 1) : 0
+      const rr = rp * rp // heavy hunch right after impact, easing up to standing
+      if (b) { b.rotation.x = 0.34 * rr; b.position.y = -0.06 * rr; b.rotation.z = 0.06 * Math.sin(nowMs * 0.012) * rr }
+      if (hd) hd.rotation.x = 0.34 * rr                 // head bowed, catching breath
+      if (leftLeg.current) leftLeg.current.rotation.x = 0.22 * rr   // braced, recovering stance
+      if (rightLeg.current) rightLeg.current.rotation.x = -0.16 * rr
+      if (sp) sp.rotation.x = 0.5 + 0.85 * rr           // sword still low from the swing-through
+    }
+
+    prevSpd.current = spd // remember this frame's speed for next frame's acceleration lean
 
     // WoW camera: orbit behind the player.
     const { pitch, dist } = bus.camera
@@ -500,6 +744,13 @@ function Player({ bus }) {
       <group ref={bob}>
         {/* ===== CHIBI KNIGHT — 2-head-tall, round & pastel so it reads cute, not robotic.
              Same refs/pivots as before so every animation still drives it. ===== */}
+
+        {/* hurt flash — a red additive shell that blooms over the whole body when an
+            enemy strike connects, then fades out (opacity driven from the flinch). */}
+        <mesh position={[0, 0.7, 0]} scale={[1.35, 1.7, 1.35]}>
+          <sphereGeometry args={[0.42, 20, 16]} />
+          <meshBasicMaterial ref={hurtMat} color="#ff4657" transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
+        </mesh>
 
         {/* ===== LEGS — stubby thigh + rounded boot (swing while walking) ===== */}
         <group ref={leftLeg} position={[-0.12, 0.34, 0]}>
@@ -594,30 +845,31 @@ function Player({ bus }) {
             <meshStandardMaterial color="#7f93e6" roughness={0.55} />
           </mesh>
           {/* ---- FACE (+Z front) ---- */}
-          {/* big glossy eyes: white base + dark pupil + sparkle */}
-          <mesh position={[-0.13, 0.33, 0.29]}>
+          {/* glossy eyes — flattened in Z (scale) so they hug the face like a decal
+              instead of bulging out as bug-eyes; each sits just inside the head surface */}
+          <mesh position={[-0.13, 0.33, 0.305]} scale={[1, 1.05, 0.4]}>
             <sphereGeometry args={[0.1, 16, 16]} />
             <meshStandardMaterial color="#f6f9ff" roughness={0.3} />
           </mesh>
-          <mesh position={[0.13, 0.33, 0.29]}>
+          <mesh position={[0.13, 0.33, 0.305]} scale={[1, 1.05, 0.4]}>
             <sphereGeometry args={[0.1, 16, 16]} />
             <meshStandardMaterial color="#f6f9ff" roughness={0.3} />
           </mesh>
-          <mesh position={[-0.14, 0.32, 0.37]}>
+          <mesh position={[-0.14, 0.32, 0.33]} scale={[1, 1, 0.42]}>
             <sphereGeometry args={[0.06, 14, 14]} />
             <meshStandardMaterial color="#2b2f52" roughness={0.25} />
           </mesh>
-          <mesh position={[0.14, 0.32, 0.37]}>
+          <mesh position={[0.14, 0.32, 0.33]} scale={[1, 1, 0.42]}>
             <sphereGeometry args={[0.06, 14, 14]} />
             <meshStandardMaterial color="#2b2f52" roughness={0.25} />
           </mesh>
           {/* eye sparkles */}
-          <mesh position={[-0.11, 0.37, 0.42]}>
-            <sphereGeometry args={[0.022, 8, 8]} />
+          <mesh position={[-0.11, 0.37, 0.35]}>
+            <sphereGeometry args={[0.02, 8, 8]} />
             <meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={1.4} toneMapped={false} />
           </mesh>
-          <mesh position={[0.16, 0.37, 0.42]}>
-            <sphereGeometry args={[0.022, 8, 8]} />
+          <mesh position={[0.16, 0.37, 0.35]}>
+            <sphereGeometry args={[0.02, 8, 8]} />
             <meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={1.4} toneMapped={false} />
           </mesh>
           {/* rosy cheeks */}
@@ -800,8 +1052,9 @@ function Enemy({ data, bus, api }) {
       s.x += s.lx * 9.5 * dt; s.z += s.lz * 9.5 * dt // lunge along the locked direction
       if (!s.struck) {
         s.struck = true
-        // damage lands ONLY here, and only if still in range and not mid-dodge
-        if (dist < ENEMY_HITRANGE && !bus.invuln && !bus.dead) api.damage(16)
+        // damage lands ONLY here, and only if still in range and not mid-dodge.
+        // pass the lunge direction so the player reels & is knocked back away from us.
+        if (dist < ENEMY_HITRANGE && !bus.invuln && !bus.dead) api.damage(16, s.lx, s.lz)
       }
       s.timer -= dt
       if (s.timer <= 0) { s.mode = 'recover'; s.timer = ENEMY_RECOVER; s.cool = ENEMY_RECOVER + 0.5 }
@@ -908,7 +1161,7 @@ function Collectible({ data, bus, api }) {
     const dx = bus.playerPos.x - data.x, dz = bus.playerPos.z - data.z
     if (Math.hypot(dx, dz) < 1.3) {
       got.current = true; m.visible = false
-      api.addScore(10); api.heal(4)
+      api.addScore(10); api.heal(4); api.gainXp(8)
     }
   })
   return (
@@ -941,6 +1194,18 @@ function Ground() {
         <circleGeometry args={[WORLD_RADIUS * 0.5, 72]} />
         <meshStandardMaterial color="#3a5578" roughness={1} />
       </mesh>
+      {/* soft bright heart of the clearing → a gentle radial-glow feel underfoot */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.010, 0]}>
+        <circleGeometry args={[WORLD_RADIUS * 0.3, 64]} />
+        <meshBasicMaterial color="#4a6f96" transparent opacity={0.38} depthWrite={false} toneMapped={false} />
+      </mesh>
+      {/* concentric ripple rings radiating outward for depth */}
+      {[0.62, 0.74, 0.86].map((f, i) => (
+        <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.011, 0]}>
+          <ringGeometry args={[WORLD_RADIUS * f - 0.12, WORLD_RADIUS * f, 120]} />
+          <meshBasicMaterial color="#5f7ac0" transparent opacity={0.16} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} />
+        </mesh>
+      ))}
       {/* glowing ring marking the clearing edge */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.012, 0]}>
         <ringGeometry args={[WORLD_RADIUS * 0.5 - 0.35, WORLD_RADIUS * 0.5, 96]} />
@@ -951,6 +1216,121 @@ function Ground() {
         <ringGeometry args={[WORLD_RADIUS - 0.5, WORLD_RADIUS + 0.5, 160]} />
         <meshBasicMaterial color="#3a5bd0" transparent opacity={0.5} side={THREE.DoubleSide} toneMapped={false} />
       </mesh>
+    </group>
+  )
+}
+
+// ── Bioluminescent light-pools glowing softly on the clearing floor ──
+function LightPools() {
+  const pools = useMemo(() => {
+    const cols = ['#6fe0d0', '#8fb0ff', '#c9a0ff', '#ffd98a', '#9ff0dd']
+    const out = []
+    for (let i = 0; i < 15; i++) {
+      const a = Math.random() * Math.PI * 2
+      const r = rand(4, WORLD_RADIUS * 0.82)
+      out.push({ x: Math.cos(a) * r, z: Math.sin(a) * r, s: rand(1.4, 3.8), c: cols[i % cols.length] })
+    }
+    return out
+  }, [])
+  return (
+    <group>
+      {pools.map((p, i) => (
+        <group key={i} position={[p.x, 0.016, p.z]} rotation={[-Math.PI / 2, 0, 0]}>
+          <mesh>
+            <circleGeometry args={[p.s, 28]} />
+            <meshBasicMaterial color={p.c} transparent opacity={0.13} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
+          </mesh>
+          <mesh position={[0, 0, 0.001]}>
+            <circleGeometry args={[p.s * 0.42, 24]} />
+            <meshBasicMaterial color={p.c} transparent opacity={0.18} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  )
+}
+
+// ── A slowly-turning magic rune circle inscribed on the central clearing ──
+function RuneCircle() {
+  const g = useRef()
+  useFrame((_, dt) => { if (g.current) g.current.rotation.z += dt * 0.06 })
+  const spokes = 14
+  return (
+    <group position={[0, 0.025, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <group ref={g}>
+        <mesh><ringGeometry args={[5.2, 5.5, 90]} /><meshBasicMaterial color="#7fa0e6" transparent opacity={0.45} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} /></mesh>
+        <mesh><ringGeometry args={[6.7, 6.82, 90]} /><meshBasicMaterial color="#8fe0d0" transparent opacity={0.4} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} /></mesh>
+        <mesh><ringGeometry args={[7.4, 7.46, 90]} /><meshBasicMaterial color="#bcd4ff" transparent opacity={0.3} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} /></mesh>
+        {Array.from({ length: spokes }).map((_, i) => {
+          const a = (i / spokes) * Math.PI * 2
+          return (
+            <mesh key={i} position={[Math.cos(a) * 6.1, Math.sin(a) * 6.1, 0]} rotation={[0, 0, a]}>
+              <planeGeometry args={[0.9, 0.09]} />
+              <meshBasicMaterial color="#cfe0ff" transparent opacity={0.5} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} />
+            </mesh>
+          )
+        })}
+      </group>
+    </group>
+  )
+}
+
+// ── Glowing lanterns drifting & bobbing over the clearing ──
+function Lanterns() {
+  const data = useMemo(() => {
+    const cols = ['#ffcf7a', '#8fe0ff', '#ff9db1', '#c9a0ff', '#9ff0dd']
+    const out = []
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * Math.PI * 2
+      const r = rand(8, WORLD_RADIUS * 0.85)
+      out.push({ x: Math.cos(a) * r, z: Math.sin(a) * r, y: rand(2.4, 6), c: cols[i % cols.length], ph: Math.random() * 6.28, sp: rand(0.3, 0.7), s: rand(0.7, 1.2) })
+    }
+    return out
+  }, [])
+  const grp = useRef()
+  useFrame(() => {
+    const g = grp.current
+    if (!g) return
+    const t = performance.now() * 0.001
+    for (let i = 0; i < g.children.length; i++) {
+      const d = data[i], c = g.children[i]
+      c.position.y = d.y + Math.sin(t * d.sp + d.ph) * 0.5
+      c.position.x = d.x + Math.sin(t * d.sp * 0.6 + d.ph) * 0.7
+    }
+  })
+  return (
+    <group ref={grp}>
+      {data.map((d, i) => (
+        <group key={i} position={[d.x, d.y, d.z]} scale={d.s}>
+          <mesh><sphereGeometry args={[0.2, 14, 14]} /><meshStandardMaterial color={d.c} emissive={d.c} emissiveIntensity={2.4} toneMapped={false} /></mesh>
+          <mesh><sphereGeometry args={[0.42, 14, 14]} /><meshBasicMaterial color={d.c} transparent opacity={0.22} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} /></mesh>
+          <Sparkles count={6} scale={1.3} size={2} speed={0.3} color={d.c} />
+        </group>
+      ))}
+    </group>
+  )
+}
+
+// ── A great luminous world-tree — a scenic landmark on the horizon ──
+function WorldTree({ position, scale = 1 }) {
+  const canopy = [[0, 8.6, 0, 3.4], [2.7, 9.3, 1.2, 2.3], [-2.5, 9.6, -1, 2.1], [0.4, 10.9, 0.3, 1.8], [1.4, 7.6, -1.8, 1.6]]
+  return (
+    <group position={position} scale={scale}>
+      <mesh castShadow position={[0, 4, 0]}>
+        <cylinderGeometry args={[0.7, 1.6, 8, 10]} />
+        <meshStandardMaterial color="#2a2440" roughness={0.9} flatShading />
+      </mesh>
+      {canopy.map((c, i) => (
+        <mesh key={i} castShadow position={[c[0], c[1], c[2]]}>
+          <icosahedronGeometry args={[c[3], 0]} />
+          <meshStandardMaterial color="#39608f" emissive="#4fd0c0" emissiveIntensity={0.55} roughness={0.7} flatShading />
+        </mesh>
+      ))}
+      {/* heart-glow + blossom motes */}
+      <mesh position={[0, 9.4, 0]}><sphereGeometry args={[0.9, 16, 16]} /><meshBasicMaterial color="#8fe6ff" transparent opacity={0.3} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} /></mesh>
+      <Sparkles count={46} scale={[8, 7, 8]} position={[0, 9.4, 0]} size={3} speed={0.25} opacity={0.9} color="#bfe9ff" />
+      {/* one STATIC point light (never toggled → no shader-recompile hitch) */}
+      <pointLight position={[0, 9, 0]} color="#7fe0d0" intensity={1.3} distance={46} />
     </group>
   )
 }
@@ -1148,18 +1528,43 @@ function buildEnemies() {
 }
 
 // ── HUD / overlays ────────────────────────────────────────────────────────────
-function Hud({ hp, score, kills, toast, onExit }) {
+function Hud({ hp, maxHp, score, kills, toast, level, xp, xpNext, atk, onExit }) {
+  const hpPct = Math.max(0, Math.min(100, (hp / maxHp) * 100))
+  const xpPct = Math.max(0, Math.min(100, (xp / xpNext) * 100))
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', fontFamily: "'Noto Sans KR', sans-serif", color: '#eaf0ff' }}>
-      {/* top-left stats */}
-      <div style={{ position: 'absolute', top: 20, left: 22, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div style={{ fontSize: 13, letterSpacing: '0.15em', color: 'rgba(180,200,255,0.7)' }}>달빛 원정</div>
-        <div style={{ width: 220, height: 16, borderRadius: 8, background: 'rgba(255,255,255,0.1)', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)' }}>
-          <div style={{ width: `${hp}%`, height: '100%', background: 'linear-gradient(90deg,#ff5a7a,#ff9db1)', transition: 'width 0.25s' }} />
+      {/* top-left character panel */}
+      <div style={{ position: 'absolute', top: 20, left: 22, display: 'flex', flexDirection: 'column', gap: 7, width: 250 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ fontSize: 13, letterSpacing: '0.15em', color: 'rgba(180,200,255,0.7)' }}>달빛 원정</div>
+          {/* level badge */}
+          <div style={{
+            display: 'flex', alignItems: 'baseline', gap: 3, padding: '2px 10px', borderRadius: 20,
+            background: 'linear-gradient(135deg,#4d6bd0,#8258d6)', boxShadow: '0 2px 10px rgba(90,110,220,0.45)',
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.03em',
+          }}>
+            <span style={{ opacity: 0.8 }}>Lv.</span><span style={{ fontSize: 15 }}>{level}</span>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 16, fontSize: 14 }}>
+        {/* HP bar with numbers */}
+        <div style={{ position: 'relative', width: 250, height: 17, borderRadius: 8, background: 'rgba(255,255,255,0.1)', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)' }}>
+          <div style={{ width: `${hpPct}%`, height: '100%', background: 'linear-gradient(90deg,#ff5a7a,#ff9db1)', transition: 'width 0.25s' }} />
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: 700, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>
+            {Math.ceil(hp)} / {maxHp}
+          </div>
+        </div>
+        {/* XP bar */}
+        <div style={{ position: 'relative', width: 250, height: 8, borderRadius: 5, background: 'rgba(255,255,255,0.08)', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)' }}>
+          <div style={{ width: `${xpPct}%`, height: '100%', background: 'linear-gradient(90deg,#7fd0ff,#b98fff)', transition: 'width 0.25s' }} />
+        </div>
+        {/* stats */}
+        <div style={{ display: 'flex', gap: 14, fontSize: 13, marginTop: 1, color: 'rgba(225,233,255,0.9)' }}>
+          <span>⚔ 공격력 <b>{atk}</b></span>
+          <span>✧ EXP <b>{xp}/{xpNext}</b></span>
+        </div>
+        <div style={{ display: 'flex', gap: 16, fontSize: 13, color: 'rgba(225,233,255,0.9)' }}>
           <span>✦ 파편 <b>{score}</b></span>
-          <span>⚔ 처치 <b>{kills}</b></span>
+          <span>☠ 처치 <b>{kills}</b></span>
         </div>
       </div>
 
@@ -1194,7 +1599,7 @@ function Hud({ hp, score, kills, toast, onExit }) {
   )
 }
 
-function DeathScreen({ score, kills, onRespawn, onExit }) {
+function DeathScreen({ score, kills, level, onRespawn, onExit }) {
   return (
     <div style={{
       position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
@@ -1202,7 +1607,7 @@ function DeathScreen({ score, kills, onRespawn, onExit }) {
       backdropFilter: 'blur(3px)', fontFamily: "'Noto Sans KR', sans-serif", color: '#eaf0ff',
     }}>
       <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: '0.1em', color: '#ff8fa6' }}>쓰러졌다…</div>
-      <div style={{ fontSize: 15, color: 'rgba(220,230,255,0.75)' }}>파편 {score} · 처치 {kills}</div>
+      <div style={{ fontSize: 15, color: 'rgba(220,230,255,0.75)' }}>Lv.{level} · 파편 {score} · 처치 {kills}</div>
       <div style={{ display: 'flex', gap: 14 }}>
         <button onClick={onRespawn} style={btn('#3d5aa8')}>다시 도전</button>
         <button onClick={onExit} style={btn('rgba(40,48,80,0.8)')}>돌아가기</button>
