@@ -45,6 +45,11 @@ export default function App() {
     () => todos.filter((t) => t.dateKey === activeDateKey),
     [todos, activeDateKey],
   )
+  // A note shows if it's pinned (every day), legacy (no dateKey), or belongs to the active day.
+  const visibleNotes = useMemo(
+    () => notes.filter((n) => n.pinned || !n.dateKey || n.dateKey === activeDateKey),
+    [notes, activeDateKey],
+  )
   const isViewingToday = activeDateKey === todayKey
   const todoLabel = isViewingToday
     ? '오늘 할 일'
@@ -138,8 +143,11 @@ export default function App() {
   }
 
   // Todo handlers — each mutates the backend, then syncs local state from the response.
-  const addTodo = async (text) => {
-    const created = await todosApi.create(text, activeDateKey)
+  const addTodo = async (text, opts = {}) => {
+    const created = await todosApi.create(text, activeDateKey, {
+      timeLabel: opts.timeLabel || null,
+      place: opts.place || null,
+    })
     setTodos((t) => [...t, created])
   }
   const toggleTodo = async (id) => {
@@ -152,9 +160,10 @@ export default function App() {
     setTodos((t) => t.filter((x) => x.id !== id))
     await todosApi.remove(id)
   }
-  const editTodo = (id, text) => {
-    setTodos((t) => t.map((x) => (x.id === id ? { ...x, text } : x)))
-    todosApi.update(id, { text }).catch((e) => console.error('failed to save todo text', e))
+  // patch may contain any of: text, timeLabel, place. Empty string clears a field on the backend.
+  const editTodo = (id, patch) => {
+    setTodos((t) => t.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+    todosApi.update(id, patch).catch((e) => console.error('failed to save todo', e))
   }
 
   // Sticky-note handlers.
@@ -162,14 +171,27 @@ export default function App() {
     const x = 60 + Math.random() * 120
     const y = 140 + Math.random() * 160
     const rot = (Math.random() - 0.5) * 8
-    const created = await notesApi.create({ text, x, y, rot, ts: Date.now() })
+    const created = await notesApi.create({ text, x, y, rot, dateKey: activeDateKey, ts: Date.now() })
     setNotes((n) => [...n, created])
+  }
+  const togglePin = (id) => {
+    const target = notes.find((m) => m.id === id)
+    if (!target) return
+    const pinned = !target.pinned
+    setNotes((n) => n.map((m) => (m.id === id ? { ...m, pinned } : m)))
+    notesApi.update(id, { pinned }).catch((e) => console.error('failed to toggle note pin', e))
   }
   // Live drag position — local only, no network call per mousemove.
   const moveNote = (id, x, y) => setNotes((n) => n.map((m) => (m.id === id ? { ...m, x, y } : m)))
   // Fired once at drag end to persist the final position.
   const persistNotePosition = (id, x, y) => {
     notesApi.update(id, { x, y }).catch((e) => console.error('failed to save note position', e))
+  }
+  // Live resize — local only, no network call per mousemove.
+  const resizeNote = (id, width, height) => setNotes((n) => n.map((m) => (m.id === id ? { ...m, width, height } : m)))
+  // Fired once at resize end to persist the final size.
+  const persistNoteSize = (id, width, height) => {
+    notesApi.update(id, { width, height }).catch((e) => console.error('failed to save note size', e))
   }
   const removeNote = (id) => {
     setNotes((n) => n.filter((m) => m.id !== id))
@@ -221,7 +243,7 @@ export default function App() {
 
       {/* Draggable notes only make sense on a pointer device — skip on mobile. */}
       {!isMobile && (
-        <StickyNotes notes={notes} onMove={moveNote} onMoveEnd={persistNotePosition} onRemove={removeNote} onEdit={editNote} />
+        <StickyNotes notes={visibleNotes} onMove={moveNote} onMoveEnd={persistNotePosition} onResize={resizeNote} onResizeEnd={persistNoteSize} onRemove={removeNote} onEdit={editNote} onTogglePin={togglePin} />
       )}
 
       {/* Main column */}
