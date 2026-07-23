@@ -152,6 +152,10 @@ export default function App() {
     setTodos((t) => t.filter((x) => x.id !== id))
     await todosApi.remove(id)
   }
+  const editTodo = (id, text) => {
+    setTodos((t) => t.map((x) => (x.id === id ? { ...x, text } : x)))
+    todosApi.update(id, { text }).catch((e) => console.error('failed to save todo text', e))
+  }
 
   // Sticky-note handlers.
   const addNote = async (text) => {
@@ -250,6 +254,7 @@ export default function App() {
             onAdd={addTodo}
             onToggle={toggleTodo}
             onRemove={removeTodo}
+            onEdit={editTodo}
             onResetToToday={() => setSelectedDateKey(null)}
           />
           <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '22px 0' }} />

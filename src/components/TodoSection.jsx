@@ -11,8 +11,10 @@ const inputStyle = {
   fontWeight: 300, backdropFilter: 'blur(8px)',
 }
 
-export default function TodoSection({ todos, label = '오늘 할 일', isToday = true, onAdd, onToggle, onRemove, onResetToToday }) {
+export default function TodoSection({ todos, label = '오늘 할 일', isToday = true, onAdd, onToggle, onRemove, onEdit, onResetToToday }) {
   const [val, setVal] = useState('')
+  const [editingId, setEditingId] = useState(null)
+  const [editVal, setEditVal] = useState('')
   const done = todos.filter((t) => t.done).length
 
   const submit = () => {
@@ -20,6 +22,21 @@ export default function TodoSection({ todos, label = '오늘 할 일', isToday =
     if (!text) return
     onAdd(text)
     setVal('')
+  }
+
+  const startEdit = (item) => {
+    setEditingId(item.id)
+    setEditVal(item.text)
+  }
+  const commitEdit = () => {
+    const text = editVal.trim()
+    if (text && onEdit) onEdit(editingId, text)
+    setEditingId(null)
+    setEditVal('')
+  }
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditVal('')
   }
 
   return (
@@ -69,11 +86,42 @@ export default function TodoSection({ todos, label = '오늘 할 일', isToday =
                   </svg>
                 )}
               </button>
-              <span style={{
-                flex: 1, fontSize: 14, fontWeight: 300, letterSpacing: '0.01em',
-                color: item.done ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.82)',
-                textDecoration: item.done ? 'line-through' : 'none',
-              }}>{item.text}</span>
+              {editingId === item.id ? (
+                <input
+                  type="text" value={editVal} autoFocus
+                  onChange={(e) => setEditVal(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitEdit()
+                    else if (e.key === 'Escape') cancelEdit()
+                  }}
+                  onBlur={commitEdit}
+                  style={{
+                    flex: 1, background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(99,179,237,0.4)',
+                    borderRadius: 8, padding: '5px 9px', fontSize: 14, fontWeight: 300, letterSpacing: '0.01em',
+                    color: 'rgba(255,255,255,0.9)', fontFamily: "'Noto Sans KR', sans-serif", outline: 'none',
+                  }}
+                />
+              ) : (
+                <span
+                  onDoubleClick={() => startEdit(item)} title="더블클릭하여 수정"
+                  style={{
+                    flex: 1, fontSize: 14, fontWeight: 300, letterSpacing: '0.01em', cursor: 'text',
+                    color: item.done ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.82)',
+                    textDecoration: item.done ? 'line-through' : 'none',
+                  }}>{item.text}</span>
+              )}
+              {onEdit && editingId !== item.id && (
+                <button onClick={() => startEdit(item)} title="수정" style={{
+                  width: 26, height: 26, minWidth: 26, borderRadius: 7, border: 'none', background: 'transparent',
+                  cursor: 'pointer', color: 'rgba(255,255,255,0.16)', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                    <path d="M14.06 6.19l3.75 3.75L8.5 19.25 4.75 19.25 4.75 15.5 14.06 6.19z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M14.06 6.19l1.94-1.94a1.5 1.5 0 012.12 0l1.63 1.63a1.5 1.5 0 010 2.12L17.81 9.94" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              )}
               <button onClick={() => onRemove(item.id)} style={{
                 width: 26, height: 26, minWidth: 26, borderRadius: 7, border: 'none', background: 'transparent',
                 cursor: 'pointer', color: 'rgba(255,255,255,0.16)', fontSize: 19, display: 'flex',
