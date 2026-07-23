@@ -9,11 +9,13 @@ import StickyNotes from './components/StickyNotes.jsx'
 import DiaryModal from './components/DiaryModal.jsx'
 import Settings from './components/Settings.jsx'
 import Search from './components/Search.jsx'
+import Notice from './components/Notice.jsx'
+import MusicPlayer from './components/MusicPlayer.jsx'
 import Login from './components/Login.jsx'
 import HiddenGame from './game/HiddenGame.jsx'
 import { useAuth } from './lib/useAuth.js'
 import { useIsMobile } from './lib/useIsMobile.js'
-import { todosApi, notesApi, diariesApi, settingsApi } from './lib/api.js'
+import { todosApi, notesApi, diariesApi, settingsApi, tracksApi } from './lib/api.js'
 import { DAYS_KR, QUOTES, greetingFor, weatherIcon, dateKey } from './lib/data.js'
 
 const DEFAULT_SETTINGS = {
@@ -36,6 +38,7 @@ export default function App() {
   const [diaries, setDiaries] = useState({})
   const [todos, setTodos] = useState([])
   const [notes, setNotes] = useState([])
+  const [tracks, setTracks] = useState([])
 
   // Which day the todo panel is showing. null = follow "today" live; a dateKey = a day the user picked on the calendar.
   const [selectedDateKey, setSelectedDateKey] = useState(null)
@@ -57,18 +60,19 @@ export default function App() {
   useEffect(() => {
     if (auth.status !== 'authenticated') {
       if (auth.status === 'anonymous') {
-        setSettingsLocal(DEFAULT_SETTINGS); setDiaries({}); setTodos([]); setNotes([])
+        setSettingsLocal(DEFAULT_SETTINGS); setDiaries({}); setTodos([]); setNotes([]); setTracks([])
       }
       return
     }
     let cancelled = false
-    Promise.all([settingsApi.get(), diariesApi.list(), todosApi.list(), notesApi.list()])
-      .then(([s, d, t, n]) => {
+    Promise.all([settingsApi.get(), diariesApi.list(), todosApi.list(), notesApi.list(), tracksApi.list()])
+      .then(([s, d, t, n, tr]) => {
         if (cancelled) return
         setSettingsLocal(s)
         setDiaries(Object.fromEntries(d.map((e) => [e.dateKey, { title: e.title, body: e.body, mood: e.mood }])))
         setTodos(t)
         setNotes(n)
+        setTracks(tr)
       }).catch((e) => console.error('failed to load account data', e))
     return () => { cancelled = true }
   }, [auth.status])
@@ -202,6 +206,16 @@ export default function App() {
     notesApi.update(id, { text }).catch((e) => console.error('failed to save note text', e))
   }
 
+  // Music playlist handlers.
+  const addTrack = async (videoId, title) => {
+    const created = await tracksApi.create(videoId, title)
+    setTracks((t) => [...t, created])
+  }
+  const removeTrack = (id) => {
+    setTracks((t) => t.filter((x) => x.id !== id))
+    tracksApi.remove(id).catch((e) => console.error('failed to delete track', e))
+  }
+
   const greeting = greetingFor(now.getHours(), settings.userName)
   const dateStr = useMemo(
     () => `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 ${DAYS_KR[now.getDay()]}요일`,
@@ -212,7 +226,7 @@ export default function App() {
     return <StarField background={settings.background} />
   }
   if (auth.status === 'anonymous') {
-    return <Login onLogin={auth.login} onSignup={auth.signup} />
+    return <Login onLogin={auth.login} onSignup={auth.signup} onRequestCode={auth.requestCode} />
   }
 
   return (
@@ -318,7 +332,11 @@ export default function App() {
         position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 90,
         fontFamily: 'Outfit, sans-serif', fontSize: 11, fontWeight: 300, letterSpacing: '0.08em',
         color: 'rgba(255,255,255,0.32)', textShadow: '0 1px 6px rgba(0,0,0,0.5)', userSelect: 'none', whiteSpace: 'nowrap',
-      }}>© 2026 Geol2</div>
+      }}>© 2026 Geol2 · big9401@gmail.com</div>
+
+      <Notice />
+
+      {!isMobile && <MusicPlayer tracks={tracks} onAdd={addTrack} onRemove={removeTrack} />}
 
       <DiaryModal
         open={diaryOpen}

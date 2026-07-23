@@ -131,3 +131,12 @@ export function greetingFor(hour, name) {
 export function dateKey(y, m, d) {
   return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }
+
+// 공지사항 — 최신 항목을 배열 맨 위에 추가하세요.
+export const NOTICES = [
+  {
+    date: '2026-07-23',
+    title: '할 일 · 메모 기능이 개선되었어요',
+    body: '할 일에 시간·장소를 넣을 수 있고, 메모는 크기 조절과 날짜별 표시·고정(📌)이 가능해졌습니다.',
+  },
+]

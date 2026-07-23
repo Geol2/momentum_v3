@@ -26,10 +26,19 @@ export function useAuth() {
     return u
   }, [])
 
-  const signup = useCallback(async (email, password, name) => {
+  // Step 1 of signup: ask the backend to email a 6-digit verification code.
+  const requestCode = useCallback(async (email) => {
+    await apiFetch('/api/auth/request-code', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    })
+  }, [])
+
+  // Step 2 of signup: submit the code alongside the account details.
+  const signup = useCallback(async (email, password, name, code) => {
     const { token, user: u } = await apiFetch('/api/auth/signup', {
       method: 'POST',
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify({ email, password, name, code }),
     })
     setToken(token)
     setUser(u)
@@ -43,5 +52,5 @@ export function useAuth() {
     setStatus('anonymous')
   }, [])
 
-  return { status, user, login, signup, logout }
+  return { status, user, login, signup, requestCode, logout }
 }

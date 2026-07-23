@@ -24,7 +24,7 @@ export default function WeatherQuote({ quote, showQuote, onNewQuote, weather, te
     <div style={{
       ...(mobile
         ? { position: 'static', alignItems: 'center', margin: '0 auto', animation: 'fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) both' }
-        : { position: 'fixed', top: 26, right: 30, zIndex: 100, alignItems: 'flex-end', animation: 'slideFromRight 0.8s cubic-bezier(0.16,1,0.3,1) 0.5s both' }),
+        : { position: 'fixed', top: 60, right: 30, zIndex: 100, alignItems: 'flex-end', animation: 'slideFromRight 0.8s cubic-bezier(0.16,1,0.3,1) 0.5s both' }),
       display: 'flex', flexDirection: 'column', gap: 14, fontFamily: "'Noto Sans KR', sans-serif",
     }}>
       {showQuote && (

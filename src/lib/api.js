@@ -50,6 +50,13 @@ export const todosApi = {
   remove: (id) => apiFetch(`/api/todos/${id}`, { method: 'DELETE' }),
 }
 
+export const tracksApi = {
+  list: () => apiFetch('/api/tracks'),
+  create: (videoId, title) => apiFetch('/api/tracks', { method: 'POST', body: JSON.stringify({ videoId, title, ts: Date.now() }) }),
+  update: (id, patch) => apiFetch(`/api/tracks/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  remove: (id) => apiFetch(`/api/tracks/${id}`, { method: 'DELETE' }),
+}
+
 export const notesApi = {
   list: () => apiFetch('/api/notes'),
   create: (note) => apiFetch('/api/notes', { method: 'POST', body: JSON.stringify(note) }),

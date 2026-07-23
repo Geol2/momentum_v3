@@ -74,7 +74,7 @@ export default function Calendar({ now, diaries, todos = [], selectedDateKey, on
     <div style={{
       ...(mobile
         ? { position: 'static', width: 216, margin: '0 auto' }
-        : { position: 'fixed', top: 24, left: 26, zIndex: 100, width: 196 }),
+        : { position: 'fixed', top: 60, left: 26, zIndex: 100, width: 196 }),
       background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16,
       padding: '12px 14px', backdropFilter: 'blur(20px)', fontFamily: 'Outfit, sans-serif',
       animation: 'fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) 0.55s both',
