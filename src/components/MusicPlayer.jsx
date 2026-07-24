@@ -162,11 +162,15 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
     const list = tracksRef.current
     if (!list.length) return
     const idx = ((i % list.length) + list.length) % list.length
+    // iOS can't play YouTube inline in a web app (autoplay/gesture + no background audio),
+    // so tapping a track just opens it in the YouTube app / a new tab. Fired from the tap,
+    // so the popup isn't blocked.
+    if (IOS) {
+      window.open(`https://www.youtube.com/watch?v=${list[idx].videoId}`, '_blank', 'noopener')
+      return
+    }
     setIndex(idx); indexRef.current = idx
     setError('')
-    // iOS: selecting a track just drives the visible <iframe> (keyed on videoId); the
-    // user taps its native play button. No IFrame-API calls — they don't work on iOS.
-    if (IOS) return
 
     const start = (pp) => {
       pp.loadVideoById(list[idx].videoId)
@@ -242,36 +246,9 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
 
   return (
     <>
-      {IOS ? (
-        /* iOS: a plain YouTube embed (native controls). Keyed on videoId so switching
-           tracks reloads it. The user taps its play button — the only way iOS starts
-           playback with sound. Rendered only when a track is selected. */
-        nowPlaying && (
-          <div style={{
-            position: 'fixed', top: 50, right: 8, zIndex: 102,
-            width: 'min(300px, calc(100vw - 16px))', borderRadius: 12, overflow: 'hidden',
-            boxShadow: '0 18px 44px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.14)', background: '#000',
-          }}>
-            <div style={{
-              fontSize: 10.5, color: 'rgba(255,255,255,0.55)', fontFamily: "'Noto Sans KR', sans-serif",
-              padding: '5px 9px', background: 'rgba(12,15,24,0.9)', textAlign: 'center',
-            }}>▶ 눌러 재생 · 곡을 바꾸면 새 영상이 떠요</div>
-            {/* padding-bottom 56.25% = 16:9 height that works on every iOS version
-                (aspect-ratio can collapse to 0 on some, leaving just a black box). */}
-            <div style={{ position: 'relative', width: '100%', height: 0, paddingBottom: '56.25%' }}>
-              <iframe
-                key={nowPlaying.videoId}
-                src={`https://www.youtube.com/embed/${nowPlaying.videoId}?playsinline=1&rel=0`}
-                title={nowPlaying.title}
-                allow="autoplay; encrypted-media; picture-in-picture"
-                allowFullScreen
-                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
-              />
-            </div>
-          </div>
-        )
-      ) : (
-        /* Desktop/Android: hidden 0×0 background player — playback survives the dropdown closing. */
+      {/* Desktop/Android: hidden 0×0 background player — playback survives the dropdown
+          closing. iOS uses none of this; it opens tracks in YouTube (see playAt). */}
+      {!IOS && (
         <div style={{ position: 'fixed', width: 0, height: 0, overflow: 'hidden', pointerEvents: 'none' }} aria-hidden="true">
           <div ref={hostRef} />
         </div>
@@ -364,21 +341,33 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
             animation: 'itemIn 0.22s cubic-bezier(0.16,1,0.3,1) both',
           }}
         >
-          {/* Volume */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-            <button onClick={toggleMute} title={muted ? '음소거 해제' : '음소거'} style={{
-              border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 16, padding: 0, flexShrink: 0,
-            }}>{volIcon}</button>
-            <input
-              type="range" min="0" max="100" value={muted ? 0 : volume}
-              onChange={(e) => applyVolume(Number(e.target.value))}
-              title="볼륨" aria-label="볼륨"
-              className="mp-vol" style={{ flex: 1, minWidth: 0, '--pct': `${muted ? 0 : volume}%` }}
-            />
-            <span style={{ flexShrink: 0, width: 30, textAlign: 'right', fontSize: 11, fontFamily: 'Outfit, sans-serif', color: 'rgba(255,255,255,0.5)', fontVariantNumeric: 'tabular-nums' }}>
-              {muted ? 0 : volume}
-            </span>
-          </div>
+          {IOS ? (
+            /* iOS has no in-app player — tracks open in YouTube. Say so instead of
+               showing a volume slider that would do nothing. */
+            <div style={{
+              fontSize: 11.5, fontWeight: 300, lineHeight: 1.6, color: 'rgba(255,255,255,0.55)',
+              fontFamily: "'Noto Sans KR', sans-serif", marginBottom: 12, paddingBottom: 12,
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+            }}>
+              🎵 아이폰에서는 곡을 누르면 <b style={{ color: 'rgba(185,222,255,0.9)' }}>유튜브에서 열려요</b>.
+            </div>
+          ) : (
+            /* Volume */
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+              <button onClick={toggleMute} title={muted ? '음소거 해제' : '음소거'} style={{
+                border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 16, padding: 0, flexShrink: 0,
+              }}>{volIcon}</button>
+              <input
+                type="range" min="0" max="100" value={muted ? 0 : volume}
+                onChange={(e) => applyVolume(Number(e.target.value))}
+                title="볼륨" aria-label="볼륨"
+                className="mp-vol" style={{ flex: 1, minWidth: 0, '--pct': `${muted ? 0 : volume}%` }}
+              />
+              <span style={{ flexShrink: 0, width: 30, textAlign: 'right', fontSize: 11, fontFamily: 'Outfit, sans-serif', color: 'rgba(255,255,255,0.5)', fontVariantNumeric: 'tabular-nums' }}>
+                {muted ? 0 : volume}
+              </span>
+            </div>
+          )}
 
           {/* Add form */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: tracks.length ? 13 : 2 }}>
