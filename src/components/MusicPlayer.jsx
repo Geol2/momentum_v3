@@ -30,6 +30,28 @@ function fmtTime(s) {
   return `${m}:${String(sec).padStart(2, '0')}`
 }
 
+// Playlist thumbnail that doubles as the play button. Uses YouTube's public thumbnail
+// URL (no API key, and an <img>/background load isn't subject to the CORS block that
+// hits the API). A background-image degrades to a plain dark tile if the id is bad,
+// avoiding a broken-image icon.
+function TrackThumb({ videoId, active, playing, onClick }) {
+  return (
+    <button onClick={onClick} title="재생" style={{
+      position: 'relative', width: 48, height: 30, minWidth: 48, borderRadius: 6, border: 'none', padding: 0,
+      cursor: 'pointer', overflow: 'hidden', flexShrink: 0, backgroundColor: '#1a1e2b',
+      backgroundImage: `url(https://img.youtube.com/vi/${videoId}/mqdefault.jpg)`,
+      backgroundSize: 'cover', backgroundPosition: 'center',
+    }}>
+      <span style={{
+        position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: active ? 'rgba(30,50,80,0.32)' : 'rgba(0,0,0,0.3)',
+        color: active ? 'rgba(200,228,255,0.98)' : 'rgba(255,255,255,0.9)', fontSize: 11,
+        textShadow: '0 1px 3px rgba(0,0,0,0.85)',
+      }}>{active && playing ? '♪' : '▶'}</span>
+    </button>
+  )
+}
+
 // Load the YouTube IFrame API once, resolving when window.YT is ready.
 let ytReadyPromise = null
 function loadYT() {
@@ -67,6 +89,8 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
   const playNextRef = useRef(() => {})
   const volumeRef = useRef(volume)
   const seekingRef = useRef(false) // pause progress polling while dragging the seek bar
+  const readyRef = useRef(false)   // true once the YT player fired onReady
+  const readyPromiseRef = useRef(null) // cached "player is ready" promise
   tracksRef.current = tracks
   indexRef.current = index
   volumeRef.current = volume
@@ -87,43 +111,66 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
     return () => clearInterval(id)
   }, [])
 
-  const ensurePlayer = async () => {
-    if (playerRef.current) return playerRef.current
-    const YT = await loadYT()
-    return new Promise((resolve) => {
-      const p = new YT.Player(hostRef.current, {
-        height: '0', width: '0',
-        playerVars: { autoplay: 0, playsinline: 1 },
-        events: {
-          onReady: () => { try { p.setVolume(volumeRef.current) } catch { /* ignore */ } resolve(p) },
-          onStateChange: (e) => {
-            if (e.data === YT.PlayerState.ENDED) playNextRef.current()
-            else if (e.data === YT.PlayerState.PLAYING) setPlaying(true)
-            else if (e.data === YT.PlayerState.PAUSED) setPlaying(false)
+  // Resolves when the (single, reused) YT player has fired onReady. Cached so it runs
+  // once — created eagerly below so the player exists BEFORE the user taps play.
+  const ensurePlayer = () => {
+    if (readyPromiseRef.current) return readyPromiseRef.current
+    readyPromiseRef.current = (async () => {
+      const YT = await loadYT()
+      return await new Promise((resolve) => {
+        const p = new YT.Player(hostRef.current, {
+          height: '0', width: '0',
+          playerVars: { autoplay: 0, playsinline: 1 },
+          events: {
+            onReady: () => {
+              readyRef.current = true
+              try { p.setVolume(volumeRef.current) } catch { /* ignore */ }
+              resolve(p)
+            },
+            onStateChange: (e) => {
+              if (e.data === YT.PlayerState.ENDED) playNextRef.current()
+              else if (e.data === YT.PlayerState.PLAYING) setPlaying(true)
+              else if (e.data === YT.PlayerState.PAUSED) setPlaying(false)
+            },
+            onError: () => setError('이 곡은 재생할 수 없어요 (삭제됨/임베드 불가)'),
           },
-          onError: () => setError('이 곡은 재생할 수 없어요 (삭제됨/임베드 불가)'),
-        },
+        })
+        playerRef.current = p
       })
-      playerRef.current = p
-    })
+    })()
+    return readyPromiseRef.current
   }
 
-  const playAt = async (i) => {
+  // Build the player as soon as there's a playlist — well before any tap — so playAt
+  // can start playback synchronously inside the user gesture (required by iOS).
+  useEffect(() => {
+    if (tracks.length > 0) ensurePlayer().catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tracks.length])
+
+  const playAt = (i) => {
     const list = tracksRef.current
     if (!list.length) return
     const idx = ((i % list.length) + list.length) % list.length
     setIndex(idx); indexRef.current = idx
     setError('')
-    const p = await ensurePlayer()
-    p.loadVideoById(list[idx].videoId)
-    p.playVideo()
-    setPlaying(true)
+    const p = playerRef.current
+    if (p && readyRef.current) {
+      // Synchronous within the click handler — this is what lets iOS allow playback.
+      p.loadVideoById(list[idx].videoId)
+      p.playVideo()
+      setPlaying(true)
+    } else {
+      // Player not ready yet (first interaction raced ahead of eager init). iOS may
+      // block this first async play; a second tap then works once ready.
+      ensurePlayer().then((pp) => { pp.loadVideoById(list[idx].videoId); pp.playVideo(); setPlaying(true) })
+    }
   }
   playNextRef.current = () => playAt(indexRef.current + 1)
 
-  const togglePlay = async () => {
+  const togglePlay = () => {
     const p = playerRef.current
-    if (!p || index < 0) return playAt(index < 0 ? 0 : index)
+    if (!p || !readyRef.current || index < 0) return playAt(index < 0 ? 0 : index)
     if (playing) { p.pauseVideo(); setPlaying(false) }
     else { p.playVideo(); setPlaying(true) }
   }
@@ -318,11 +365,7 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
                     background: active ? 'rgba(99,179,237,0.14)' : 'rgba(255,255,255,0.04)',
                     border: active ? '1px solid rgba(99,179,237,0.3)' : '1px solid rgba(255,255,255,0.06)',
                   }}>
-                    <button onClick={() => playAt(i)} title="재생" style={{
-                      width: 22, height: 22, minWidth: 22, borderRadius: 6, border: 'none', cursor: 'pointer',
-                      background: 'transparent', color: active ? 'rgba(185,222,255,0.95)' : 'rgba(255,255,255,0.4)',
-                      fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                    }}>{active && playing ? '♪' : '▶'}</button>
+                    <TrackThumb videoId={t.videoId} active={active} playing={playing} onClick={() => playAt(i)} />
                     {editId === t.id ? (
                       <input
                         type="text" value={editText} autoFocus
