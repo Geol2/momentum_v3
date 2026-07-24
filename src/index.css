@@ -1,15 +1,35 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* overflow-x on <body> alone doesn't reach the viewport on iOS Safari — the page
+   still pans sideways. Setting it on <html> too is what actually pins it. */
+html, body {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
+html { -webkit-text-size-adjust: 100%; }
+
 body {
   background: #090b18;
   font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
-  overflow-x: hidden;
   min-height: 100vh;
 }
 
 input:focus, textarea:focus { outline: none; }
 input, textarea { caret-color: #bcc8ff; }
-::placeholder { color: rgba(255, 255, 255, 0.22); }
+::placeholder { color: rgba(255, 255, 255, 0.38); }
+
+/* iOS Safari auto-zooms into any field smaller than 16px, and the zoomed page is
+   then wider than the screen — that zoom is the main source of the sideways
+   scrolling on phones. !important because every field styles itself inline. */
+@media (max-width: 720px) {
+  input, textarea, select { font-size: 16px !important; }
+  /* Native date/time pickers ignore flex-basis and report a wide intrinsic size;
+     let them shrink instead of pushing the row past the viewport. */
+  input[type='date'], input[type='time'] { min-width: 0; max-width: 100%; }
+  /* Already ≥16px — exempt so the rule above doesn't shrink the diary title. */
+  .diary-paper input { font-size: 20px !important; }
+}
 
 /* Offline scenery background layers (gradients come from BACKGROUNDS in lib/data.js) */
 .bg-layer {

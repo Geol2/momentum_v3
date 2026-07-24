@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import { DAYS_KR, MOODS } from '../lib/data.js'
+import { useIsMobile } from '../lib/useIsMobile.js'
 
 // Handwritten-diary modal on lined paper. Supports view + edit modes.
 export default function DiaryModal({ open, dateInfo, entry, onSave, onDelete, onClose }) {
+  const isMobile = useIsMobile()
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
@@ -26,9 +28,14 @@ export default function DiaryModal({ open, dateInfo, entry, onSave, onDelete, on
     setEditing(false)
   }
 
+  // The red margin line eats 56px of a 480px page fine, but on a 360px phone that's
+  // a sixth of the screen — pull the whole indent in.
+  const gutter = isMobile ? 30 : 56
+  const edge = isMobile ? 16 : 30
+
   const overlay = {
     position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(8,10,20,0.62)', backdropFilter: 'blur(6px)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '20px 12px' : '40px 20px',
     animation: 'backdropIn 0.3s ease both',
   }
   const paper = {
@@ -56,10 +63,10 @@ export default function DiaryModal({ open, dateInfo, entry, onSave, onDelete, on
     <div style={overlay} onClick={onClose}>
       <div className="diary-paper thin-scroll" onClick={(e) => e.stopPropagation()} style={paper}>
         {/* Red margin line */}
-        <div style={{ position: 'absolute', top: 0, bottom: 0, left: 44, width: 2, background: 'rgba(200,90,80,0.32)' }} />
+        <div style={{ position: 'absolute', top: 0, bottom: 0, left: gutter - 12, width: 2, background: 'rgba(200,90,80,0.32)' }} />
 
         {/* Header */}
-        <div style={{ position: 'relative', padding: '22px 30px 14px 56px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, borderBottom: '1px solid rgba(150,130,90,0.18)' }}>
+        <div style={{ position: 'relative', padding: `22px ${edge}px 14px ${gutter}px`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, borderBottom: '1px solid rgba(150,130,90,0.18)' }}>
           <div>
             <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: 26, fontWeight: 400, color: '#4a3f2a', letterSpacing: '0.02em', lineHeight: 1 }}>
               {month + 1}.{String(day).padStart(2, '0')}
@@ -73,7 +80,7 @@ export default function DiaryModal({ open, dateInfo, entry, onSave, onDelete, on
         </div>
 
         {/* Body */}
-        <div className="thin-scroll" style={{ flex: 1, overflowY: 'auto', padding: '18px 30px 20px 56px' }}>
+        <div className="thin-scroll" style={{ flex: 1, overflowY: 'auto', padding: `18px ${edge}px 20px ${gutter}px` }}>
           {editing ? (
             <>
               <div style={{ marginBottom: 16 }}>
@@ -128,7 +135,7 @@ export default function DiaryModal({ open, dateInfo, entry, onSave, onDelete, on
         </div>
 
         {/* Footer */}
-        <div style={{ padding: '12px 30px 16px 56px', borderTop: '1px solid rgba(150,130,90,0.18)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <div style={{ padding: `12px ${edge}px 16px ${gutter}px`, borderTop: '1px solid rgba(150,130,90,0.18)', display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>
           {entry && <button onClick={onDelete} style={deleteBtn}>삭제</button>}
           {editing ? (
             <button onClick={save} style={primaryBtn}>저장</button>

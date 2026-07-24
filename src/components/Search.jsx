@@ -165,7 +165,7 @@ export default function Search({ onOpenDiary, onJumpToDate }) {
                     onChange={(e) => setQ(e.target.value)}
                     placeholder="기록 검색 — 오타가 있어도 찾아줘요"
                     style={{
-                      flex: 1, background: 'transparent', border: 'none', outline: 'none',
+                      flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none',
                       color: 'rgba(255,255,255,0.92)', fontSize: 15, fontFamily: 'inherit', fontWeight: 300,
                     }}
                   />
@@ -192,7 +192,9 @@ export default function Search({ onOpenDiary, onJumpToDate }) {
                       )
                     })}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>
+                  {/* flex-basis 236 lets the range drop to its own line on a phone
+                      instead of stretching the filter bar past the screen */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 236px', minWidth: 0, justifyContent: 'flex-end', color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>
                     <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} style={dateInput} />
                     <span>~</span>
                     <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} style={dateInput} />
@@ -228,7 +230,7 @@ export default function Search({ onOpenDiary, onJumpToDate }) {
                         </span>
                         <span style={{ flex: 1, minWidth: 0 }}>
                           <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                            <span style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.9)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{highlight(hit.title, q)}</span>
+                            <span style={{ minWidth: 0, fontSize: 13.5, color: 'rgba(255,255,255,0.9)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{highlight(hit.title, q)}</span>
                             <span style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 11.5, color: 'rgba(160,185,255,0.7)', fontFamily: 'Outfit, sans-serif' }}>{prettyDate(hit.date)}</span>
                           </span>
                           {hit.snippet && (
@@ -293,6 +295,7 @@ function Detail({ hit, q, onBack, onOpen, onClose }) {
 const dateInput = {
   background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
   padding: '5px 8px', fontSize: 11.5, color: 'rgba(255,255,255,0.82)', fontFamily: 'inherit', colorScheme: 'dark',
+  flex: '1 1 0', minWidth: 0,
 }
 
 function Empty({ text }) {

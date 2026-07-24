@@ -120,10 +120,11 @@ export default function Login({ onLogin, onSignup, onRequestCode }) {
       <StarField background="mountain" />
       <div style={{
         position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center',
-        justifyContent: 'center', fontFamily: "'Noto Sans KR', sans-serif",
+        justifyContent: 'center', padding: 16, overflowY: 'auto',
+        fontFamily: "'Noto Sans KR', sans-serif",
       }}>
         <form onSubmit={handleSubmit} style={{
-          width: 320, background: 'rgba(0,0,0,0.52)', border: '1px solid rgba(255,255,255,0.12)',
+          width: '100%', maxWidth: 320, background: 'rgba(0,0,0,0.52)', border: '1px solid rgba(255,255,255,0.12)',
           borderRadius: 18, padding: 28, backdropFilter: 'blur(24px)',
           animation: 'itemIn 0.25s cubic-bezier(0.16,1,0.3,1) both',
         }}>

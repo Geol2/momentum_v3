@@ -6,18 +6,20 @@ const addBtn = {
   fontFamily: "'Noto Sans KR', sans-serif", whiteSpace: 'nowrap',
 }
 const inputStyle = {
-  flex: 1, background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12,
+  // minWidth:0 — an <input> reports a ~20-character intrinsic min-width, so without
+  // this it refuses to shrink and pushes the row past the screen on phones.
+  flex: 1, minWidth: 0, background: 'rgba(0,0,0,0.58)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 12,
   padding: '12px 16px', fontSize: 14, color: 'rgba(255,255,255,0.85)', fontFamily: "'Noto Sans KR', sans-serif",
   fontWeight: 300, backdropFilter: 'blur(8px)',
 }
 // Compact inputs for the optional time / place fields.
 const optInput = {
-  background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10,
+  background: 'rgba(0,0,0,0.58)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 10,
   padding: '9px 12px', fontSize: 13, color: 'rgba(255,255,255,0.82)', fontFamily: "'Noto Sans KR', sans-serif",
   fontWeight: 300, outline: 'none',
 }
 const editInput = {
-  background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(99,179,237,0.4)', borderRadius: 8,
+  background: 'rgba(0,0,0,0.62)', border: '1px solid rgba(99,179,237,0.5)', borderRadius: 8,
   padding: '6px 9px', fontSize: 13, fontWeight: 300, color: 'rgba(255,255,255,0.9)',
   fontFamily: "'Noto Sans KR', sans-serif", outline: 'none',
 }
@@ -106,16 +108,16 @@ export default function TodoSection({ todos, label = '오늘 할 일', isToday =
         </button>
 
         {showOpts && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 8, animation: 'itemIn 0.25s ease both' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8, animation: 'itemIn 0.25s ease both' }}>
             <input
               type="time" value={time} onChange={(e) => setTime(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && submit()}
-              style={{ ...optInput, width: 120, colorScheme: 'dark' }}
+              style={{ ...optInput, flex: '0 1 120px', colorScheme: 'dark' }}
             />
             <input
               type="text" placeholder="📍 장소 (선택)" value={place} onChange={(e) => setPlace(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && submit()}
-              style={{ ...optInput, flex: 1 }}
+              style={{ ...optInput, flex: '1 1 130px', minWidth: 0 }}
             />
           </div>
         )}
@@ -127,8 +129,8 @@ export default function TodoSection({ todos, label = '오늘 할 일', isToday =
             const editing = editingId === item.id
             return (
               <div key={item.id} style={{
-                display: 'flex', alignItems: editing ? 'flex-start' : 'center', gap: 11, background: 'rgba(0,0,0,0.28)',
-                border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '12px 13px',
+                display: 'flex', alignItems: editing ? 'flex-start' : 'center', gap: 11, background: 'rgba(0,0,0,0.55)',
+                border: '1px solid rgba(255,255,255,0.14)', borderRadius: 12, padding: '12px 13px',
                 backdropFilter: 'blur(8px)', animation: 'itemIn 0.3s ease both',
               }}>
                 <button onClick={() => onToggle(item.id)} style={{
@@ -145,7 +147,7 @@ export default function TodoSection({ todos, label = '오늘 할 일', isToday =
                 </button>
 
                 {editing ? (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 7 }}>
                     <input
                       type="text" value={edit.text} autoFocus
                       onChange={(e) => setEdit((s) => ({ ...s, text: e.target.value }))}
@@ -155,18 +157,18 @@ export default function TodoSection({ todos, label = '오늘 할 일', isToday =
                       }}
                       style={{ ...editInput, width: '100%' }}
                     />
-                    <div style={{ display: 'flex', gap: 7 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
                       <input
                         type="time" value={edit.timeLabel}
                         onChange={(e) => setEdit((s) => ({ ...s, timeLabel: e.target.value }))}
                         onKeyDown={(e) => { if (e.key === 'Enter') commitEdit(); else if (e.key === 'Escape') cancelEdit() }}
-                        style={{ ...editInput, width: 110, colorScheme: 'dark' }}
+                        style={{ ...editInput, flex: '0 1 110px', colorScheme: 'dark' }}
                       />
                       <input
                         type="text" placeholder="📍 장소" value={edit.place}
                         onChange={(e) => setEdit((s) => ({ ...s, place: e.target.value }))}
                         onKeyDown={(e) => { if (e.key === 'Enter') commitEdit(); else if (e.key === 'Escape') cancelEdit() }}
-                        style={{ ...editInput, flex: 1 }}
+                        style={{ ...editInput, flex: '1 1 110px', minWidth: 0 }}
                       />
                     </div>
                     <div style={{ display: 'flex', gap: 8, marginTop: 1 }}>

@@ -294,7 +294,13 @@ export default function App() {
             onResetToToday={() => setSelectedDateKey(null)}
           />
           <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '22px 0' }} />
-          <MemoSection count={notes.length} onAdd={addNote} />
+          <MemoSection
+            notes={visibleNotes}
+            onAdd={addNote}
+            onRemove={removeNote}
+            onEdit={editNote}
+            onTogglePin={togglePin}
+          />
         </div>
 
         {/* Mobile: calendar + weather stacked below the main content instead of
@@ -328,8 +334,11 @@ export default function App() {
       <Search onOpenDiary={openDiary} onJumpToDate={(k) => setSelectedDateKey(k)} />
 
       {/* Copyright */}
+      {/* On mobile the notice pill and the gear/search buttons already fill the bottom
+          strip, so sit above them instead of underneath. */}
       <div style={{
-        position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 90,
+        position: 'fixed', bottom: isMobile ? 76 : 16, left: '50%', transform: 'translateX(-50%)', zIndex: 90,
+        maxWidth: '100vw', padding: '0 12px',
         fontFamily: 'Outfit, sans-serif', fontSize: 11, fontWeight: 300, letterSpacing: '0.08em',
         color: 'rgba(255,255,255,0.32)', textShadow: '0 1px 6px rgba(0,0,0,0.5)', userSelect: 'none', whiteSpace: 'nowrap',
       }}>© 2026 Geol2 · big9401@gmail.com</div>
