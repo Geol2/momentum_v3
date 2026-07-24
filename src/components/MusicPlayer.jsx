@@ -1,4 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { isIOS } from '../lib/inAppBrowser.js'
+
+// iOS refuses to start a hidden YouTube IFrame from a scripted playVideo() (the command
+// isn't treated as a user gesture), so on iOS we render the real player VISIBLE with
+// native controls and the user taps its play button. Desktop/Android keep the hidden 0×0
+// background player.
+const IOS = isIOS()
 
 // Extract a YouTube video id from a pasted URL or a raw 11-char id.
 export function parseVideoId(input) {
@@ -119,8 +126,10 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
       const YT = await loadYT()
       return await new Promise((resolve) => {
         const p = new YT.Player(hostRef.current, {
-          height: '0', width: '0',
-          playerVars: { autoplay: 0, playsinline: 1 },
+          height: IOS ? '100%' : '0', width: IOS ? '100%' : '0',
+          // controls:1 on iOS so the user can tap the real play button (the only way
+          // iOS starts playback with sound).
+          playerVars: { autoplay: 0, playsinline: 1, controls: IOS ? 1 : 0, rel: 0 },
           events: {
             onReady: () => {
               readyRef.current = true
@@ -154,17 +163,21 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
     const idx = ((i % list.length) + list.length) % list.length
     setIndex(idx); indexRef.current = idx
     setError('')
-    const p = playerRef.current
-    if (p && readyRef.current) {
-      // Synchronous within the click handler — this is what lets iOS allow playback.
-      p.loadVideoById(list[idx].videoId)
-      p.playVideo()
-      setPlaying(true)
-    } else {
-      // Player not ready yet (first interaction raced ahead of eager init). iOS may
-      // block this first async play; a second tap then works once ready.
-      ensurePlayer().then((pp) => { pp.loadVideoById(list[idx].videoId); pp.playVideo(); setPlaying(true) })
+    // iOS: just cue the track into the visible player; the user taps its play button
+    // (scripted playVideo() won't start on iOS). Elsewhere: load + play immediately.
+    const start = (pp) => {
+      if (IOS) {
+        pp.cueVideoById(list[idx].videoId)
+      } else {
+        pp.loadVideoById(list[idx].videoId)
+        if (!muted) { try { pp.unMute() } catch { /* ignore */ } }
+        pp.playVideo()
+        setPlaying(true)
+      }
     }
+    const p = playerRef.current
+    if (p && readyRef.current) start(p)      // synchronous within the gesture
+    else ensurePlayer().then(start)          // player still initializing
   }
   playNextRef.current = () => playAt(indexRef.current + 1)
 
@@ -230,10 +243,29 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
 
   return (
     <>
-      {/* Hidden audio host — kept mounted so playback survives the dropdown closing. */}
-      <div style={{ position: 'fixed', width: 0, height: 0, overflow: 'hidden', pointerEvents: 'none' }} aria-hidden="true">
-        <div ref={hostRef} />
-      </div>
+      {IOS ? (
+        /* iOS: the YouTube player is visible so the user can tap its play button.
+           Shown once a track is selected; sits just under the top bar. */
+        <div style={{
+          position: 'fixed', top: 50, right: 8, zIndex: 102,
+          width: 'min(300px, calc(100vw - 16px))', borderRadius: 12, overflow: 'hidden',
+          boxShadow: '0 18px 44px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.14)',
+          background: '#000', display: nowPlaying ? 'block' : 'none',
+        }}>
+          <div style={{
+            fontSize: 10.5, color: 'rgba(255,255,255,0.55)', fontFamily: "'Noto Sans KR', sans-serif",
+            padding: '5px 9px', background: 'rgba(12,15,24,0.9)', textAlign: 'center',
+          }}>▶ 눌러 재생 · 곡을 바꾸면 다시 눌러주세요</div>
+          <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9' }}>
+            <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} />
+          </div>
+        </div>
+      ) : (
+        /* Desktop/Android: hidden 0×0 background player — playback survives the dropdown closing. */
+        <div style={{ position: 'fixed', width: 0, height: 0, overflow: 'hidden', pointerEvents: 'none' }} aria-hidden="true">
+          <div ref={hostRef} />
+        </div>
+      )}
 
       {/* Thin full-width top bar */}
       <div style={{
@@ -242,7 +274,15 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
         background: 'rgba(12,15,24,0.72)', borderBottom: '1px solid rgba(255,255,255,0.1)',
         backdropFilter: 'blur(18px)', fontFamily: "'Noto Sans KR', sans-serif",
       }}>
-        <span style={{ fontSize: 14, flexShrink: 0 }}>{playing ? '🎵' : '🎧'}</span>
+        {nowPlaying ? (
+          <div title={nowPlaying.title} style={{
+            width: 40, height: 26, minWidth: 40, borderRadius: 5, flexShrink: 0, backgroundColor: '#1a1e2b',
+            backgroundImage: `url(https://img.youtube.com/vi/${nowPlaying.videoId}/mqdefault.jpg)`,
+            backgroundSize: 'cover', backgroundPosition: 'center',
+          }} />
+        ) : (
+          <span style={{ fontSize: 14, flexShrink: 0 }}>{playing ? '🎵' : '🎧'}</span>
+        )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
           <button onClick={() => playAt(index - 1)} disabled={!tracks.length} style={barBtn(tracks.length)} title="이전">⏮</button>
