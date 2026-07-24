@@ -62,6 +62,8 @@ export default function Game3D({ onExit }) {
     playerPos: new THREE.Vector3(0, 0, 0),
     camera: { yaw: 0, pitch: 0.62, dist: 12 },
     keys: {},
+    move: { x: 0, z: 0 }, // analog touch stick: x = strafe (right+), z = forward(+)
+    touchSprint: false,   // touch 질주 button held
     strafe: false,    // right-mouse held → body locks to camera-forward and strafes
     attackAt: 0,       // timestamp of last swing, consumed by enemies
     attackSeq: 0,      // increments each swing
@@ -126,6 +128,32 @@ export default function Game3D({ onExit }) {
     }
   }, [bus])
 
+  // Lock page scroll while the game is open. The game is a fixed overlay, but the app
+  // page behind it stays scrollable — so a vertical joystick/camera drag would scroll
+  // that page instead. Pin the body (and restore scroll position on exit). This is the
+  // reliable cross-browser lock; touch-action: none alone doesn't stop iOS page pan.
+  useEffect(() => {
+    const scrollY = window.scrollY
+    const body = document.body
+    const prev = {
+      position: body.style.position, top: body.style.top,
+      width: body.style.width, overflow: body.style.overflow,
+    }
+    body.style.position = 'fixed'
+    body.style.top = `-${scrollY}px`
+    body.style.width = '100%'
+    body.style.overflow = 'hidden'
+    document.documentElement.style.overscrollBehavior = 'none'
+    return () => {
+      body.style.position = prev.position
+      body.style.top = prev.top
+      body.style.width = prev.width
+      body.style.overflow = prev.overflow
+      document.documentElement.style.overscrollBehavior = ''
+      window.scrollTo(0, scrollY)
+    }
+  }, [])
+
   // Keyboard + swing input.
   useEffect(() => {
     const down = (e) => {
@@ -179,7 +207,7 @@ export default function Game3D({ onExit }) {
     // (read from keys here so the Player and the VFX agree on the same frame — no race.)
     const k = bus.keys
     bus.attackMoving = !bus.dead && !!(k['KeyW'] || k['KeyS'] || k['KeyA'] || k['KeyD'] ||
-      k['ArrowUp'] || k['ArrowDown'] || k['ArrowLeft'] || k['ArrowRight'])
+      k['ArrowUp'] || k['ArrowDown'] || k['ArrowLeft'] || k['ArrowRight'] || bus.move.x || bus.move.z)
     if (finisher) {
       // ── HEAVY 3rd-HIT SMASH — don't strike instantly. Rear the blade back NOW and let
       //    it CHARGE; the actual hit (damage · impact · VFX) releases after a wind-up so
@@ -201,7 +229,7 @@ export default function Game3D({ onExit }) {
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#05060f', cursor: 'grab' }}
+      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#05060f', cursor: 'grab', touchAction: 'none' }}
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
       onPointerLeave={onPointerUp}
@@ -221,7 +249,94 @@ export default function Game3D({ onExit }) {
       {/* HUD is a sibling of the Canvas and owns its own state, so its updates
           never re-render the 3D scene. */}
       <GameHud bus={bus} onExit={onExit} onRespawn={respawn} />
+
+      {/* On-screen controls — one unified overlay for touch AND mouse (pointer events).
+          Keyboard/mouse-drag still work alongside on desktop. */}
+      <TouchControls bus={bus} onAttack={onClickAttack} />
     </div>
+  )
+}
+
+// ── On-screen controls: left analog stick + right action buttons ──────────────
+// Uses Pointer Events so a finger or a mouse both drive it. Each control captures
+// its own pointer and stops propagation, so dragging the stick/buttons never also
+// spins the camera (the empty screen area still does).
+function TouchControls({ bus, onAttack }) {
+  const dodge = () => { bus.dodgeAt = performance.now(); bus.dodgeSeq++ }
+  return (
+    <>
+      <Joystick bus={bus} />
+      <div style={{
+        position: 'fixed', right: 22, bottom: 34, zIndex: 1002,
+        display: 'flex', alignItems: 'flex-end', gap: 12, touchAction: 'none',
+      }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+          <TouchBtn label="질주" size={54} onDown={() => { bus.touchSprint = true }} onUp={() => { bus.touchSprint = false }} />
+          <TouchBtn label="구르기" size={62} onDown={dodge} />
+        </div>
+        <TouchBtn label="공격" size={86} primary onDown={onAttack} />
+      </div>
+    </>
+  )
+}
+
+function Joystick({ bus }) {
+  const baseRef = useRef(null)
+  const active = useRef(false)
+  const [knob, setKnob] = useState({ x: 0, y: 0 })
+  const R = 42 // max knob travel from centre
+
+  const apply = (e) => {
+    const rect = baseRef.current.getBoundingClientRect()
+    let dx = e.clientX - (rect.left + rect.width / 2)
+    let dy = e.clientY - (rect.top + rect.height / 2)
+    const d = Math.hypot(dx, dy)
+    if (d > R) { dx = (dx / d) * R; dy = (dy / d) * R }
+    setKnob({ x: dx, y: dy })
+    bus.move.x = dx / R
+    bus.move.z = -dy / R // pushing up = forward
+  }
+  const start = (e) => { active.current = true; e.currentTarget.setPointerCapture(e.pointerId); apply(e); e.stopPropagation() }
+  const move = (e) => { if (active.current) { apply(e); e.stopPropagation() } }
+  const end = (e) => { active.current = false; setKnob({ x: 0, y: 0 }); bus.move.x = 0; bus.move.z = 0; e.stopPropagation() }
+
+  return (
+    <div
+      ref={baseRef}
+      onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+      style={{
+        position: 'fixed', left: 26, bottom: 32, width: 128, height: 128, borderRadius: '50%',
+        background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.16)',
+        touchAction: 'none', zIndex: 1002, backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)',
+      }}
+    >
+      <div style={{
+        position: 'absolute', left: '50%', top: '50%', width: 54, height: 54, marginLeft: -27, marginTop: -27,
+        transform: `translate(${knob.x}px, ${knob.y}px)`, borderRadius: '50%',
+        background: 'rgba(170,195,255,0.5)', border: '1px solid rgba(255,255,255,0.45)',
+        boxShadow: '0 3px 10px rgba(0,0,0,0.4)',
+      }} />
+    </div>
+  )
+}
+
+function TouchBtn({ label, size = 62, primary, onDown, onUp }) {
+  const [held, setHeld] = useState(false)
+  return (
+    <button
+      onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); setHeld(true); onDown?.() }}
+      onPointerUp={(e) => { e.stopPropagation(); setHeld(false); onUp?.() }}
+      onPointerLeave={() => { if (held) { setHeld(false); onUp?.() } }}
+      onContextMenu={(e) => e.preventDefault()}
+      style={{
+        width: size, height: size, borderRadius: '50%', touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none',
+        border: '1px solid rgba(255,255,255,0.3)', padding: 0, cursor: 'pointer',
+        background: held ? 'rgba(150,180,255,0.55)' : (primary ? 'rgba(120,150,255,0.34)' : 'rgba(255,255,255,0.12)'),
+        color: 'rgba(255,255,255,0.94)', fontSize: size > 74 ? 15 : 12.5, fontWeight: 500,
+        fontFamily: "'Noto Sans KR', sans-serif", display: 'flex', alignItems: 'center', justifyContent: 'center',
+        backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+      }}
+    >{label}</button>
   )
 }
 
@@ -363,6 +478,8 @@ function Player({ bus }) {
       if (k['KeyS'] || k['ArrowDown']) move.sub(fwd)
       if (k['KeyD'] || k['ArrowRight']) move.add(right)
       if (k['KeyA'] || k['ArrowLeft']) move.sub(right)
+      // on-screen joystick (analog) — adds on top of any keyboard input
+      if (bus.move.x || bus.move.z) { move.addScaledVector(right, bus.move.x); move.addScaledVector(fwd, bus.move.z) }
     }
     const wantMove = move.lengthSq() > 0
     if (wantMove) move.normalize()
@@ -418,7 +535,7 @@ function Player({ bus }) {
       // ── momentum: ease velocity toward the desired speed instead of snapping. You ramp
       //    up when you press and glide to a stop when you release — but a rooted action
       //    (attack/stun) bleeds it off fast so committing still stops you crisply. ──
-      const sprint = !!(k['ShiftLeft'] || k['ShiftRight'])
+      const sprint = !!(k['ShiftLeft'] || k['ShiftRight'] || bus.touchSprint)
       const targetSpeed = wantMove ? PLAYER_SPEED * (sprint ? SPRINT_MULT : 1) : 0
       const tvx = move.x * targetSpeed, tvz = move.z * targetSpeed
       const rate = locked ? MOVE_STOP : (wantMove ? MOVE_ACCEL : MOVE_DECEL)
@@ -462,7 +579,7 @@ function Player({ bus }) {
 
     // ── body animation (idle breathing · walk/run weight · lean · roll) ──
     const b = bob.current
-    const isSprint = !!(k['ShiftLeft'] || k['ShiftRight'])
+    const isSprint = !!(k['ShiftLeft'] || k['ShiftRight'] || bus.touchSprint)
     const tNow = performance.now()
     if (rolling) {
       // a natural forward roll owns the body — a quick tuck-and-tumble
@@ -1568,10 +1685,14 @@ function Hud({ hp, maxHp, score, kills, toast, level, xp, xpNext, atk, onExit })
         </div>
       </div>
 
-      {/* controls hint */}
-      <div style={{ position: 'absolute', bottom: 18, left: 22, fontSize: 12, lineHeight: 1.7, color: 'rgba(200,215,255,0.55)' }}>
-        <div><b>WASD</b> 이동 · <b>마우스 드래그</b> 시점 · <b>우클릭 드래그</b> 스트레이프 · <b>휠</b> 줌</div>
-        <div><b>좌클릭 연타</b> 3타 콤보 · <b>Space</b> 회피 구르기 · <b>Shift</b> 질주 · <b>ESC</b> 종료</div>
+      {/* controls hint — moved to the top so it clears the on-screen stick/buttons */}
+      <div style={{
+        position: 'absolute', top: 60, left: '50%', transform: 'translateX(-50%)', textAlign: 'center',
+        maxWidth: 'calc(100vw - 32px)', fontSize: 11.5, lineHeight: 1.65, color: 'rgba(200,215,255,0.5)',
+        pointerEvents: 'none',
+      }}>
+        <div>왼쪽 스틱 <b>이동</b> · 화면 드래그 <b>시점</b> · 버튼 <b>공격·구르기·질주</b></div>
+        <div style={{ opacity: 0.65 }}>PC: WASD · 마우스드래그 · 좌클릭 연타 콤보 · Space · Shift · ESC</div>
       </div>
 
       {/* toast */}
