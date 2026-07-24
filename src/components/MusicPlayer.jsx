@@ -153,7 +153,8 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
   // Build the player as soon as there's a playlist — well before any tap — so playAt
   // can start playback synchronously inside the user gesture (required by iOS).
   useEffect(() => {
-    if (tracks.length > 0) ensurePlayer().catch(() => {})
+    // iOS uses a plain visible <iframe> (below), not the IFrame API — skip eager init there.
+    if (!IOS && tracks.length > 0) ensurePlayer().catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tracks.length])
 
@@ -163,17 +164,15 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
     const idx = ((i % list.length) + list.length) % list.length
     setIndex(idx); indexRef.current = idx
     setError('')
-    // iOS: just cue the track into the visible player; the user taps its play button
-    // (scripted playVideo() won't start on iOS). Elsewhere: load + play immediately.
+    // iOS: selecting a track just drives the visible <iframe> (keyed on videoId); the
+    // user taps its native play button. No IFrame-API calls — they don't work on iOS.
+    if (IOS) return
+
     const start = (pp) => {
-      if (IOS) {
-        pp.cueVideoById(list[idx].videoId)
-      } else {
-        pp.loadVideoById(list[idx].videoId)
-        if (!muted) { try { pp.unMute() } catch { /* ignore */ } }
-        pp.playVideo()
-        setPlaying(true)
-      }
+      pp.loadVideoById(list[idx].videoId)
+      if (!muted) { try { pp.unMute() } catch { /* ignore */ } }
+      pp.playVideo()
+      setPlaying(true)
     }
     const p = playerRef.current
     if (p && readyRef.current) start(p)      // synchronous within the gesture
@@ -244,22 +243,31 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
   return (
     <>
       {IOS ? (
-        /* iOS: the YouTube player is visible so the user can tap its play button.
-           Shown once a track is selected; sits just under the top bar. */
-        <div style={{
-          position: 'fixed', top: 50, right: 8, zIndex: 102,
-          width: 'min(300px, calc(100vw - 16px))', borderRadius: 12, overflow: 'hidden',
-          boxShadow: '0 18px 44px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.14)',
-          background: '#000', display: nowPlaying ? 'block' : 'none',
-        }}>
+        /* iOS: a plain YouTube embed (native controls). Keyed on videoId so switching
+           tracks reloads it. The user taps its play button — the only way iOS starts
+           playback with sound. Rendered only when a track is selected. */
+        nowPlaying && (
           <div style={{
-            fontSize: 10.5, color: 'rgba(255,255,255,0.55)', fontFamily: "'Noto Sans KR', sans-serif",
-            padding: '5px 9px', background: 'rgba(12,15,24,0.9)', textAlign: 'center',
-          }}>▶ 눌러 재생 · 곡을 바꾸면 다시 눌러주세요</div>
-          <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9' }}>
-            <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} />
+            position: 'fixed', top: 50, right: 8, zIndex: 102,
+            width: 'min(300px, calc(100vw - 16px))', borderRadius: 12, overflow: 'hidden',
+            boxShadow: '0 18px 44px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.14)', background: '#000',
+          }}>
+            <div style={{
+              fontSize: 10.5, color: 'rgba(255,255,255,0.55)', fontFamily: "'Noto Sans KR', sans-serif",
+              padding: '5px 9px', background: 'rgba(12,15,24,0.9)', textAlign: 'center',
+            }}>▶ 눌러 재생 · 곡을 바꾸면 새 영상이 떠요</div>
+            <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9' }}>
+              <iframe
+                key={nowPlaying.videoId}
+                src={`https://www.youtube.com/embed/${nowPlaying.videoId}?playsinline=1&rel=0`}
+                title={nowPlaying.title}
+                allow="autoplay; encrypted-media; picture-in-picture"
+                allowFullScreen
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none' }}
+              />
+            </div>
           </div>
-        </div>
+        )
       ) : (
         /* Desktop/Android: hidden 0×0 background player — playback survives the dropdown closing. */
         <div style={{ position: 'fixed', width: 0, height: 0, overflow: 'hidden', pointerEvents: 'none' }} aria-hidden="true">
