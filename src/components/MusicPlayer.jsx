@@ -256,14 +256,16 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
               fontSize: 10.5, color: 'rgba(255,255,255,0.55)', fontFamily: "'Noto Sans KR', sans-serif",
               padding: '5px 9px', background: 'rgba(12,15,24,0.9)', textAlign: 'center',
             }}>▶ 눌러 재생 · 곡을 바꾸면 새 영상이 떠요</div>
-            <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9' }}>
+            {/* padding-bottom 56.25% = 16:9 height that works on every iOS version
+                (aspect-ratio can collapse to 0 on some, leaving just a black box). */}
+            <div style={{ position: 'relative', width: '100%', height: 0, paddingBottom: '56.25%' }}>
               <iframe
                 key={nowPlaying.videoId}
                 src={`https://www.youtube.com/embed/${nowPlaying.videoId}?playsinline=1&rel=0`}
                 title={nowPlaying.title}
                 allow="autoplay; encrypted-media; picture-in-picture"
                 allowFullScreen
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none' }}
+                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
               />
             </div>
           </div>
