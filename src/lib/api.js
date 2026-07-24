@@ -8,14 +8,30 @@ export class ApiError extends Error {
   }
 }
 
+// Some in-app browsers (KakaoTalk, Instagram, …) throw on any localStorage access
+// or silently refuse to persist. Reading it during React render would crash the whole
+// app, so every access is wrapped and we keep an in-memory copy as a fallback — that
+// at least lets the current session stay logged in even when storage is unavailable.
+let memoryToken = null
+
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY)
+  try {
+    return localStorage.getItem(TOKEN_KEY) ?? memoryToken
+  } catch {
+    return memoryToken
+  }
 }
 export function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token)
+  memoryToken = token
+  try {
+    localStorage.setItem(TOKEN_KEY, token)
+  } catch { /* storage blocked — memoryToken carries the session */ }
 }
 export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY)
+  memoryToken = null
+  try {
+    localStorage.removeItem(TOKEN_KEY)
+  } catch { /* ignore */ }
 }
 
 export async function apiFetch(path, options = {}) {
@@ -26,7 +42,16 @@ export async function apiFetch(path, options = {}) {
     ...options.headers,
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers })
+  let res
+  try {
+    res = await fetch(`${API_BASE}${path}`, { ...options, headers })
+  } catch {
+    // fetch() rejects on a network-layer failure: no connectivity, DNS, TLS, a
+    // CORS block, or — the case we care about here — an in-app browser (KakaoTalk,
+    // etc.) refusing the cross-origin request. There is no HTTP status, so flag it
+    // as 0 and let the caller show "open in a real browser" guidance.
+    throw new ApiError(0, 'network')
+  }
 
   if (!res.ok) {
     let message = null

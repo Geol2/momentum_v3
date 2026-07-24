@@ -1,5 +1,50 @@
 import { useEffect, useState } from 'react'
 import StarField from './StarField.jsx'
+import { detectInApp, isAndroid, openInExternalBrowser } from '../lib/inAppBrowser.js'
+
+const IN_APP_NAMES = {
+  kakaotalk: '카카오톡', naver: '네이버', instagram: '인스타그램',
+  facebook: '페이스북', line: '라인', daum: '다음',
+}
+
+// Shown when the page is running inside an in-app browser (e.g. a KakaoTalk link),
+// where localStorage is often blocked and the page reloads on app-switch — which
+// silently breaks login and the email-code signup. Nudge the user to a real browser.
+function InAppNotice() {
+  const app = detectInApp()
+  if (!app) return null
+  const name = IN_APP_NAMES[app] || '인앱'
+  const android = isAndroid()
+
+  return (
+    <div style={{
+      background: 'rgba(255,196,84,0.1)', border: '1px solid rgba(255,196,84,0.32)', borderRadius: 12,
+      padding: '13px 14px', marginBottom: 18, fontFamily: "'Noto Sans KR', sans-serif",
+    }}>
+      <div style={{ fontSize: 12.5, fontWeight: 500, color: 'rgba(255,214,140,0.95)', marginBottom: 6 }}>
+        ⚠️ {name} 브라우저에서는 로그인이 제한돼요
+      </div>
+      <div style={{ fontSize: 11.5, fontWeight: 300, lineHeight: 1.6, color: 'rgba(255,255,255,0.62)' }}>
+        {android
+          ? '아래 버튼으로 크롬에서 열어주세요.'
+          : '오른쪽 아래(또는 위) 메뉴에서 “다른 브라우저로 열기 · Safari로 열기”를 눌러주세요.'}
+      </div>
+      {android && (
+        <button
+          type="button"
+          onClick={() => openInExternalBrowser(app)}
+          style={{
+            marginTop: 10, width: '100%', background: 'rgba(255,196,84,0.18)', border: '1px solid rgba(255,196,84,0.4)',
+            borderRadius: 9, padding: '9px 0', fontSize: 12.5, fontWeight: 500, color: 'rgba(255,224,160,0.98)',
+            cursor: 'pointer', fontFamily: "'Noto Sans KR', sans-serif",
+          }}
+        >
+          외부 브라우저로 열기
+        </button>
+      )}
+    </div>
+  )
+}
 
 // Backend returns English messages; map the ones users can hit to Korean.
 const KO_MESSAGES = {
@@ -13,10 +58,14 @@ const KO_MESSAGES = {
 
 function messageFor(err) {
   if (err?.message && KO_MESSAGES[err.message]) return KO_MESSAGES[err.message]
+  // status 0 = fetch never got a response (network / in-app-browser block). This is
+  // the usual "카톡에서만 안 돼요" cause — point the user at a real browser.
+  if (err?.status === 0) return '서버에 연결하지 못했어요. 카카오톡 등 인앱 브라우저라면 크롬·사파리로 열어 다시 시도해 주세요.'
   if (err?.status === 401) return '이메일 또는 비밀번호가 올바르지 않습니다'
   if (err?.status === 409) return '이미 등록된 이메일입니다'
   if (err?.status === 429) return '잠시 후 다시 요청해주세요'
   if (err?.status === 400) return err.message || '입력값을 확인해주세요'
+  if (err?.status >= 500) return `서버 오류입니다 (${err.status}). 잠시 후 다시 시도하거나 외부 브라우저에서 열어 주세요.`
   return '문제가 발생했습니다. 잠시 후 다시 시도해주세요'
 }
 
@@ -132,6 +181,8 @@ export default function Login({ onLogin, onSignup, onRequestCode }) {
             fontFamily: 'Outfit, sans-serif', fontSize: 20, fontWeight: 300,
             color: 'rgba(255,255,255,0.9)', letterSpacing: '0.06em', marginBottom: 22, textAlign: 'center',
           }}>{mode === 'signup' ? '회원가입' : '로그인'}</div>
+
+          <InAppNotice />
 
           {mode === 'signup' && (
             <input style={inputStyle} type="text" placeholder="이름" value={name}
