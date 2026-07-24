@@ -215,6 +215,10 @@ export default function App() {
     setTracks((t) => t.filter((x) => x.id !== id))
     tracksApi.remove(id).catch((e) => console.error('failed to delete track', e))
   }
+  const renameTrack = (id, title) => {
+    setTracks((t) => t.map((x) => (x.id === id ? { ...x, title } : x)))
+    tracksApi.update(id, { title }).catch((e) => console.error('failed to rename track', e))
+  }
 
   const greeting = greetingFor(now.getHours(), settings.userName)
   const dateStr = useMemo(
@@ -345,7 +349,7 @@ export default function App() {
 
       <Notice />
 
-      {!isMobile && <MusicPlayer tracks={tracks} onAdd={addTrack} onRemove={removeTrack} />}
+      <MusicPlayer tracks={tracks} onAdd={addTrack} onRemove={removeTrack} onRename={renameTrack} />
 
       <DiaryModal
         open={diaryOpen}

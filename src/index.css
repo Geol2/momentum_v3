@@ -78,3 +78,39 @@ input, textarea { caret-color: #bcc8ff; }
 /* Scrollbars in dark popovers */
 .thin-scroll::-webkit-scrollbar { width: 6px; }
 .thin-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 3px; }
+
+/* Music player sliders — the filled portion is driven by an inline --pct variable.
+   WebKit needs an explicit gradient on the track; Firefox uses ::-moz-range-progress. */
+input[type='range'].mp-seek, input[type='range'].mp-vol {
+  -webkit-appearance: none; appearance: none; background: transparent;
+}
+input[type='range'].mp-seek::-webkit-slider-runnable-track {
+  height: 7px; border-radius: 4px;
+  background: linear-gradient(to right, rgba(99,179,237,0.95) var(--pct,0%), rgba(255,255,255,0.16) var(--pct,0%));
+}
+input[type='range'].mp-seek::-moz-range-track { height: 7px; border-radius: 4px; background: rgba(255,255,255,0.16); }
+input[type='range'].mp-seek::-moz-range-progress { height: 7px; border-radius: 4px; background: rgba(99,179,237,0.95); }
+input[type='range'].mp-seek::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 15px; height: 15px; border-radius: 50%; margin-top: -4px;
+  background: rgba(200,228,255,1); box-shadow: 0 1px 5px rgba(0,0,0,0.55);
+}
+input[type='range'].mp-seek::-moz-range-thumb { width: 15px; height: 15px; border: none; border-radius: 50%; background: rgba(200,228,255,1); box-shadow: 0 1px 5px rgba(0,0,0,0.55); }
+input[type='range'].mp-seek:disabled { opacity: 0.45; }
+input[type='range'].mp-seek:disabled::-webkit-slider-thumb { opacity: 0; }
+
+input[type='range'].mp-vol::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 3px;
+  background: linear-gradient(to right, rgba(99,179,237,0.85) var(--pct,0%), rgba(255,255,255,0.14) var(--pct,0%));
+}
+input[type='range'].mp-vol::-moz-range-track { height: 4px; border-radius: 3px; background: rgba(255,255,255,0.14); }
+input[type='range'].mp-vol::-moz-range-progress { height: 4px; border-radius: 3px; background: rgba(99,179,237,0.85); }
+input[type='range'].mp-vol::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 13px; height: 13px; border-radius: 50%; margin-top: -4.5px;
+  background: rgba(185,222,255,0.98); box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+input[type='range'].mp-vol::-moz-range-thumb { width: 13px; height: 13px; border: none; border-radius: 50%; background: rgba(185,222,255,0.98); }
+
+/* Bar gets tight on phones — drop the time readout there (still shown while playing via the seek bar). */
+@media (max-width: 720px) {
+  .mp-time { display: none; }
+}

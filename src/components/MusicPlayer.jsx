@@ -22,6 +22,14 @@ export function parseVideoId(input) {
   return m ? m[1] : null
 }
 
+// Seconds → "m:ss".
+function fmtTime(s) {
+  if (!s || !isFinite(s)) return '0:00'
+  const m = Math.floor(s / 60)
+  const sec = Math.floor(s % 60)
+  return `${m}:${String(sec).padStart(2, '0')}`
+}
+
 // Load the YouTube IFrame API once, resolving when window.YT is ready.
 let ytReadyPromise = null
 function loadYT() {
@@ -38,24 +46,46 @@ function loadYT() {
 }
 
 // Full-width thin top bar (ad-banner style) that plays a per-account YouTube playlist.
-export default function MusicPlayer({ tracks, onAdd, onRemove }) {
+export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
   const [open, setOpen] = useState(false)
   const [addUrl, setAddUrl] = useState('')
   const [addTitle, setAddTitle] = useState('')
+  const [editId, setEditId] = useState(null)   // track being renamed
+  const [editText, setEditText] = useState('')
   const [index, setIndex] = useState(-1)
   const [playing, setPlaying] = useState(false)
   const [error, setError] = useState('')
+  const [current, setCurrent] = useState(0)   // playback position (s)
+  const [duration, setDuration] = useState(0) // track length (s)
+  const [volume, setVolume] = useState(80)    // 0–100
+  const [muted, setMuted] = useState(false)
 
   const playerRef = useRef(null)
   const hostRef = useRef(null)
   const indexRef = useRef(-1)
   const tracksRef = useRef(tracks)
   const playNextRef = useRef(() => {})
+  const volumeRef = useRef(volume)
+  const seekingRef = useRef(false) // pause progress polling while dragging the seek bar
   tracksRef.current = tracks
   indexRef.current = index
+  volumeRef.current = volume
 
   // Tear down the player when the component unmounts.
   useEffect(() => () => { try { playerRef.current?.destroy?.() } catch { /* ignore */ } }, [])
+
+  // Poll playback position ~4×/s so the progress bar tracks the song.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const p = playerRef.current
+      if (!p || !p.getDuration || seekingRef.current) return
+      try {
+        setDuration(p.getDuration() || 0)
+        setCurrent(p.getCurrentTime() || 0)
+      } catch { /* player not ready */ }
+    }, 250)
+    return () => clearInterval(id)
+  }, [])
 
   const ensurePlayer = async () => {
     if (playerRef.current) return playerRef.current
@@ -65,7 +95,7 @@ export default function MusicPlayer({ tracks, onAdd, onRemove }) {
         height: '0', width: '0',
         playerVars: { autoplay: 0, playsinline: 1 },
         events: {
-          onReady: () => resolve(p),
+          onReady: () => { try { p.setVolume(volumeRef.current) } catch { /* ignore */ } resolve(p) },
           onStateChange: (e) => {
             if (e.data === YT.PlayerState.ENDED) playNextRef.current()
             else if (e.data === YT.PlayerState.PLAYING) setPlaying(true)
@@ -114,7 +144,42 @@ export default function MusicPlayer({ tracks, onAdd, onRemove }) {
     else if (removedIdx < index) setIndex((i) => i - 1)
   }
 
+  // Live seek: update the label as the thumb drags, only jump the player on release.
+  const onSeekInput = (v) => { seekingRef.current = true; setCurrent(v) }
+  const onSeekCommit = (v) => {
+    const p = playerRef.current
+    try { p?.seekTo(v, true) } catch { /* ignore */ }
+    setCurrent(v)
+    seekingRef.current = false
+  }
+
+  const applyVolume = (v) => {
+    setVolume(v)
+    const p = playerRef.current
+    try {
+      p?.setVolume(v)
+      if (v > 0 && muted) { p?.unMute(); setMuted(false) }
+    } catch { /* ignore */ }
+  }
+  const toggleMute = () => {
+    const p = playerRef.current
+    try {
+      if (muted) { p?.unMute(); if (volume === 0) applyVolume(50); setMuted(false) }
+      else { p?.mute(); setMuted(true) }
+    } catch { /* ignore */ }
+  }
+
+  const startRename = (t) => { setEditId(t.id); setEditText(t.title) }
+  const commitRename = () => {
+    const title = editText.trim()
+    if (title && onRename) onRename(editId, title)
+    setEditId(null)
+  }
+  const cancelRename = () => setEditId(null)
+
   const nowPlaying = index >= 0 ? tracks[index] : null
+  const pct = duration > 0 ? Math.min(100, (current / duration) * 100) : 0
+  const volIcon = muted || volume === 0 ? '🔇' : volume < 45 ? '🔉' : '🔊'
 
   return (
     <>
@@ -147,6 +212,18 @@ export default function MusicPlayer({ tracks, onAdd, onRemove }) {
           {playing && <span style={{ fontSize: 10, color: 'rgba(99,179,237,0.7)', fontFamily: 'Outfit, sans-serif', flexShrink: 0 }}>♪</span>}
         </div>
 
+        {/* Time — hidden on the narrowest screens to keep the bar on one line. */}
+        <span style={{
+          flexShrink: 0, fontSize: 10.5, fontFamily: 'Outfit, sans-serif', color: 'rgba(255,255,255,0.45)',
+          letterSpacing: '0.02em', fontVariantNumeric: 'tabular-nums',
+        }} className="mp-time">
+          {fmtTime(current)} / {fmtTime(duration)}
+        </span>
+
+        <button onClick={toggleMute} title={muted ? '음소거 해제' : '음소거'} style={{ ...barBtn(true), fontSize: 13, border: 'none', background: 'transparent' }}>
+          {volIcon}
+        </button>
+
         <button
           onClick={() => setOpen((o) => !o)}
           title="플레이리스트"
@@ -160,6 +237,23 @@ export default function MusicPlayer({ tracks, onAdd, onRemove }) {
         >
           목록{tracks.length ? ` ${tracks.length}` : ''} <span style={{ fontSize: 9 }}>{open ? '▲' : '▼'}</span>
         </button>
+
+        {/* Seek bar — sits along the bottom edge, inset so it clears the transport
+            buttons on the left and the mute/목록 controls on the right. */}
+        <input
+          type="range" min="0" max={Math.max(duration, 0.1)} step="0.1" value={current}
+          disabled={!nowPlaying}
+          onChange={(e) => onSeekInput(Number(e.target.value))}
+          onMouseUp={(e) => onSeekCommit(Number(e.target.value))}
+          onTouchEnd={(e) => onSeekCommit(Number(e.target.value))}
+          title="탐색" aria-label="재생 위치"
+          style={{
+            position: 'absolute', left: 140, right: 128, bottom: -3, height: 20, margin: 0,
+            cursor: nowPlaying ? 'pointer' : 'default', appearance: 'none', WebkitAppearance: 'none',
+            background: 'transparent', '--pct': `${pct}%`,
+          }}
+          className="mp-seek"
+        />
       </div>
 
       {/* Dropdown: add form + playlist */}
@@ -167,12 +261,28 @@ export default function MusicPlayer({ tracks, onAdd, onRemove }) {
         <div
           className="thin-scroll"
           style={{
-            position: 'fixed', top: 50, right: 12, zIndex: 101, width: 322, maxHeight: '74vh', overflowY: 'auto',
+            position: 'fixed', top: 50, right: 12, zIndex: 101, width: 'min(322px, calc(100vw - 24px))', maxHeight: '74vh', overflowY: 'auto',
             background: 'rgba(18,22,34,0.95)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14,
             padding: 14, backdropFilter: 'blur(24px)', boxShadow: '0 24px 60px rgba(0,0,0,0.5)',
             animation: 'itemIn 0.22s cubic-bezier(0.16,1,0.3,1) both',
           }}
         >
+          {/* Volume */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <button onClick={toggleMute} title={muted ? '음소거 해제' : '음소거'} style={{
+              border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 16, padding: 0, flexShrink: 0,
+            }}>{volIcon}</button>
+            <input
+              type="range" min="0" max="100" value={muted ? 0 : volume}
+              onChange={(e) => applyVolume(Number(e.target.value))}
+              title="볼륨" aria-label="볼륨"
+              className="mp-vol" style={{ flex: 1, minWidth: 0, '--pct': `${muted ? 0 : volume}%` }}
+            />
+            <span style={{ flexShrink: 0, width: 30, textAlign: 'right', fontSize: 11, fontFamily: 'Outfit, sans-serif', color: 'rgba(255,255,255,0.5)', fontVariantNumeric: 'tabular-nums' }}>
+              {muted ? 0 : volume}
+            </span>
+          </div>
+
           {/* Add form */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: tracks.length ? 13 : 2 }}>
             <input
@@ -213,16 +323,35 @@ export default function MusicPlayer({ tracks, onAdd, onRemove }) {
                       background: 'transparent', color: active ? 'rgba(185,222,255,0.95)' : 'rgba(255,255,255,0.4)',
                       fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                     }}>{active && playing ? '♪' : '▶'}</button>
-                    <span style={{
-                      flex: 1, minWidth: 0, fontSize: 12, fontWeight: 300, fontFamily: "'Noto Sans KR', sans-serif",
-                      color: active ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.65)',
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer',
-                    }} onClick={() => playAt(i)}>{t.title}</span>
-                    <button onClick={() => removeTrack(t)} title="삭제" style={{
-                      width: 22, height: 22, minWidth: 22, borderRadius: 6, border: 'none', background: 'transparent',
-                      cursor: 'pointer', color: 'rgba(255,255,255,0.25)', fontSize: 16, display: 'flex',
-                      alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                    }}>×</button>
+                    {editId === t.id ? (
+                      <input
+                        type="text" value={editText} autoFocus
+                        onChange={(e) => setEditText(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); else if (e.key === 'Escape') cancelRename() }}
+                        onBlur={commitRename}
+                        style={{ ...addInput, flex: 1, minWidth: 0, padding: '5px 8px', border: '1px solid rgba(99,179,237,0.5)' }}
+                      />
+                    ) : (
+                      <span style={{
+                        flex: 1, minWidth: 0, fontSize: 12, fontWeight: 300, fontFamily: "'Noto Sans KR', sans-serif",
+                        color: active ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.65)',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer',
+                      }} onClick={() => playAt(i)} onDoubleClick={() => startRename(t)} title="더블클릭하여 이름 변경">{t.title}</span>
+                    )}
+                    {editId !== t.id && onRename && (
+                      <button onClick={() => startRename(t)} title="이름 변경" style={{
+                        width: 22, height: 22, minWidth: 22, borderRadius: 6, border: 'none', background: 'transparent',
+                        cursor: 'pointer', color: 'rgba(255,255,255,0.25)', fontSize: 12, display: 'flex',
+                        alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                      }}>✎</button>
+                    )}
+                    {editId !== t.id && (
+                      <button onClick={() => removeTrack(t)} title="삭제" style={{
+                        width: 22, height: 22, minWidth: 22, borderRadius: 6, border: 'none', background: 'transparent',
+                        cursor: 'pointer', color: 'rgba(255,255,255,0.25)', fontSize: 16, display: 'flex',
+                        alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                      }}>×</button>
+                    )}
                   </div>
                 )
               })}
