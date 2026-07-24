@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import StarField from './StarField.jsx'
-import { detectInApp, isAndroid, openInExternalBrowser } from '../lib/inAppBrowser.js'
+import { detectInApp, isAndroid, isIOS, openInExternalBrowser, openInChromeIOS, copyCurrentUrl } from '../lib/inAppBrowser.js'
 
 const IN_APP_NAMES = {
   kakaotalk: '카카오톡', naver: '네이버', instagram: '인스타그램',
@@ -12,9 +12,23 @@ const IN_APP_NAMES = {
 // silently breaks login and the email-code signup. Nudge the user to a real browser.
 function InAppNotice() {
   const app = detectInApp()
+  const [copied, setCopied] = useState(false)
   if (!app) return null
   const name = IN_APP_NAMES[app] || '인앱'
   const android = isAndroid()
+  const ios = isIOS()
+
+  const copyLink = async () => {
+    const ok = await copyCurrentUrl()
+    setCopied(ok)
+    if (ok) setTimeout(() => setCopied(false), 2000)
+  }
+
+  const btnStyle = {
+    flex: 1, background: 'rgba(255,196,84,0.18)', border: '1px solid rgba(255,196,84,0.4)',
+    borderRadius: 9, padding: '9px 0', fontSize: 12.5, fontWeight: 500, color: 'rgba(255,224,160,0.98)',
+    cursor: 'pointer', fontFamily: "'Noto Sans KR', sans-serif",
+  }
 
   return (
     <div style={{
@@ -27,20 +41,20 @@ function InAppNotice() {
       <div style={{ fontSize: 11.5, fontWeight: 300, lineHeight: 1.6, color: 'rgba(255,255,255,0.62)' }}>
         {android
           ? '아래 버튼으로 크롬에서 열어주세요.'
-          : '오른쪽 아래(또는 위) 메뉴에서 “다른 브라우저로 열기 · Safari로 열기”를 눌러주세요.'}
+          : '크롬이 있으면 “크롬으로 열기”, 없으면 “링크 복사” 후 사파리에 붙여넣어 열어주세요. (또는 메뉴 → “Safari로 열기”)'}
       </div>
+
       {android && (
-        <button
-          type="button"
-          onClick={() => openInExternalBrowser(app)}
-          style={{
-            marginTop: 10, width: '100%', background: 'rgba(255,196,84,0.18)', border: '1px solid rgba(255,196,84,0.4)',
-            borderRadius: 9, padding: '9px 0', fontSize: 12.5, fontWeight: 500, color: 'rgba(255,224,160,0.98)',
-            cursor: 'pointer', fontFamily: "'Noto Sans KR', sans-serif",
-          }}
-        >
+        <button type="button" onClick={() => openInExternalBrowser(app)} style={{ ...btnStyle, marginTop: 10, width: '100%' }}>
           외부 브라우저로 열기
         </button>
+      )}
+
+      {ios && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <button type="button" onClick={openInChromeIOS} style={btnStyle}>크롬으로 열기</button>
+          <button type="button" onClick={copyLink} style={btnStyle}>{copied ? '복사됨 ✓' : '링크 복사'}</button>
+        </div>
       )}
     </div>
   )
