@@ -64,6 +64,8 @@ export default function Game3D({ onExit }) {
     keys: {},
     move: { x: 0, z: 0 }, // analog touch stick: x = strafe (right+), z = forward(+)
     touchSprint: false,   // touch 질주 button held
+    enemies: [],          // live enemy state refs — auto-targeting skills scan this
+    wandLevel: 0,         // 뱀서-style: stacks of 매직완드 collected → auto-fires magic missiles
     strafe: false,    // right-mouse held → body locks to camera-forward and strafes
     attackAt: 0,       // timestamp of last swing, consumed by enemies
     attackSeq: 0,      // increments each swing
@@ -107,6 +109,12 @@ export default function Game3D({ onExit }) {
     addScore: (n) => { bus.score += n },
     heal: (n) => { bus.hp = Math.min(bus.maxHp, bus.hp + n) },
     gainXp,
+    pickWand: () => {
+      bus.wandLevel += 1
+      bus.toast = `🪄 매직완드 획득!  Lv.${bus.wandLevel}`
+      bus.toastAt = performance.now()
+      gainXp(10)
+    },
     onKill: () => {
       bus.kills += 1
       bus.toast = '처치! +50'; bus.toastAt = performance.now()
@@ -344,16 +352,17 @@ function TouchBtn({ label, size = 62, primary, onDown, onUp }) {
 // this is the ONLY React state that updates during gameplay, and it touches
 // nothing inside the <Canvas>.
 function GameHud({ bus, onExit, onRespawn }) {
-  const [ui, setUi] = useState({ hp: 100, maxHp: 100, score: 0, kills: 0, dead: false, toast: '', level: 1, xp: 0, xpNext: 80, atk: 30 })
+  const [ui, setUi] = useState({ hp: 100, maxHp: 100, score: 0, kills: 0, dead: false, toast: '', level: 1, xp: 0, xpNext: 80, atk: 30, wandLevel: 0 })
   useEffect(() => {
     let raf
-    let prev = { hp: -1, maxHp: -1, score: -1, kills: -1, dead: null, toast: null, level: -1, xp: -1, atk: -1 }
+    let prev = { hp: -1, maxHp: -1, score: -1, kills: -1, dead: null, toast: null, level: -1, xp: -1, atk: -1, wandLevel: -1 }
     const tick = () => {
       const toast = bus.toastAt && performance.now() - bus.toastAt < 1400 ? bus.toast : ''
       if (bus.hp !== prev.hp || bus.maxHp !== prev.maxHp || bus.score !== prev.score || bus.kills !== prev.kills ||
-          bus.dead !== prev.dead || toast !== prev.toast || bus.level !== prev.level || bus.xp !== prev.xp || bus.atk !== prev.atk) {
-        prev = { hp: bus.hp, maxHp: bus.maxHp, score: bus.score, kills: bus.kills, dead: bus.dead, toast, level: bus.level, xp: bus.xp, atk: bus.atk }
-        setUi({ hp: bus.hp, maxHp: bus.maxHp, score: bus.score, kills: bus.kills, dead: bus.dead, toast, level: bus.level, xp: bus.xp, xpNext: bus.xpNext, atk: bus.atk })
+          bus.dead !== prev.dead || toast !== prev.toast || bus.level !== prev.level || bus.xp !== prev.xp || bus.atk !== prev.atk ||
+          bus.wandLevel !== prev.wandLevel) {
+        prev = { hp: bus.hp, maxHp: bus.maxHp, score: bus.score, kills: bus.kills, dead: bus.dead, toast, level: bus.level, xp: bus.xp, atk: bus.atk, wandLevel: bus.wandLevel }
+        setUi({ hp: bus.hp, maxHp: bus.maxHp, score: bus.score, kills: bus.kills, dead: bus.dead, toast, level: bus.level, xp: bus.xp, xpNext: bus.xpNext, atk: bus.atk, wandLevel: bus.wandLevel })
       }
       raf = requestAnimationFrame(tick)
     }
@@ -364,7 +373,7 @@ function GameHud({ bus, onExit, onRespawn }) {
   return (
     <>
       <Hud hp={ui.hp} maxHp={ui.maxHp} score={ui.score} kills={ui.kills} toast={ui.toast}
-        level={ui.level} xp={ui.xp} xpNext={ui.xpNext} atk={ui.atk} onExit={onExit} />
+        level={ui.level} xp={ui.xp} xpNext={ui.xpNext} atk={ui.atk} wandLevel={ui.wandLevel} onExit={onExit} />
       {ui.dead && <DeathScreen score={ui.score} kills={ui.kills} level={ui.level} onRespawn={onRespawn} onExit={onExit} />}
     </>
   )
@@ -375,6 +384,7 @@ function World({ bus, api }) {
   const decorations = useMemo(() => buildDecorations(), [])
   const stars = useMemo(() => buildStars(), [])
   const enemies = useMemo(() => buildEnemies(), [])
+  const wands = useMemo(() => buildWands(), [])
 
   return (
     <>
@@ -409,7 +419,13 @@ function World({ bus, api }) {
       {decorations.map((d, i) => <Decoration key={i} {...d} />)}
       <Lanterns />
       {stars.map((s) => <Collectible key={s.id} data={s} bus={bus} api={api} />)}
+      {wands.map((w) => <WandPickup key={w.id} data={w} bus={bus} api={api} />)}
       {enemies.map((e) => <Enemy key={e.id} data={e} bus={bus} api={api} />)}
+
+      {/* 뱀서-style auto skill: fires homing magic missiles at the nearest enemies
+          while any 매직완드 is owned (bus.wandLevel > 0). */}
+      <MagicWand bus={bus} api={api} />
+
 
       {/* fireflies & mystic motes drifting across the whole clearing */}
       <Sparkles count={170} scale={[WORLD_RADIUS * 2, 8, WORLD_RADIUS * 2]} position={[0, 3.8, 0]} size={2.8} speed={0.3} opacity={0.85} color="#cfe0ff" />
@@ -1144,9 +1160,16 @@ function Enemy({ data, bus, api }) {
   const tele = useRef()
   const teleMat = useRef()
   const state = useRef({
-    hp: data.hp, alive: true, x: data.x, z: data.z, seen: 0, hurtT: 0,
+    hp: data.hp, maxHp: data.hp, alive: true, x: data.x, z: data.z, seen: 0, hurtT: 0,
     mode: 'roam', timer: 0, cool: 0, struck: false, lx: 0, lz: 0,
   })
+
+  // Register this enemy's live state on the bus so auto-targeting skills (매직완드 등)
+  // can find & damage it. Unregister on unmount.
+  useEffect(() => {
+    bus.enemies.push(state.current)
+    return () => { const i = bus.enemies.indexOf(state.current); if (i >= 0) bus.enemies.splice(i, 1) }
+  }, [bus])
 
   useFrame((_, dtRaw) => {
     const dt = Math.min(dtRaw, 0.05)
@@ -1195,9 +1218,12 @@ function Enemy({ data, bus, api }) {
         s.hp -= (bus.attackDamage || 30); s.hurtT = 1
         const kb = bus.attackKnock || 0.7
         s.x -= nx * kb; s.z -= nz * kb // shove the wisp away from the player
-        if (s.hp <= 0) { s.alive = false; g.visible = false; api.addScore(50); api.onKill(); return }
       }
     }
+
+    // Death from ANY source — melee above OR a 매직완드 missile that lowered s.hp
+    // from its own frame. Centralised here so every damage source scores a kill once.
+    if (s.alive && s.hp <= 0) { s.alive = false; g.visible = false; api.addScore(50); api.onKill(); return }
 
     // ── visuals ──
     const bobY = 1.1 + Math.sin(performance.now() * 0.003 + data.id) * 0.22
@@ -1293,6 +1319,138 @@ function Collectible({ data, bus, api }) {
         <meshBasicMaterial color="#ffd76a" transparent opacity={0.5} side={THREE.DoubleSide} toneMapped={false} />
       </mesh>
       <Sparkles count={10} scale={1.4} size={3} speed={0.4} color="#ffe9a8" />
+    </group>
+  )
+}
+
+// ── 매직완드 pickup — a floating staff; walking over it grants a wand stack ────────
+function WandPickup({ data, bus, api }) {
+  const ref = useRef()
+  const got = useRef(false)
+  useFrame((_, dt) => {
+    const m = ref.current
+    if (!m || got.current) return
+    m.rotation.y += dt * 2
+    m.position.y = 0.95 + Math.sin(performance.now() * 0.003 + data.id) * 0.2
+    const dx = bus.playerPos.x - data.x, dz = bus.playerPos.z - data.z
+    if (Math.hypot(dx, dz) < 1.5) {
+      got.current = true
+      m.visible = false
+      api.pickWand()
+    }
+  })
+  return (
+    <group ref={ref} position={[data.x, 0.95, data.z]}>
+      {/* staff shaft */}
+      <mesh rotation={[0, 0, 0.18]} castShadow>
+        <cylinderGeometry args={[0.045, 0.055, 0.95, 8]} />
+        <meshStandardMaterial color="#8a6a42" roughness={0.7} />
+      </mesh>
+      {/* glowing crystal tip */}
+      <mesh position={[0.11, 0.52, 0]}>
+        <icosahedronGeometry args={[0.17, 0]} />
+        <meshStandardMaterial color="#cfe6ff" emissive="#5aa8ff" emissiveIntensity={2.6} toneMapped={false} />
+      </mesh>
+      {/* halo ring */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.5, 0]}>
+        <ringGeometry args={[0.42, 0.52, 22]} />
+        <meshBasicMaterial color="#7fc0ff" transparent opacity={0.5} side={THREE.DoubleSide} toneMapped={false} />
+      </mesh>
+      <Sparkles count={12} scale={1.5} size={3} speed={0.5} color="#bfe0ff" />
+    </group>
+  )
+}
+
+// Scratch buffer so nearest-enemy scans allocate nothing on the hot path.
+const _cand = []
+function nearestEnemies(bus, n, maxRange) {
+  const px = bus.playerPos.x, pz = bus.playerPos.z
+  _cand.length = 0
+  for (const s of bus.enemies) {
+    if (!s.alive) continue
+    const d = Math.hypot(s.x - px, s.z - pz)
+    if (d <= maxRange) _cand.push({ s, d })
+  }
+  _cand.sort((a, b) => a.d - b.d)
+  const out = []
+  for (let i = 0; i < Math.min(n, _cand.length); i++) out.push(_cand[i].s)
+  return out
+}
+
+// ── 매직완드 auto-skill: homing magic missiles ────────────────────────────────
+// More stacks → faster fire + more missiles per volley. Missiles home onto the
+// nearest living enemies and deal damage scaled off the player's attack.
+const WAND_RANGE = 34
+const WAND_SHOT_SPEED = 24
+function wandInterval(level) { return Math.max(0.4, 1.5 - (level - 1) * 0.18) }
+
+function MagicWand({ bus }) {
+  const N = 32 // projectile pool
+  const meshes = useRef([])
+  const shots = useRef(Array.from({ length: N }, () => ({ active: false, x: 0, y: 1.1, z: 0, vx: 0, vz: 0, life: 0, target: null })))
+  const cd = useRef(0.5)
+
+  const spawn = (fromX, fromZ, target) => {
+    const s = shots.current.find((q) => !q.active)
+    if (!s) return
+    const dx = target.x - fromX, dz = target.z - fromZ
+    const d = Math.hypot(dx, dz) || 1
+    s.active = true; s.x = fromX; s.y = 1.1; s.z = fromZ
+    s.vx = (dx / d) * WAND_SHOT_SPEED; s.vz = (dz / d) * WAND_SHOT_SPEED
+    s.life = 2.4; s.target = target
+  }
+
+  useFrame((_, dtRaw) => {
+    const dt = Math.min(dtRaw, 0.05)
+
+    // fire
+    if (bus.wandLevel > 0 && !bus.dead) {
+      cd.current -= dt
+      if (cd.current <= 0) {
+        const volley = Math.min(bus.wandLevel, 5)
+        const targets = nearestEnemies(bus, volley, WAND_RANGE)
+        if (targets.length) {
+          cd.current = wandInterval(bus.wandLevel)
+          const px = bus.playerPos.x, pz = bus.playerPos.z
+          for (let i = 0; i < volley; i++) spawn(px, pz, targets[i % targets.length])
+        } else {
+          cd.current = 0.25 // no target in range — try again soon
+        }
+      }
+    }
+
+    const dmg = Math.max(8, Math.round(bus.atk * 0.7))
+    for (let i = 0; i < N; i++) {
+      const s = shots.current[i]
+      const m = meshes.current[i]
+      if (!s.active) { if (m) m.visible = false; continue }
+      // home toward a living target; if it died, keep flying straight until it expires
+      if (s.target && s.target.alive) {
+        const dx = s.target.x - s.x, dz = s.target.z - s.z
+        const d = Math.hypot(dx, dz) || 1
+        s.vx += ((dx / d) * WAND_SHOT_SPEED - s.vx) * Math.min(1, dt * 9)
+        s.vz += ((dz / d) * WAND_SHOT_SPEED - s.vz) * Math.min(1, dt * 9)
+        if (d < 0.95) { // hit
+          s.target.hp -= dmg; s.target.hurtT = 1
+          s.active = false; if (m) m.visible = false
+          continue
+        }
+      }
+      s.x += s.vx * dt; s.z += s.vz * dt
+      s.life -= dt
+      if (s.life <= 0) { s.active = false; if (m) m.visible = false; continue }
+      if (m) { m.visible = true; m.position.set(s.x, s.y, s.z); m.rotation.x += dt * 12; m.rotation.y += dt * 9 }
+    }
+  })
+
+  return (
+    <group>
+      {Array.from({ length: N }).map((_, i) => (
+        <mesh key={i} ref={(el) => (meshes.current[i] = el)} visible={false}>
+          <octahedronGeometry args={[0.17, 0]} />
+          <meshStandardMaterial color="#cfe6ff" emissive="#5aa8ff" emissiveIntensity={2.8} toneMapped={false} />
+        </mesh>
+      ))}
     </group>
   )
 }
@@ -1644,8 +1802,17 @@ function buildEnemies() {
   return out
 }
 
+function buildWands() {
+  const out = []
+  for (let i = 0; i < 4; i++) {
+    const { x, z } = scatterPos(6, WORLD_RADIUS - 6)
+    out.push({ id: i, x, z })
+  }
+  return out
+}
+
 // ── HUD / overlays ────────────────────────────────────────────────────────────
-function Hud({ hp, maxHp, score, kills, toast, level, xp, xpNext, atk, onExit }) {
+function Hud({ hp, maxHp, score, kills, toast, level, xp, xpNext, atk, wandLevel = 0, onExit }) {
   const hpPct = Math.max(0, Math.min(100, (hp / maxHp) * 100))
   const xpPct = Math.max(0, Math.min(100, (xp / xpNext) * 100))
   return (
@@ -1683,6 +1850,17 @@ function Hud({ hp, maxHp, score, kills, toast, level, xp, xpNext, atk, onExit })
           <span>✦ 파편 <b>{score}</b></span>
           <span>☠ 처치 <b>{kills}</b></span>
         </div>
+        {/* owned auto-skill items (뱀서-style) */}
+        {wandLevel > 0 && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 8,
+              background: 'rgba(90,168,255,0.16)', border: '1px solid rgba(120,190,255,0.4)', fontSize: 12,
+            }}>
+              <span style={{ fontSize: 14 }}>🪄</span> 매직완드 <b>Lv.{wandLevel}</b>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* controls hint — moved to the top so it clears the on-screen stick/buttons */}
