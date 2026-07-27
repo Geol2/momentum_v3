@@ -41,6 +41,7 @@ export default function TodoSection({ todos, label = '오늘 할 일', isToday =
   const [time, setTime] = useState('')
   const [place, setPlace] = useState('')
   const [showOpts, setShowOpts] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   const [editingId, setEditingId] = useState(null)
   const [edit, setEdit] = useState({ text: '', timeLabel: '', place: '' })
@@ -54,11 +55,20 @@ export default function TodoSection({ todos, label = '오늘 할 일', isToday =
     ? [time, place.trim()].filter(Boolean).join(' · ')
     : '시간·장소'
 
-  const submit = () => {
+  // 성공했을 때만 입력창을 비웁니다. 예전에는 onAdd를 부르자마자 비워서, 세션 만료 등으로
+  // 저장이 실패하면 쓰던 내용까지 함께 사라졌습니다.
+  const submit = async () => {
     const text = val.trim()
-    if (!text) return
-    onAdd(text, { timeLabel: time.trim(), place: place.trim() })
-    setVal(''); setTime(''); setPlace(''); setShowOpts(false)
+    if (!text || saving) return
+    setSaving(true)
+    try {
+      await onAdd(text, { timeLabel: time.trim(), place: place.trim() })
+      setVal(''); setTime(''); setPlace(''); setShowOpts(false)
+    } catch {
+      /* 실패 — 입력을 그대로 두어 재로그인 후 다시 추가할 수 있게 합니다 */
+    } finally {
+      setSaving(false)
+    }
   }
 
   const startEdit = (item) => {

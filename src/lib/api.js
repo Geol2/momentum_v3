@@ -34,6 +34,14 @@ export function clearToken() {
   } catch { /* ignore */ }
 }
 
+// 세션이 만료되면 이 이벤트가 발생합니다. useAuth가 듣고 로그인 화면으로 되돌립니다.
+// 콜백을 주고받는 대신 이벤트를 쓰는 이유는, api.js가 인증 상태를 몰라도 되게 하려는 것.
+export const AUTH_EXPIRED_EVENT = 'byeolbit:auth-expired'
+
+// 로그인·회원가입처럼 "아직 토큰이 없는 게 정상"인 경로. 여기서 나온 401은
+// 세션 만료가 아니라 비밀번호 오류이므로 로그아웃 이벤트를 쏘면 안 됩니다.
+const PUBLIC_PATHS = ['/api/auth/login', '/api/auth/signup', '/api/auth/request-code']
+
 export async function apiFetch(path, options = {}) {
   const token = getToken()
   const headers = {
@@ -53,7 +61,19 @@ export async function apiFetch(path, options = {}) {
     throw new ApiError(0, 'network')
   }
 
+  // 슬라이딩 만료: 백엔드가 수명이 절반 이하로 남은 토큰을 갱신해 이 헤더로 돌려줍니다.
+  // 앱을 쓰고 있는 동안에는 세션이 끊기지 않습니다.
+  const renewed = res.headers.get('X-Renewed-Token')
+  if (renewed) setToken(renewed)
+
   if (!res.ok) {
+    // 401 = 토큰이 없거나 만료됨. 예전에는 그냥 에러로 던져서, 화면은 로그인 상태인데
+    // 모든 동작이 조용히 실패하는 상태가 됐습니다. 이제는 세션을 정리하고 알립니다.
+    if (res.status === 401 && !PUBLIC_PATHS.includes(path)) {
+      clearToken()
+      window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT))
+    }
+
     let message = null
     try {
       const body = await res.json()

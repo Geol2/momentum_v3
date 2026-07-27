@@ -87,6 +87,8 @@ export default function Game3D({ onExit }) {
     hitDirX: 0, hitDirZ: 0, // world direction the hit shoves the player (away from the enemy)
     hp: 100, maxHp: 100, score: 0, kills: 0, dead: false,
     level: 1, xp: 0, xpNext: 80, atk: 30, // leveling: kills/shards give XP → level up raises maxHp & atk
+    // 스테이지: 목표 처치 수를 채우면 올라가고, 적의 체력·공격력·속도·동시 등장 수가 함께 오릅니다.
+    stage: 1, stageKills: 0, stageGoal: stageGoalFor(1),
     toast: '', toastAt: 0,
   }).current
 
@@ -117,8 +119,19 @@ export default function Game3D({ onExit }) {
     },
     onKill: () => {
       bus.kills += 1
-      bus.toast = '처치! +50'; bus.toastAt = performance.now()
-      gainXp(40) // XP per kill — may override the toast with a level-up
+      bus.stageKills += 1
+
+      // 목표 처치 수를 채우면 다음 스테이지로. 새로 스폰되는 적부터 강해집니다
+      // (이미 살아있는 적은 스폰 당시의 능력치를 그대로 유지).
+      const cleared = bus.stageKills >= bus.stageGoal
+      if (cleared) {
+        bus.stage += 1
+        bus.stageKills = 0
+        bus.stageGoal = stageGoalFor(bus.stage)
+      }
+      bus.toast = cleared ? `⚔ 스테이지 ${bus.stage}` : `처치! +${stageScoreFor(bus.stage)}`
+      bus.toastAt = performance.now()
+      gainXp(stageXpFor(bus.stage)) // XP per kill — may override the toast with a level-up
     },
     damage: (n, dirX = 0, dirZ = 0) => {
       if (bus.dead) return
@@ -352,17 +365,17 @@ function TouchBtn({ label, size = 62, primary, onDown, onUp }) {
 // this is the ONLY React state that updates during gameplay, and it touches
 // nothing inside the <Canvas>.
 function GameHud({ bus, onExit, onRespawn }) {
-  const [ui, setUi] = useState({ hp: 100, maxHp: 100, score: 0, kills: 0, dead: false, toast: '', level: 1, xp: 0, xpNext: 80, atk: 30, wandLevel: 0 })
+  const [ui, setUi] = useState({ hp: 100, maxHp: 100, score: 0, kills: 0, dead: false, toast: '', level: 1, xp: 0, xpNext: 80, atk: 30, wandLevel: 0, stage: 1, stageKills: 0, stageGoal: 8 })
   useEffect(() => {
     let raf
-    let prev = { hp: -1, maxHp: -1, score: -1, kills: -1, dead: null, toast: null, level: -1, xp: -1, atk: -1, wandLevel: -1 }
+    let prev = { hp: -1, maxHp: -1, score: -1, kills: -1, dead: null, toast: null, level: -1, xp: -1, atk: -1, wandLevel: -1, stage: -1, stageKills: -1 }
     const tick = () => {
       const toast = bus.toastAt && performance.now() - bus.toastAt < 1400 ? bus.toast : ''
       if (bus.hp !== prev.hp || bus.maxHp !== prev.maxHp || bus.score !== prev.score || bus.kills !== prev.kills ||
           bus.dead !== prev.dead || toast !== prev.toast || bus.level !== prev.level || bus.xp !== prev.xp || bus.atk !== prev.atk ||
-          bus.wandLevel !== prev.wandLevel) {
-        prev = { hp: bus.hp, maxHp: bus.maxHp, score: bus.score, kills: bus.kills, dead: bus.dead, toast, level: bus.level, xp: bus.xp, atk: bus.atk, wandLevel: bus.wandLevel }
-        setUi({ hp: bus.hp, maxHp: bus.maxHp, score: bus.score, kills: bus.kills, dead: bus.dead, toast, level: bus.level, xp: bus.xp, xpNext: bus.xpNext, atk: bus.atk, wandLevel: bus.wandLevel })
+          bus.wandLevel !== prev.wandLevel || bus.stage !== prev.stage || bus.stageKills !== prev.stageKills) {
+        prev = { hp: bus.hp, maxHp: bus.maxHp, score: bus.score, kills: bus.kills, dead: bus.dead, toast, level: bus.level, xp: bus.xp, atk: bus.atk, wandLevel: bus.wandLevel, stage: bus.stage, stageKills: bus.stageKills }
+        setUi({ hp: bus.hp, maxHp: bus.maxHp, score: bus.score, kills: bus.kills, dead: bus.dead, toast, level: bus.level, xp: bus.xp, xpNext: bus.xpNext, atk: bus.atk, wandLevel: bus.wandLevel, stage: bus.stage, stageKills: bus.stageKills, stageGoal: bus.stageGoal })
       }
       raf = requestAnimationFrame(tick)
     }
@@ -373,8 +386,9 @@ function GameHud({ bus, onExit, onRespawn }) {
   return (
     <>
       <Hud hp={ui.hp} maxHp={ui.maxHp} score={ui.score} kills={ui.kills} toast={ui.toast}
-        level={ui.level} xp={ui.xp} xpNext={ui.xpNext} atk={ui.atk} wandLevel={ui.wandLevel} onExit={onExit} />
-      {ui.dead && <DeathScreen score={ui.score} kills={ui.kills} level={ui.level} onRespawn={onRespawn} onExit={onExit} />}
+        level={ui.level} xp={ui.xp} xpNext={ui.xpNext} atk={ui.atk} wandLevel={ui.wandLevel}
+        stage={ui.stage} stageKills={ui.stageKills} stageGoal={ui.stageGoal} onExit={onExit} />
+      {ui.dead && <DeathScreen score={ui.score} kills={ui.kills} level={ui.level} stage={ui.stage} onRespawn={onRespawn} onExit={onExit} />}
     </>
   )
 }
@@ -1159,9 +1173,12 @@ function Enemy({ data, bus, api }) {
   const bar = useRef()
   const tele = useRef()
   const teleMat = useRef()
+  // 전원 비활성으로 시작합니다. respawnAt=0 이라 활성 슬롯이면 첫 프레임에 바로 스폰되고,
+  // 죽으면 다시 이 상태로 돌아가 ENEMY_RESPAWN_MS 뒤 되살아납니다 — 무한 스폰의 핵심.
   const state = useRef({
-    hp: data.hp, maxHp: data.hp, alive: true, x: data.x, z: data.z, seen: 0, hurtT: 0,
+    hp: 0, maxHp: 100, alive: false, x: 0, z: 0, seen: 0, hurtT: 0,
     mode: 'roam', timer: 0, cool: 0, struck: false, lx: 0, lz: 0,
+    dmg: stageEnemyDamage(1), speed: stageEnemySpeed(1), respawnAt: 0,
   })
 
   // Register this enemy's live state on the bus so auto-targeting skills (매직완드 등)
@@ -1175,7 +1192,29 @@ function Enemy({ data, bus, api }) {
     const dt = Math.min(dtRaw, 0.05)
     const s = state.current
     const g = group.current
-    if (!g || !s.alive) return
+    if (!g) return
+
+    // ── 죽어있거나 아직 합류 전인 상태 ──
+    // 이 슬롯이 현재 스테이지의 활성 정원 안에 들고 대기 시간이 지났으면 되살아납니다.
+    // 정원 밖 슬롯은 스테이지가 오를 때까지 조용히 잠들어 있습니다.
+    if (!s.alive) {
+      if (data.slot >= stageActiveCount(bus.stage)) return
+      if (performance.now() < s.respawnAt) return
+
+      const spot = spawnPosAwayFrom(bus.playerPos.x, bus.playerPos.z)
+      s.x = spot.x; s.z = spot.z
+      // 능력치는 "스폰 시점의 스테이지"로 고정됩니다.
+      s.maxHp = stageEnemyHp(bus.stage)
+      s.hp = s.maxHp
+      s.dmg = stageEnemyDamage(bus.stage)
+      s.speed = stageEnemySpeed(bus.stage)
+      s.mode = 'roam'; s.timer = 0; s.cool = 0; s.struck = false; s.hurtT = 0
+      s.seen = bus.attackSeq // 부활 직후 지난 공격에 맞은 것으로 처리되지 않도록
+      s.alive = true
+      g.visible = true
+      g.position.set(s.x, 1.1, s.z)
+      return
+    }
 
     const p = bus.playerPos
     const dx = p.x - s.x, dz = p.z - s.z
@@ -1194,7 +1233,7 @@ function Enemy({ data, bus, api }) {
         s.struck = true
         // damage lands ONLY here, and only if still in range and not mid-dodge.
         // pass the lunge direction so the player reels & is knocked back away from us.
-        if (dist < ENEMY_HITRANGE && !bus.invuln && !bus.dead) api.damage(16, s.lx, s.lz)
+        if (dist < ENEMY_HITRANGE && !bus.invuln && !bus.dead) api.damage(s.dmg, s.lx, s.lz)
       }
       s.timer -= dt
       if (s.timer <= 0) { s.mode = 'recover'; s.timer = ENEMY_RECOVER; s.cool = ENEMY_RECOVER + 0.5 }
@@ -1202,7 +1241,7 @@ function Enemy({ data, bus, api }) {
       s.timer -= dt
       if (s.timer <= 0) s.mode = 'chase'
     } else if (dist < ENEMY_AGGRO) {
-      if (dist > ENEMY_REACH) { s.x += nx * 3.4 * dt; s.z += nz * 3.4 * dt; s.mode = 'chase' }
+      if (dist > ENEMY_REACH) { s.x += nx * s.speed * dt; s.z += nz * s.speed * dt; s.mode = 'chase' }
       else if (s.cool <= 0) { s.mode = 'windup'; s.timer = ENEMY_WINDUP } // in range → telegraph
       else s.mode = 'chase'
     } else {
@@ -1223,14 +1262,21 @@ function Enemy({ data, bus, api }) {
 
     // Death from ANY source — melee above OR a 매직완드 missile that lowered s.hp
     // from its own frame. Centralised here so every damage source scores a kill once.
-    if (s.alive && s.hp <= 0) { s.alive = false; g.visible = false; api.addScore(50); api.onKill(); return }
+    if (s.alive && s.hp <= 0) {
+      s.alive = false
+      g.visible = false
+      s.respawnAt = performance.now() + ENEMY_RESPAWN_MS // 잠시 뒤 다른 위치에서 부활
+      api.addScore(stageScoreFor(bus.stage))
+      api.onKill()
+      return
+    }
 
     // ── visuals ──
     const bobY = 1.1 + Math.sin(performance.now() * 0.003 + data.id) * 0.22
     g.position.set(s.x, bobY, s.z)
     g.rotation.y += dt * (s.mode === 'windup' ? 5 : 1.5) // spin up while charging
     if (bar.current) {
-      bar.current.scale.x = Math.max(0.001, s.hp / data.hp)
+      bar.current.scale.x = Math.max(0.001, s.hp / s.maxHp)
       bar.current.parent.lookAt(p.x, bobY, p.z)
     }
     // core glow: ramp up on wind-up (the tell), flare on strike, flash on hurt
@@ -1260,7 +1306,8 @@ function Enemy({ data, bus, api }) {
   })
 
   return (
-    <group ref={group} position={[data.x, 1.1, data.z]}>
+    // 스폰 전까지는 숨어 있습니다. 위치·표시는 useFrame의 스폰 분기가 잡아줍니다.
+    <group ref={group} position={[0, 1.1, 0]} visible={false}>
       <mesh ref={core} castShadow>
         <icosahedronGeometry args={[0.55, 0]} />
         {/* strong emissive (no per-enemy light) so killing/hiding it never changes
@@ -1793,12 +1840,44 @@ function buildStars() {
   return out
 }
 
-function buildEnemies() {
-  const out = []
-  for (let i = 0; i < 10; i++) {
-    const { x, z } = scatterPos(12, WORLD_RADIUS - 5)
-    out.push({ id: i, x, z, hp: 100 })
+// ── 스테이지 / 무한 스폰 ─────────────────────────────────────────────────────
+// 적은 죽어도 사라지지 않고 일정 시간 뒤 되살아납니다. 컴포넌트를 매번
+// 마운트/언마운트하면 프레임이 튀므로, 고정 크기 풀을 돌려 쓰는 방식입니다.
+// 풀 크기가 동시 등장 가능한 최대 적 수이고, 그중 몇이 활성인지는 스테이지가 정합니다.
+const ENEMY_POOL = 16
+const ENEMY_RESPAWN_MS = 2600
+const ENEMY_SPAWN_MIN_D = 26   // 플레이어 코앞에 튀어나오지 않도록 최소 거리
+const ENEMY_SPAWN_MAX_D = 46
+
+function stageEnemyHp(stage) { return Math.round(100 * (1 + (stage - 1) * 0.35)) }
+function stageEnemyDamage(stage) { return 16 + (stage - 1) * 3 }
+function stageEnemySpeed(stage) { return Math.min(6.2, 3.4 + (stage - 1) * 0.25) }
+/** 스테이지가 오를수록 동시에 덤비는 수가 늘어납니다 (풀 크기가 상한). */
+function stageActiveCount(stage) { return Math.min(ENEMY_POOL, 5 + stage) }
+/** 다음 스테이지까지 필요한 처치 수. */
+function stageGoalFor(stage) { return 8 + (stage - 1) * 4 }
+function stageScoreFor(stage) { return 50 + (stage - 1) * 15 }
+function stageXpFor(stage) { return 40 + (stage - 1) * 8 }
+
+/** 플레이어에게서 충분히 떨어진, 맵 안쪽의 스폰 좌표. */
+function spawnPosAwayFrom(px, pz) {
+  for (let i = 0; i < 12; i++) {
+    const a = Math.random() * Math.PI * 2
+    const r = rand(ENEMY_SPAWN_MIN_D, ENEMY_SPAWN_MAX_D)
+    const x = px + Math.cos(a) * r
+    const z = pz + Math.sin(a) * r
+    if (Math.hypot(x, z) < WORLD_RADIUS - 4) return { x, z }
   }
+  // 플레이어가 맵 가장자리에 붙어 있으면 위 시도가 다 실패할 수 있습니다 → 반대편에.
+  const a = Math.atan2(-pz, -px)
+  return { x: Math.cos(a) * (WORLD_RADIUS - 10), z: Math.sin(a) * (WORLD_RADIUS - 10) }
+}
+
+function buildEnemies() {
+  // 전원 비활성 상태로 시작합니다. 첫 프레임에서 스테이지 1의 활성 수만큼
+  // 즉시 스폰되고, 나머지는 스테이지가 오를 때 합류합니다.
+  const out = []
+  for (let i = 0; i < ENEMY_POOL; i++) out.push({ id: i, slot: i })
   return out
 }
 
@@ -1812,7 +1891,8 @@ function buildWands() {
 }
 
 // ── HUD / overlays ────────────────────────────────────────────────────────────
-function Hud({ hp, maxHp, score, kills, toast, level, xp, xpNext, atk, wandLevel = 0, onExit }) {
+function Hud({ hp, maxHp, score, kills, toast, level, xp, xpNext, atk, wandLevel = 0,
+               stage = 1, stageKills = 0, stageGoal = 8, onExit }) {
   const hpPct = Math.max(0, Math.min(100, (hp / maxHp) * 100))
   const xpPct = Math.max(0, Math.min(100, (xp / xpNext) * 100))
   return (
@@ -1829,6 +1909,25 @@ function Hud({ hp, maxHp, score, kills, toast, level, xp, xpNext, atk, wandLevel
           }}>
             <span style={{ opacity: 0.8 }}>Lv.</span><span style={{ fontSize: 15 }}>{level}</span>
           </div>
+          {/* 스테이지 배지 — 적은 끝없이 나오고, 이 숫자가 오를수록 강해집니다 */}
+          <div style={{
+            display: 'flex', alignItems: 'baseline', gap: 3, padding: '2px 10px', borderRadius: 20,
+            background: 'linear-gradient(135deg,#b0522e,#d68a3a)', boxShadow: '0 2px 10px rgba(210,130,60,0.4)',
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.03em',
+          }}>
+            <span style={{ opacity: 0.85 }}>STAGE</span><span style={{ fontSize: 15 }}>{stage}</span>
+          </div>
+        </div>
+
+        {/* 다음 스테이지까지의 진행도 */}
+        <div style={{ position: 'relative', width: 250, height: 6, borderRadius: 4, background: 'rgba(255,255,255,0.08)', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)' }}>
+          <div style={{
+            width: `${Math.min(100, (stageKills / Math.max(1, stageGoal)) * 100)}%`, height: '100%',
+            background: 'linear-gradient(90deg,#ffab5e,#ffd89b)', transition: 'width 0.25s',
+          }} />
+        </div>
+        <div style={{ fontSize: 11.5, color: 'rgba(225,233,255,0.62)', marginTop: -3 }}>
+          다음 스테이지까지 {Math.max(0, stageGoal - stageKills)}마리
         </div>
         {/* HP bar with numbers */}
         <div style={{ position: 'relative', width: 250, height: 17, borderRadius: 8, background: 'rgba(255,255,255,0.1)', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)' }}>
@@ -1898,7 +1997,7 @@ function Hud({ hp, maxHp, score, kills, toast, level, xp, xpNext, atk, wandLevel
   )
 }
 
-function DeathScreen({ score, kills, level, onRespawn, onExit }) {
+function DeathScreen({ score, kills, level, stage = 1, onRespawn, onExit }) {
   return (
     <div style={{
       position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
@@ -1906,7 +2005,7 @@ function DeathScreen({ score, kills, level, onRespawn, onExit }) {
       backdropFilter: 'blur(3px)', fontFamily: "'Noto Sans KR', sans-serif", color: '#eaf0ff',
     }}>
       <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: '0.1em', color: '#ff8fa6' }}>쓰러졌다…</div>
-      <div style={{ fontSize: 15, color: 'rgba(220,230,255,0.75)' }}>Lv.{level} · 파편 {score} · 처치 {kills}</div>
+      <div style={{ fontSize: 15, color: 'rgba(220,230,255,0.75)' }}>스테이지 {stage} · Lv.{level} · 파편 {score} · 처치 {kills}</div>
       <div style={{ display: 'flex', gap: 14 }}>
         <button onClick={onRespawn} style={btn('#3d5aa8')}>다시 도전</button>
         <button onClick={onExit} style={btn('rgba(40,48,80,0.8)')}>돌아가기</button>

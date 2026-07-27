@@ -60,6 +60,10 @@ export default function MeetingRecorder() {
   const [sttEnabled, setSttEnabled] = useState(true)
   const [transcript, setTranscript] = useState('')
   const [interim, setInterim] = useState('')
+  // 음성인식이 실제로 살아있는지 화면에 드러냅니다. 조용히 죽으면 사용자는
+  // "왜 텍스트가 안 나오지"만 알 뿐 이유를 알 수 없습니다.
+  const [sttState, setSttState] = useState('off') // off | starting | listening | error
+  const [sttError, setSttError] = useState('')
 
   const streamRef = useRef(null)
   const recorderRef = useRef(null)
@@ -149,12 +153,25 @@ export default function MeetingRecorder() {
       setInterim(pending)
     }
 
+    rec.onstart = () => { setSttState('listening'); setSttError('') }
+
     rec.onerror = (e) => {
       // no-speech/aborted는 정적이 길거나 우리가 멈춘 경우 — 정상 동작입니다.
       if (e.error === 'no-speech' || e.error === 'aborted') return
+
+      // 나머지는 전부 표면화합니다. 이전에는 조용히 삼켜서, 인식이 죽어도
+      // 화면상으로는 멀쩡해 보였습니다.
+      const KNOWN = {
+        'not-allowed': '음성인식 권한이 거부됐어요. 주소창 자물쇠 → 마이크를 허용해 주세요.',
+        'service-not-allowed': '브라우저가 음성인식 서비스를 막았어요.',
+        'audio-capture': '마이크를 음성인식이 잡지 못했어요. 녹음기와 충돌한 것 같아요.',
+        'network': '음성인식 서버에 연결하지 못했어요 (네트워크). 녹음은 계속됩니다.',
+        'language-not-supported': '이 브라우저에서 한국어 인식을 지원하지 않아요.',
+      }
+      setSttState('error')
+      setSttError(KNOWN[e.error] || `음성인식 오류: ${e.error}`)
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         wantSttRef.current = false
-        setError('음성인식 권한이 거부됐어요. 녹음은 계속됩니다.')
       }
     }
 
@@ -165,7 +182,15 @@ export default function MeetingRecorder() {
     }
 
     wantSttRef.current = true
-    try { rec.start() } catch { /* 이미 시작됨 */ }
+    setSttState('starting')
+    setSttError('')
+    try {
+      rec.start()
+    } catch (e) {
+      // start()가 던지면 인식은 아예 시작되지 않습니다. 이걸 삼키면 원인을 알 수 없습니다.
+      setSttState('error')
+      setSttError(`음성인식을 시작하지 못했어요: ${e.name || e.message}`)
+    }
     recognitionRef.current = rec
   }
 
@@ -224,6 +249,7 @@ export default function MeetingRecorder() {
     try { recognitionRef.current?.stop() } catch { /* 이미 멈춤 */ }
     recognitionRef.current = null
     setInterim('')
+    if (sttState !== 'error') setSttState('off')
 
     try { recorderRef.current?.stop() } catch { /* 이미 멈춤 */ }
     recorderRef.current = null
@@ -267,6 +293,8 @@ export default function MeetingRecorder() {
 
   const errText = typeof error === 'string' ? error : error?.text
   const errOk = typeof error === 'object' && error?.ok
+  // 인식 결과가 아직 없어도, 전사가 돌고 있는 동안에는 상자를 보여줍니다.
+  const showTranscriptPanel = status === 'recording' && sttEnabled && !!SpeechRecognitionCtor
 
   return (
     <>
@@ -397,6 +425,14 @@ export default function MeetingRecorder() {
                   </div>
                 )}
 
+                {sttError && (
+                  <div style={{
+                    fontSize: 11, lineHeight: 1.6, marginTop: 10, padding: '9px 11px', borderRadius: 9,
+                    background: 'rgba(255,120,120,0.09)', border: '1px solid rgba(255,120,120,0.28)',
+                    color: 'rgba(255,180,180,0.92)', fontFamily: "'Noto Sans KR', sans-serif",
+                  }}>{sttError}</div>
+                )}
+
                 {errText && (
                   <div style={{
                     fontSize: 11, lineHeight: 1.6, marginTop: 11, fontFamily: "'Noto Sans KR', sans-serif",
@@ -404,11 +440,32 @@ export default function MeetingRecorder() {
                   }}>{errText}</div>
                 )}
 
-                {/* 전사 결과 */}
-                {(transcript || interim) && (
+                {/* 전사 결과 — 녹음이 시작되면 내용이 없어도 상자를 먼저 띄웁니다.
+                    첫 단어가 인식될 때까지 화면에 아무것도 없으면 어디를 봐야 하는지,
+                    인식이 되고는 있는 건지 알 수가 없습니다. */}
+                {(showTranscriptPanel || transcript || interim) && (
                   <div style={{ marginTop: 16 }}>
-                    <div style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', fontFamily: 'Outfit, sans-serif', marginBottom: 8 }}>
-                      TRANSCRIPT
+                    <div style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase',
+                      color: 'rgba(255,255,255,0.35)', fontFamily: 'Outfit, sans-serif', marginBottom: 8,
+                    }}>
+                      <span>TRANSCRIPT</span>
+                      {status === 'recording' && sttState !== 'off' && (
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: 0, textTransform: 'none',
+                          fontFamily: "'Noto Sans KR', sans-serif", fontSize: 10.5,
+                          color: sttState === 'error' ? 'rgba(255,170,170,0.85)' : 'rgba(150,205,255,0.75)',
+                        }}>
+                          <span style={{
+                            width: 6, height: 6, borderRadius: '50%',
+                            background: sttState === 'error' ? 'rgba(255,120,120,0.95)'
+                              : sttState === 'listening' ? 'rgba(120,220,160,0.95)' : 'rgba(230,200,120,0.95)',
+                            animation: sttState === 'listening' ? 'pulse 1.4s ease-in-out infinite' : 'none',
+                          }} />
+                          {sttState === 'listening' ? '인식 중' : sttState === 'starting' ? '시작하는 중' : '인식 오류'}
+                        </span>
+                      )}
                     </div>
                     <div
                       ref={transcriptRef}
@@ -422,9 +479,16 @@ export default function MeetingRecorder() {
                     >
                       {transcript}
                       {interim && <span style={{ color: 'rgba(255,255,255,0.38)' }}>{transcript ? ' ' : ''}{interim}</span>}
+                      {!transcript && !interim && (
+                        <span style={{ color: 'rgba(255,255,255,0.3)' }}>
+                          {status === 'recording'
+                            ? '말씀하시면 여기에 텍스트가 나타납니다…'
+                            : '녹음을 시작하면 여기에 텍스트가 나타납니다.'}
+                        </span>
+                      )}
                     </div>
 
-                    {status === 'done' && transcript && (
+                    {transcript && (
                       <div style={{ display: 'flex', gap: 8, marginTop: 9 }}>
                         <SmallBtn onClick={copyTranscript}>복사</SmallBtn>
                         <SmallBtn onClick={downloadTranscript}>텍스트 저장</SmallBtn>

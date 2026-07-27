@@ -1,10 +1,25 @@
 import { useCallback, useEffect, useState } from 'react'
-import { apiFetch, getToken, setToken, clearToken } from './api.js'
+import { AUTH_EXPIRED_EVENT, apiFetch, getToken, setToken, clearToken } from './api.js'
 
 // status: 'booting' | 'authenticated' | 'anonymous'
 export function useAuth() {
   const [status, setStatus] = useState(getToken() ? 'booting' : 'anonymous')
   const [user, setUser] = useState(null)
+  // 만료로 끊긴 경우에만 true — 사용자가 직접 누른 로그아웃과 구분해서
+  // 로그인 화면에 "세션이 만료되었어요"를 띄우기 위한 것입니다.
+  const [expired, setExpired] = useState(false)
+
+  // 어떤 API 호출이든 401을 받으면 여기로 옵니다. 화면은 로그인 상태인데 동작만
+  // 안 되는 상황을 없애는 안전망입니다.
+  useEffect(() => {
+    const onExpired = () => {
+      setUser(null)
+      setExpired(true)
+      setStatus('anonymous')
+    }
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired)
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired)
+  }, [])
 
   useEffect(() => {
     if (status !== 'booting') return
@@ -22,6 +37,7 @@ export function useAuth() {
     })
     setToken(token)
     setUser(u)
+    setExpired(false)
     setStatus('authenticated')
     return u
   }, [])
@@ -42,6 +58,7 @@ export function useAuth() {
     })
     setToken(token)
     setUser(u)
+    setExpired(false)
     setStatus('authenticated')
     return u
   }, [])
@@ -49,8 +66,9 @@ export function useAuth() {
   const logout = useCallback(() => {
     clearToken()
     setUser(null)
+    setExpired(false) // 직접 로그아웃한 경우엔 만료 안내를 띄우지 않습니다
     setStatus('anonymous')
   }, [])
 
-  return { status, user, login, signup, requestCode, logout }
+  return { status, user, expired, login, signup, requestCode, logout }
 }

@@ -68,6 +68,11 @@ input, textarea { caret-color: #bcc8ff; }
   from { opacity: 0; }
   to { opacity: 1; }
 }
+/* 회의록 녹음의 "인식 중" 표시등 */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
 
 /* Diary paper caret + placeholder */
 .diary-paper textarea::placeholder,

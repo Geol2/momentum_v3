@@ -123,7 +123,7 @@ function messageFor(err) {
 
 const RESEND_COOLDOWN = 60 // seconds — matches the backend resend cooldown
 
-export default function Login({ onLogin, onSignup, onRequestCode }) {
+export default function Login({ onLogin, onSignup, onRequestCode, expired = false }) {
   const [mode, setMode] = useState('login') // 'login' | 'signup'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -279,6 +279,17 @@ export default function Login({ onLogin, onSignup, onRequestCode }) {
             </>
           )}
 
+          {/* 자리를 비운 사이 세션이 끊긴 경우. 로그인 실패와 달리 사용자 잘못이 아니라
+              무슨 일이 있었는지만 담담히 알려줍니다. */}
+          {expired && !errorMsg && (
+            <div style={{
+              fontSize: 12, lineHeight: 1.6, marginBottom: 12, padding: '9px 11px', borderRadius: 9,
+              background: 'rgba(120,170,255,0.1)', border: '1px solid rgba(120,170,255,0.3)',
+              color: 'rgba(185,215,255,0.92)',
+            }}>
+              오래 자리를 비우셔서 로그아웃되었어요. 다시 로그인해 주세요.
+            </div>
+          )}
           {errorMsg && (
             <div style={{ fontSize: 12, color: 'rgba(255,120,120,0.9)', marginBottom: 12 }}>{errorMsg}</div>
           )}

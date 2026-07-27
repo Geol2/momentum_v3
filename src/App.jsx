@@ -232,7 +232,7 @@ export default function App() {
     return <StarField background={settings.background} />
   }
   if (auth.status === 'anonymous') {
-    return <Login onLogin={auth.login} onSignup={auth.signup} onRequestCode={auth.requestCode} />
+    return <Login onLogin={auth.login} onSignup={auth.signup} onRequestCode={auth.requestCode} expired={auth.expired} />
   }
 
   return (
