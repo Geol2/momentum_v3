@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { BACKGROUNDS } from '../lib/data.js'
+import { pushApi } from '../lib/api.js'
+import { disablePush, enablePush, isSubscribed, isIOS, isStandalone, pushBlockedReason, pushSupported } from '../lib/push.js'
 
-// Gear button + settings popover (name, clock format, seconds, temp unit, quote).
+// Gear button + settings popover (name, clock format, seconds, temp unit, quote, 알림).
 export default function Settings({ settings, onChange, user, onLogout }) {
   const [open, setOpen] = useState(false)
   const set = (patch) => onChange({ ...settings, ...patch })
@@ -89,6 +91,10 @@ export default function Settings({ settings, onChange, user, onLogout }) {
             </div>
           </div>
 
+          {/* Reminders */}
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '14px 0 12px' }} />
+          <ReminderSettings settings={settings} set={set} open={open} />
+
           {/* Account */}
           <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '14px 0 12px' }} />
           <div style={{ marginBottom: 2 }}>
@@ -118,6 +124,124 @@ export default function Settings({ settings, onChange, user, onLogout }) {
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
       </button>
+    </div>
+  )
+}
+
+/**
+ * 할 일 시간 알림 (Web Push). The toggle owns the browser subscription; the lead-time
+ * picker is an ordinary account setting the backend's scheduler reads.
+ */
+function ReminderSettings({ settings, set, open }) {
+  const [on, setOn] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+  // Whether the server has VAPID keys at all — null until the first check resolves.
+  const [serverReady, setServerReady] = useState(null)
+
+  const blocked = pushBlockedReason()
+  const needsInstall = isIOS() && !isStandalone()
+
+  // Re-check on each open: permission or the subscription can change outside the app
+  // (browser settings, another tab, an OS-level uninstall of the PWA).
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    isSubscribed().then((v) => { if (!cancelled) setOn(v) })
+    pushApi.publicKey()
+      .then((r) => { if (!cancelled) setServerReady(!!r.enabled) })
+      .catch(() => { if (!cancelled) setServerReady(false) })
+    return () => { cancelled = true }
+  }, [open])
+
+  const toggle = async () => {
+    if (busy) return
+    setBusy(true)
+    setMsg(null)
+    try {
+      if (on) {
+        await disablePush()
+        setOn(false)
+      } else {
+        await enablePush()
+        setOn(true)
+        setMsg({ ok: true, text: '알림이 켜졌어요.' })
+      }
+    } catch (e) {
+      setMsg({ ok: false, text: e.message || '알림을 켜지 못했어요.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const sendTest = async () => {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const { sent } = await pushApi.test()
+      setMsg(sent > 0
+        ? { ok: true, text: '테스트 알림을 보냈어요.' }
+        : { ok: false, text: '보낼 기기가 없어요. 알림을 다시 켜보세요.' })
+    } catch {
+      setMsg({ ok: false, text: '테스트 알림을 보내지 못했어요.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const note = (text, tone) => (
+    <div style={{
+      fontSize: 10.5, lineHeight: 1.55, marginTop: 7, fontFamily: "'Noto Sans KR', sans-serif",
+      color: tone === 'bad' ? 'rgba(255,170,170,0.85)' : tone === 'good' ? 'rgba(160,225,190,0.9)' : 'rgba(255,255,255,0.42)',
+    }}>{text}</div>
+  )
+
+  return (
+    <div style={{ marginBottom: 2 }}>
+      <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.6)', fontFamily: "'Noto Sans KR', sans-serif", marginBottom: 7 }}>
+        약속 알림
+      </div>
+
+      {!pushSupported() && !needsInstall
+        ? note('이 브라우저는 알림을 지원하지 않아요.')
+        : (
+          <>
+            <Toggle
+              label={busy ? '처리 중…' : '시간 알림 받기'}
+              on={on}
+              onToggle={blocked || serverReady === false ? () => {} : toggle}
+            />
+
+            {/* Lead time — only meaningful once alerts are actually on. */}
+            {on && (
+              <Segmented
+                label="미리 알림"
+                width={140}
+                options={[{ k: 5, t: '5분' }, { k: 10, t: '10분' }, { k: 30, t: '30분' }]}
+                value={settings.remindLeadMinutes ?? 10}
+                onSelect={(v) => set({ remindLeadMinutes: v })}
+              />
+            )}
+
+            {on && (
+              <button
+                onClick={sendTest}
+                disabled={busy}
+                style={{
+                  width: '100%', padding: '7px 0', borderRadius: 9, cursor: busy ? 'default' : 'pointer',
+                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+                  color: 'rgba(185,222,255,0.9)', fontSize: 11.5, fontFamily: "'Noto Sans KR', sans-serif",
+                }}
+              >테스트 알림 보내기</button>
+            )}
+
+            {msg && note(msg.text, msg.ok ? 'good' : 'bad')}
+            {!msg && needsInstall && note('아이폰은 공유 → "홈 화면에 추가"로 설치한 뒤 여기서 알림을 켜주세요.')}
+            {!msg && !needsInstall && blocked && note(blocked, 'bad')}
+            {!msg && !blocked && serverReady === false && note('서버에 알림이 아직 설정되지 않았어요.', 'bad')}
+            {!msg && !blocked && serverReady && !on && note('시간을 정해둔 할 일이 다가오면 폰으로 알려드려요.')}
+          </>
+        )}
     </div>
   )
 }

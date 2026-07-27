@@ -100,6 +100,14 @@ export const settingsApi = {
   update: (settings) => apiFetch('/api/settings', { method: 'PUT', body: JSON.stringify(settings) }),
 }
 
+// Web Push subscriptions — one row per browser, used for 할 일 시간 알림.
+export const pushApi = {
+  publicKey: () => apiFetch('/api/push/public-key'),
+  subscribe: (sub) => apiFetch('/api/push/subscriptions', { method: 'POST', body: JSON.stringify(sub) }),
+  unsubscribe: (endpoint) => apiFetch(`/api/push/subscriptions?endpoint=${encodeURIComponent(endpoint)}`, { method: 'DELETE' }),
+  test: () => apiFetch('/api/push/test', { method: 'POST' }),
+}
+
 // Unified search across the account's diaries / todos / notes.
 export const searchApi = {
   query: ({ q, from, to, types } = {}) => {

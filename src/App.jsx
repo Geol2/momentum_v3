@@ -20,6 +20,7 @@ import { DAYS_KR, QUOTES, greetingFor, weatherIcon, dateKey } from './lib/data.j
 
 const DEFAULT_SETTINGS = {
   userName: '', use24h: true, showSeconds: true, tempUnit: 'C', showQuote: true, background: 'mountain',
+  remindLeadMinutes: 10,
 }
 
 export default function App() {
