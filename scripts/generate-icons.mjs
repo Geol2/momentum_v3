@@ -97,30 +97,70 @@ function shade(u, v) {
   return [Math.min(255, r), Math.min(255, g), Math.min(255, b)]
 }
 
-function render(size) {
+/**
+ * @param {number} w  @param {number} h
+ * @param {(u:number,v:number)=>[number,number,number]} sampler
+ */
+function render(w, h, sampler = shade) {
   const SS = 3 // supersampling factor — cheap anti-aliasing on the crescent's edges
-  const rgba = Buffer.alloc(size * size * 4)
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
+  const rgba = Buffer.alloc(w * h * 4)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
       let r = 0, g = 0, b = 0
       for (let sy = 0; sy < SS; sy++) {
         for (let sx = 0; sx < SS; sx++) {
-          const [pr, pg, pb] = shade((x + (sx + 0.5) / SS) / size, (y + (sy + 0.5) / SS) / size)
+          const [pr, pg, pb] = sampler((x + (sx + 0.5) / SS) / w, (y + (sy + 0.5) / SS) / h)
           r += pr; g += pg; b += pb
         }
       }
       const n = SS * SS
-      const i = (y * size + x) * 4
+      const i = (y * w + x) * 4
       rgba[i] = Math.round(r / n)
       rgba[i + 1] = Math.round(g / n)
       rgba[i + 2] = Math.round(b / n)
       rgba[i + 3] = 255 // opaque: iOS composites transparency onto black and it looks wrong
     }
   }
-  return encodePng(size, size, rgba)
+  return encodePng(w, h, rgba)
+}
+
+// ── og:image (1200×630) ──────────────────────────────────────────────────────
+// 카카오톡·슬랙·구글 검색 미리보기에 쓰이는 넓은 이미지. 정사각 아이콘을 그대로 쓰면
+// 양옆이 잘리거나 여백이 생겨서, 가로 비율에 맞춰 따로 구성합니다.
+// 제목 글자는 넣지 않습니다 — 미리보기 카드가 제목을 옆에 따로 표시하고,
+// 이미지 안에 텍스트가 있으면 겹쳐 보입니다.
+const OG_STARS = [
+  [0.08, 0.22, 0.8], [0.17, 0.62, 0.6], [0.28, 0.15, 0.9], [0.36, 0.78, 0.5],
+  [0.63, 0.20, 0.7], [0.72, 0.68, 0.6], [0.84, 0.34, 0.85], [0.92, 0.72, 0.5],
+  [0.47, 0.40, 0.45], [0.55, 0.86, 0.55],
+]
+
+function shadeWide(u, v) {
+  // 달을 오른쪽으로 밀어 왼쪽에 여백을 둡니다 — 카드에 따라 왼쪽이 잘려도 달은 남습니다.
+  const glow = Math.max(0, 1 - Math.hypot((u - 0.70) * 1.7, v - 0.46) * 1.5)
+  let r = 10 + glow * 30
+  let g = 14 + glow * 38
+  let b = 34 + glow * 64
+
+  for (const [sx, sy, mag] of OG_STARS) {
+    const d = Math.hypot((u - sx) * 1.9, v - sy)   // 가로로 늘어난 캔버스 보정
+    const i = Math.max(0, 1 - d / 0.045) ** 2 * mag
+    r += i * 220; g += i * 232; b += i * 255
+  }
+
+  const inMoon = Math.hypot((u - 0.70) * 1.905, v - 0.46) <= 0.30
+  const inBite = Math.hypot((u - 0.755) * 1.905, v - 0.375) <= 0.27
+  if (inMoon && !inBite) {
+    const edge = Math.hypot((u - 0.70) * 1.905, v - 0.46) / 0.30
+    r = 244 - edge * 14; g = 238 - edge * 18; b = 206 + edge * 10
+  }
+  return [Math.min(255, r), Math.min(255, g), Math.min(255, b)]
 }
 
 for (const [name, size] of [['icon-192.png', 192], ['icon-512.png', 512], ['apple-touch-icon.png', 180]]) {
-  writeFileSync(join(OUT_DIR, name), render(size))
+  writeFileSync(join(OUT_DIR, name), render(size, size))
   console.log(`wrote public/${name} (${size}×${size})`)
 }
+
+writeFileSync(join(OUT_DIR, 'og-image.png'), render(1200, 630, shadeWide))
+console.log('wrote public/og-image.png (1200×630)')

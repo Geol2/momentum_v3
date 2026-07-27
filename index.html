@@ -21,10 +21,96 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500&family=Outfit:wght@200;300;400;500&family=Gowun+Batang:wght@400;700&display=swap"
       rel="stylesheet"
     />
-    <title>Momentum</title>
+
+    <!-- 검색 결과에 그대로 노출되는 값들. title은 60자, description은 155자 안쪽이어야
+         구글이 말줄임 없이 보여줍니다. description이 없으면 구글이 페이지 본문에서
+         아무 문장이나 골라 쓰거나, 아예 설명 없이 표시합니다. -->
+    <title>달빛 서랍 — 할 일과 일기를 한 화면에</title>
+    <meta name="description" content="별이 빛나는 밤 하늘 아래에서 오늘의 할 일과 일기를 적어보세요. 메모·달력·날씨·음악 플레이어까지 한 화면에 담은 무료 웹앱입니다." />
+    <link rel="canonical" href="https://momentum.geol2.com/" />
+
+    <!-- 네이버 서치어드바이저(searchadvisor.naver.com) 소유확인.
+         사이트 등록 → "웹마스터 도구" → 사이트 소유확인 → HTML 태그 방식을 고르면
+         content 값을 줍니다. 그 값을 넣고 아래 주석을 풀면 됩니다.
+    <meta name="naver-site-verification" content="여기에_발급받은_값" />
+    -->
+    <!-- 다음/카카오는 별도 소유확인 없이 robots.txt만 보고 수집합니다. -->
+
+    <!-- Yeti(네이버 크롤러)는 자바스크립트 실행이 제한적이라, 아래 body의 정적
+         소개 문단이 네이버가 이 사이트에서 읽을 수 있는 사실상 전부입니다.
+         지우면 네이버 검색에서 내용 없는 페이지가 됩니다. -->
+
+    <!-- 카카오톡·슬랙·페이스북 공유 미리보기 -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="달빛 서랍" />
+    <meta property="og:title" content="달빛 서랍 — 할 일과 일기를 한 화면에" />
+    <meta property="og:description" content="별이 빛나는 밤 하늘 아래에서 오늘의 할 일과 일기를 적어보세요. 메모·달력·날씨·음악 플레이어까지 한 화면에." />
+    <meta property="og:url" content="https://momentum.geol2.com/" />
+    <meta property="og:locale" content="ko_KR" />
+    <meta property="og:image" content="https://momentum.geol2.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="밤하늘의 초승달" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="달빛 서랍 — 할 일과 일기를 한 화면에" />
+    <meta name="twitter:description" content="별이 빛나는 밤 하늘 아래에서 오늘의 할 일과 일기를 적어보세요." />
+    <meta name="twitter:image" content="https://momentum.geol2.com/og-image.png" />
+
+    <!-- 구조화 데이터. 구글이 "무료 웹 앱"이라는 성격을 이해하는 데 씁니다. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "달빛 서랍",
+        "alternateName": "Momentum",
+        "url": "https://momentum.geol2.com/",
+        "description": "할 일, 일기, 메모, 달력, 음악 플레이어를 한 화면에 담은 밤하늘 테마의 웹앱.",
+        "applicationCategory": "ProductivityApplication",
+        "operatingSystem": "Web",
+        "inLanguage": "ko",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "KRW" }
+      }
+    </script>
+
+    <style>
+      /* 번들이 로드되기 전의 배경. 없으면 흰 화면이 한 번 번쩍입니다. */
+      html, body { margin: 0; background: #0a0e22; }
+      .boot-intro {
+        min-height: 100vh; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 14px; padding: 32px 24px;
+        font-family: 'Noto Sans KR', sans-serif; color: rgba(255, 255, 255, 0.75);
+        text-align: center;
+      }
+      .boot-intro h1 { margin: 0; font-size: 26px; font-weight: 400; color: rgba(235, 242, 255, 0.95); }
+      .boot-intro p { margin: 0; max-width: 460px; font-size: 14px; font-weight: 300; line-height: 1.8; }
+      .boot-intro ul { margin: 4px 0 0; padding: 0; list-style: none; font-size: 13px; font-weight: 300; line-height: 2; opacity: 0.72; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <!--
+      #root 안의 이 내용은 React가 마운트되는 순간 통째로 교체됩니다.
+      남겨두는 이유는 둘입니다.
+        1. 검색엔진 — 이 앱은 클라이언트 렌더링이라 크롤러가 처음 받는 HTML이 비어
+           있었습니다. 실제 문장이 있어야 구글이 무슨 사이트인지 판단할 수 있습니다.
+        2. 사용자 — 번들이 큰 편이라 로딩 동안 빈 화면 대신 이걸 보게 됩니다.
+      내용은 실제 앱이 제공하는 기능과 일치해야 합니다 (다르면 클로킹으로 취급됨).
+    -->
+    <div id="root">
+      <div class="boot-intro">
+        <h1>달빛 서랍</h1>
+        <p>
+          별이 빛나는 밤 하늘 아래에서 오늘의 할 일과 일기를 적어보세요.
+          메모와 달력, 날씨, 음악 플레이어까지 한 화면에 담긴 무료 웹앱입니다.
+        </p>
+        <ul>
+          <li>할 일 · 시간과 장소를 정해두면 약속 전에 알림</li>
+          <li>하루의 일기와 기분 기록</li>
+          <li>붙였다 뗄 수 있는 메모</li>
+          <li>달력에서 지난 날의 기록 찾아보기</li>
+          <li>유튜브 음악 플레이어</li>
+        </ul>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
