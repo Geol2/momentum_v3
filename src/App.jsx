@@ -12,6 +12,7 @@ import Search from './components/Search.jsx'
 import Notice from './components/Notice.jsx'
 import MusicPlayer from './components/MusicPlayer.jsx'
 import Login from './components/Login.jsx'
+import MeetingRecorder from './components/MeetingRecorder.jsx'
 import HiddenGame from './game/HiddenGame.jsx'
 import { useAuth } from './lib/useAuth.js'
 import { useIsMobile } from './lib/useIsMobile.js'
@@ -337,6 +338,9 @@ export default function App() {
 
       {/* unified account search across diaries · todos · notes */}
       <Search onOpenDiary={openDiary} onJumpToDate={(k) => setSelectedDateKey(k)} />
+
+      {/* 회의록 녹음 — 1단계: 브라우저 안에서만 (업로드·유료 STT 없음) */}
+      <MeetingRecorder />
 
       {/* Copyright */}
       {/* On mobile the notice pill and the gear/search buttons already fill the bottom

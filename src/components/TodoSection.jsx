@@ -47,6 +47,13 @@ export default function TodoSection({ todos, label = '오늘 할 일', isToday =
 
   const done = todos.filter((t) => t.done).length
 
+  // Drives the 시간·장소 chip: highlighted while something is filled in, and labelled with
+  // the values themselves so collapsing the panel doesn't hide what's about to be saved.
+  const hasOpts = !!(time || place.trim())
+  const optsSummary = hasOpts
+    ? [time, place.trim()].filter(Boolean).join(' · ')
+    : '시간·장소'
+
   const submit = () => {
     const text = val.trim()
     if (!text) return
@@ -96,15 +103,21 @@ export default function TodoSection({ todos, label = '오늘 할 일', isToday =
           <button onClick={submit} style={addBtn}>+ 추가</button>
         </div>
 
+        {/* Chip rather than bare text: as a faint blue link this was easy to miss entirely,
+            and it's the only way to attach the time that 약속 알림 fires on. Filled state
+            doubles as a summary so a collapsed chip still shows what's set. */}
         <button
           onClick={() => setShowOpts((s) => !s)}
           style={{
-            marginTop: 8, border: 'none', background: 'transparent', cursor: 'pointer', padding: '2px 2px',
-            fontSize: 11, color: 'rgba(99,179,237,0.6)', fontFamily: "'Noto Sans KR', sans-serif",
-            letterSpacing: '0.03em', display: 'inline-flex', alignItems: 'center', gap: 5,
+            marginTop: 9, cursor: 'pointer', padding: '6px 11px', borderRadius: 10,
+            background: showOpts || hasOpts ? 'rgba(99,179,237,0.16)' : 'rgba(255,255,255,0.05)',
+            border: `1px solid ${showOpts || hasOpts ? 'rgba(99,179,237,0.42)' : 'rgba(255,255,255,0.16)'}`,
+            fontSize: 11.5, color: showOpts || hasOpts ? 'rgba(150,205,255,0.95)' : 'rgba(255,255,255,0.6)',
+            fontFamily: "'Noto Sans KR', sans-serif", letterSpacing: '0.02em',
+            display: 'inline-flex', alignItems: 'center', gap: 6, transition: 'all 0.18s',
           }}
         >
-          🕐 시간·장소 {showOpts ? '▴' : '▾'}
+          🕐 {optsSummary} <span style={{ opacity: 0.55, fontSize: 9 }}>{showOpts ? '▲' : '▼'}</span>
         </button>
 
         {showOpts && (

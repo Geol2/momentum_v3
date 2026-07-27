@@ -59,6 +59,30 @@ function TrackThumb({ videoId, active, playing, onClick }) {
   )
 }
 
+// ── 이어듣기 상태 (기기별이라 계정 API가 아니라 localStorage에 둡니다) ──────────
+// 카카오톡 같은 인앱 브라우저는 localStorage에 접근만 해도 예외를 던지므로, api.js와
+// 같은 방식으로 모든 접근을 감쌉니다. 실패하면 이어듣기만 조용히 비활성화됩니다.
+const RESUME_KEY = 'byeolbit_music_resume'
+// 곡 끝자락에서 저장되면 복원하자마자 끝나버려 다음 곡으로 튑니다. 이 여유 안이면 처음부터.
+const RESUME_TAIL_GUARD = 5
+
+function readResume() {
+  try {
+    const raw = localStorage.getItem(RESUME_KEY)
+    if (!raw) return null
+    const v = JSON.parse(raw)
+    return v && typeof v.videoId === 'string' ? v : null
+  } catch {
+    return null
+  }
+}
+
+function writeResume(state) {
+  try {
+    localStorage.setItem(RESUME_KEY, JSON.stringify(state))
+  } catch { /* 저장 불가 — 이어듣기 없이 정상 동작 */ }
+}
+
 // Load the YouTube IFrame API once, resolving when window.YT is ready.
 let ytReadyPromise = null
 function loadYT() {
@@ -98,9 +122,16 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
   const seekingRef = useRef(false) // pause progress polling while dragging the seek bar
   const readyRef = useRef(false)   // true once the YT player fired onReady
   const readyPromiseRef = useRef(null) // cached "player is ready" promise
+  const mutedRef = useRef(muted)
+  const playingRef = useRef(playing)
+  const loadedIndexRef = useRef(-1)  // which track is actually loaded into the player
+  const resumeRef = useRef(null)     // {videoId, position} pending from a previous session
+  const restoredRef = useRef(false)  // restore runs once, on the first non-empty playlist
   tracksRef.current = tracks
   indexRef.current = index
   volumeRef.current = volume
+  mutedRef.current = muted
+  playingRef.current = playing
 
   // Tear down the player when the component unmounts.
   useEffect(() => () => { try { playerRef.current?.destroy?.() } catch { /* ignore */ } }, [])
@@ -110,6 +141,9 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
     const id = setInterval(() => {
       const p = playerRef.current
       if (!p || !p.getDuration || seekingRef.current) return
+      // 아직 아무 곡도 안 올라간 상태(복원 직후 포함)에서는 폴링하지 않습니다.
+      // 빈 플레이어는 0을 돌려주므로, 복원해둔 위치·길이를 0으로 덮어써 버립니다.
+      if (loadedIndexRef.current < 0) return
       try {
         setDuration(p.getDuration() || 0)
         setCurrent(p.getCurrentTime() || 0)
@@ -117,6 +151,69 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
     }, 250)
     return () => clearInterval(id)
   }, [])
+
+  // 현재 재생 위치를 저장합니다. 새로고침 후 여기서부터 이어듣습니다.
+  const persistResume = () => {
+    if (IOS) return
+    const p = playerRef.current
+    const list = tracksRef.current
+    const idx = indexRef.current
+    const track = idx >= 0 ? list[idx] : null
+    if (!p || !track) return
+    try {
+      const dur = p.getDuration?.() || 0
+      let position = p.getCurrentTime?.() || 0
+      // 거의 끝난 곡을 그 자리에서 되살리면 바로 끝나 다음 곡으로 넘어가버립니다.
+      if (dur > 0 && dur - position < RESUME_TAIL_GUARD) position = 0
+      writeResume({
+        videoId: track.videoId,
+        position,
+        duration: dur,
+        volume: volumeRef.current,
+        muted: mutedRef.current,
+      })
+    } catch { /* 플레이어 미준비 */ }
+  }
+
+  // 재생 중 5초마다 + 탭을 벗어나거나 닫을 때. pagehide는 모바일 사파리에서
+  // beforeunload가 발화하지 않는 경우를 메웁니다.
+  useEffect(() => {
+    if (IOS) return
+    const id = setInterval(() => { if (playingRef.current) persistResume() }, 5000)
+    const onHide = () => persistResume()
+    const onVisibility = () => { if (document.visibilityState === 'hidden') persistResume() }
+    window.addEventListener('pagehide', onHide)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      clearInterval(id)
+      window.removeEventListener('pagehide', onHide)
+      document.removeEventListener('visibilitychange', onVisibility)
+      persistResume()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 저장된 곡·위치·음량을 복원합니다. 재생은 시작하지 않습니다 — 브라우저가 사용자
+  // 조작 없는 자동재생을 막기 때문에, 조용히 실패하는 대신 ▶를 누르면 그 지점부터
+  // 시작되도록 대기시켜 둡니다.
+  useEffect(() => {
+    if (IOS || restoredRef.current || tracks.length === 0) return
+    restoredRef.current = true
+
+    const saved = readResume()
+    if (!saved) return
+    const idx = tracks.findIndex((t) => t.videoId === saved.videoId)
+    if (idx < 0) return // 그사이 플레이리스트에서 지워진 곡
+
+    setIndex(idx); indexRef.current = idx
+    resumeRef.current = { videoId: saved.videoId, position: saved.position || 0 }
+    // 진행 막대가 곧바로 올바른 위치를 가리키도록 길이도 같이 복원합니다.
+    setCurrent(saved.position || 0)
+    setDuration(saved.duration || 0)
+    if (typeof saved.volume === 'number') { setVolume(saved.volume); volumeRef.current = saved.volume }
+    if (typeof saved.muted === 'boolean') { setMuted(saved.muted); mutedRef.current = saved.muted }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tracks.length])
 
   // Resolves when the (single, reused) YT player has fired onReady. Cached so it runs
   // once — created eagerly below so the player exists BEFORE the user taps play.
@@ -133,7 +230,12 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
           events: {
             onReady: () => {
               readyRef.current = true
-              try { p.setVolume(volumeRef.current) } catch { /* ignore */ }
+              // 복원된 음량·음소거를 플레이어에도 반영합니다. 음소거를 빠뜨리면
+              // 아이콘은 🔇인데 소리는 나오는 상태가 됩니다.
+              try {
+                p.setVolume(volumeRef.current)
+                if (mutedRef.current) p.mute()
+              } catch { /* ignore */ }
               resolve(p)
             },
             onStateChange: (e) => {
@@ -173,7 +275,15 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
     setError('')
 
     const start = (pp) => {
-      pp.loadVideoById(list[idx].videoId)
+      // 이전 세션에서 듣던 그 곡이면 그 지점부터. 다른 곡을 고르면 처음부터.
+      const resume = resumeRef.current
+      const startSeconds = resume && resume.videoId === list[idx].videoId ? resume.position : 0
+      resumeRef.current = null
+
+      if (startSeconds > 0) pp.loadVideoById({ videoId: list[idx].videoId, startSeconds })
+      else pp.loadVideoById(list[idx].videoId)
+
+      loadedIndexRef.current = idx
       if (!muted) { try { pp.unMute() } catch { /* ignore */ } }
       pp.playVideo()
       setPlaying(true)
@@ -187,7 +297,10 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
   const togglePlay = () => {
     const p = playerRef.current
     if (!p || !readyRef.current || index < 0) return playAt(index < 0 ? 0 : index)
-    if (playing) { p.pauseVideo(); setPlaying(false) }
+    // 복원 직후엔 곡이 선택만 되어 있고 플레이어에는 아직 안 올라가 있습니다.
+    // 이때 playVideo()는 아무 일도 하지 않으므로 playAt으로 실제 로드를 태웁니다.
+    if (loadedIndexRef.current !== index) return playAt(index)
+    if (playing) { p.pauseVideo(); setPlaying(false); persistResume() }
     else { p.playVideo(); setPlaying(true) }
   }
 
@@ -203,8 +316,14 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
   const removeTrack = (t) => {
     const removedIdx = tracks.findIndex((x) => x.id === t.id)
     onRemove(t.id)
-    if (removedIdx === index) { setIndex(-1); setPlaying(false); try { playerRef.current?.stopVideo?.() } catch { /* ignore */ } }
-    else if (removedIdx < index) setIndex((i) => i - 1)
+    if (removedIdx === index) {
+      setIndex(-1); setPlaying(false); loadedIndexRef.current = -1
+      try { playerRef.current?.stopVideo?.() } catch { /* ignore */ }
+    } else if (removedIdx < index) {
+      // 앞쪽 곡이 빠지면 남은 곡들의 인덱스가 한 칸씩 당겨집니다.
+      setIndex((i) => i - 1)
+      if (loadedIndexRef.current > removedIdx) loadedIndexRef.current -= 1
+    }
   }
 
   // Live seek: update the label as the thumb drags, only jump the player on release.
@@ -214,6 +333,7 @@ export default function MusicPlayer({ tracks, onAdd, onRemove, onRename }) {
     try { p?.seekTo(v, true) } catch { /* ignore */ }
     setCurrent(v)
     seekingRef.current = false
+    persistResume()
   }
 
   const applyVolume = (v) => {
