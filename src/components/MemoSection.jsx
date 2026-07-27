@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useIsMobile } from '../lib/useIsMobile.js'
 
+// 할 일의 추가 버튼과 같은 톤 — 두 영역이 나란히 있어서 한쪽만 밝으면 어색합니다.
 const addBtn = {
-  width: '100%', background: 'rgba(99,179,237,0.15)', border: '1px solid rgba(99,179,237,0.3)', borderRadius: 12,
-  padding: '12px 18px', fontSize: 14, fontWeight: 400, color: 'rgba(99,179,237,0.9)', cursor: 'pointer',
-  fontFamily: "'Noto Sans KR', sans-serif", whiteSpace: 'nowrap',
+  width: '100%',
+  background: 'linear-gradient(135deg, rgba(88,160,235,0.95), rgba(120,140,240,0.95))',
+  border: '1px solid rgba(150,200,255,0.55)', borderRadius: 12,
+  padding: '12px 18px', fontSize: 14, fontWeight: 600, color: '#fff', cursor: 'pointer',
+  fontFamily: "'Noto Sans KR', sans-serif", whiteSpace: 'nowrap', letterSpacing: '0.02em',
+  boxShadow: '0 4px 14px rgba(70,120,220,0.42)', transition: 'filter 0.15s',
 }
 const fieldStyle = {
   width: '100%', minWidth: 0, minHeight: 62, background: 'rgba(0,0,0,0.58)',

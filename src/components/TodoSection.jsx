@@ -1,9 +1,17 @@
 import { useState } from 'react'
 
+// 화면에서 가장 중요한 동작이라 확실히 채운 버튼으로 둡니다. 15% 반투명 배경일 때는
+// 어두운 배경사진 위에서 입력창과 구분이 잘 안 됐습니다.
 const addBtn = {
-  background: 'rgba(99,179,237,0.15)', border: '1px solid rgba(99,179,237,0.3)', borderRadius: 12,
-  padding: '12px 18px', fontSize: 14, fontWeight: 400, color: 'rgba(99,179,237,0.9)', cursor: 'pointer',
-  fontFamily: "'Noto Sans KR', sans-serif", whiteSpace: 'nowrap',
+  background: 'linear-gradient(135deg, rgba(88,160,235,0.95), rgba(120,140,240,0.95))',
+  border: '1px solid rgba(150,200,255,0.55)', borderRadius: 12,
+  padding: '12px 20px', fontSize: 14, fontWeight: 600, color: '#fff', cursor: 'pointer',
+  fontFamily: "'Noto Sans KR', sans-serif", whiteSpace: 'nowrap', letterSpacing: '0.02em',
+  boxShadow: '0 4px 14px rgba(70,120,220,0.42)', transition: 'filter 0.15s, transform 0.12s',
+}
+// 저장 중에는 눌린 듯 가라앉혀 중복 클릭이 안 먹는다는 걸 보여줍니다.
+const addBtnBusy = {
+  ...addBtn, cursor: 'default', filter: 'saturate(0.5) brightness(0.8)', boxShadow: 'none',
 }
 const inputStyle = {
   // minWidth:0 — an <input> reports a ~20-character intrinsic min-width, so without
@@ -110,7 +118,9 @@ export default function TodoSection({ todos, label = '오늘 할 일', isToday =
             onKeyDown={(e) => e.key === 'Enter' && submit()}
             style={inputStyle}
           />
-          <button onClick={submit} style={addBtn}>+ 추가</button>
+          <button onClick={submit} disabled={saving} style={saving ? addBtnBusy : addBtn}>
+            {saving ? '저장 중…' : '+ 추가'}
+          </button>
         </div>
 
         {/* Chip rather than bare text: as a faint blue link this was easy to miss entirely,
