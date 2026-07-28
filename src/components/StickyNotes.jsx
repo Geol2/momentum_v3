@@ -143,7 +143,10 @@ function Note({ note, color, onMove, onMoveEnd, onResize, onResizeEnd, onRemove,
           }}
         />
       ) : (
-        <div style={{ flex: 1, overflowY: 'auto', fontSize: 13, fontWeight: 400, lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word', paddingRight: 62 }}>
+        <div style={{ flex: 1, overflowY: 'auto', fontSize: 13, fontWeight: 400, lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          {/* 우측 상단 버튼이 가리는 건 첫 줄뿐이라 그만큼만 비웁니다.
+              전체에 paddingRight를 주면 폭을 줄였을 때 모든 줄이 함께 좁아집니다. */}
+          <div aria-hidden style={{ float: 'right', width: onTogglePin ? 52 : 34, height: 14 }} />
           {note.text}
         </div>
       )}
