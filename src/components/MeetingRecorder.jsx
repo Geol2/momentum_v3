@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { uploadRecording, uploadConfigured } from '../lib/uploadRecording.js'
+import { uploadRecording } from '../lib/uploadRecording.js'
 
 /**
  * 🎙 회의록 녹음 — 1단계: 브라우저 안에서만 동작합니다.
@@ -546,34 +546,30 @@ export default function MeetingRecorder() {
                     </div>
                     <audio src={audioUrl} controls style={{ width: '100%', height: 38 }} />
 
-                    {uploadConfigured && (
-                      <input
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        placeholder={autoTitle}
-                        disabled={upload === 'uploading' || upload === 'saved'}
-                        style={{
-                          width: '100%', boxSizing: 'border-box', marginTop: 9, padding: '9px 11px',
-                          background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 9,
-                          color: 'rgba(255,255,255,0.85)', fontSize: 12.5, fontWeight: 300,
-                          fontFamily: "'Noto Sans KR', sans-serif", outline: 'none',
-                        }}
-                      />
-                    )}
+                    <input
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder={autoTitle}
+                      disabled={upload === 'uploading' || upload === 'saved'}
+                      style={{
+                        width: '100%', boxSizing: 'border-box', marginTop: 9, padding: '9px 11px',
+                        background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 9,
+                        color: 'rgba(255,255,255,0.85)', fontSize: 12.5, fontWeight: 300,
+                        fontFamily: "'Noto Sans KR', sans-serif", outline: 'none',
+                      }}
+                    />
 
                     <div style={{ display: 'flex', gap: 8, marginTop: 9 }}>
-                      {uploadConfigured && (
-                        <SmallBtn
-                          onClick={saveToServer}
-                          disabled={upload === 'uploading' || upload === 'saved'}
-                          tone={upload === 'saved' ? 'ok' : upload === 'error' ? 'warn' : 'primary'}
-                        >
-                          {upload === 'uploading' ? '업로드 중…'
-                            : upload === 'saved' ? '✓ 저장 완료'
-                            : upload === 'error' ? '다시 시도'
-                            : '☁ 서버에 저장'}
-                        </SmallBtn>
-                      )}
+                      <SmallBtn
+                        onClick={saveToServer}
+                        disabled={upload === 'uploading' || upload === 'saved'}
+                        tone={upload === 'saved' ? 'ok' : upload === 'error' ? 'warn' : 'primary'}
+                      >
+                        {upload === 'uploading' ? '업로드 중…'
+                          : upload === 'saved' ? '✓ 저장 완료'
+                          : upload === 'error' ? '다시 시도'
+                          : '☁ 서버에 저장'}
+                      </SmallBtn>
                       <SmallBtn onClick={() => download(audioUrl, `${title.trim() || autoTitle}.${extFor(mimeRef.current)}`)}>
                         녹음 파일 저장
                       </SmallBtn>

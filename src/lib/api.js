@@ -44,8 +44,12 @@ const PUBLIC_PATHS = ['/api/auth/login', '/api/auth/signup', '/api/auth/request-
 
 export async function apiFetch(path, options = {}) {
   const token = getToken()
+  // FormData를 보낼 때는 Content-Type을 건드리면 안 됩니다. 브라우저가 boundary가
+  // 포함된 multipart/form-data를 직접 붙여야 하는데, 여기서 덮어쓰면 boundary가
+  // 빠져서 서버가 본문을 파싱하지 못합니다.
+  const isForm = options.body instanceof FormData
   const headers = {
-    'Content-Type': 'application/json',
+    ...(isForm ? {} : { 'Content-Type': 'application/json' }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   }
