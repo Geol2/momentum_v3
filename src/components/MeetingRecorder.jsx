@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { uploadRecording, uploadConfigured } from '../lib/uploadRecording.js'
 
 /**
  * 🎙 회의록 녹음 — 1단계: 브라우저 안에서만 동작합니다.
@@ -65,9 +66,17 @@ export default function MeetingRecorder() {
   const [sttState, setSttState] = useState('off') // off | starting | listening | error
   const [sttError, setSttError] = useState('')
 
+  // 서버 업로드는 status(idle|recording|done)와 별개로 둡니다. 같은 변수에 섞으면
+  // status === 'done'으로 분기하는 결과 패널이 업로드 중에 사라집니다.
+  const [upload, setUpload] = useState('idle')   // idle | uploading | saved | error
+  const [uploadError, setUploadError] = useState('')
+  const [title, setTitle] = useState('')
+  const [autoTitle, setAutoTitle] = useState('')
+
   const streamRef = useRef(null)
   const recorderRef = useRef(null)
   const chunksRef = useRef([])
+  const blobRef = useRef(null)       // 업로드용 원본 — audioUrl로는 되돌릴 수 없습니다
   const mimeRef = useRef('')
   const audioCtxRef = useRef(null)
   const rafRef = useRef(null)
@@ -199,12 +208,19 @@ export default function MeetingRecorder() {
     setError(null)
     setTranscript('')
     setInterim('')
+    setUpload('idle')
+    setUploadError('')
+    setTitle('')
+    setAutoTitle('')
+    blobRef.current = null
     if (audioUrl) { URL.revokeObjectURL(audioUrl); setAudioUrl(null) }
 
     let stream
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        // 말소리만 담으면 되므로 모노로 받습니다. 아래 32kbps에서 스테레오로 쪼개는
+        // 것보다 한 채널에 몰아주는 쪽이 알아듣기 좋습니다.
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
       })
     } catch (e) {
       setError(e.name === 'NotAllowedError'
@@ -217,10 +233,17 @@ export default function MeetingRecorder() {
     const mime = pickMime()
     mimeRef.current = mime
     chunksRef.current = []
-    const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
+    // mimeType은 pickMime()이 고른 값을 그대로 씁니다 — iOS Safari는 webm을 만들지
+    // 못해서 하드코딩하면 생성 자체가 실패합니다. 비트레이트만 낮춰 잡으면
+    // 1시간에 약 14MB로, Cloudflare 100MB 제한에 여유가 생깁니다.
+    const recorder = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 32000 })
     recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
     recorder.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: mime || 'audio/webm' })
+      // 업로드는 사용자가 버튼을 누를 때 하므로 blob을 들고 있어야 합니다.
+      // audioUrl에서는 blob을 되찾을 수 없습니다.
+      blobRef.current = blob
+      setAutoTitle(`회의록_${stamp()}`)
       setAudioUrl(URL.createObjectURL(blob))
     }
     // 1초 단위로 청크를 뱉게 해서, 브라우저가 중간에 죽어도 앞부분은 남습니다.
@@ -273,6 +296,24 @@ export default function MeetingRecorder() {
     a.href = url
     a.download = filename
     a.click()
+  }
+
+  // 업로드는 자동이 아니라 버튼입니다. 1시간짜리를 종료 즉시 밀어올리면 취소도
+  // 재시도도 못 하고, 실패하면 회의 하나가 통째로 날아갑니다.
+  async function saveToServer() {
+    const blob = blobRef.current
+    if (!blob || upload === 'uploading') return
+    const name = title.trim() || autoTitle
+    setUpload('uploading')
+    setUploadError('')
+    try {
+      await uploadRecording(blob, { title: name, filename: `${name}.${extFor(mimeRef.current)}` })
+      setUpload('saved')
+    } catch (e) {
+      // 실패해도 blob은 그대로 들고 있습니다 — 다시 시도하거나 내려받을 수 있습니다.
+      setUpload('error')
+      setUploadError(e.message || '업로드에 실패했어요.')
+    }
   }
 
   function downloadTranscript() {
@@ -504,13 +545,52 @@ export default function MeetingRecorder() {
                       RECORDING
                     </div>
                     <audio src={audioUrl} controls style={{ width: '100%', height: 38 }} />
+
+                    {uploadConfigured && (
+                      <input
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        placeholder={autoTitle}
+                        disabled={upload === 'uploading' || upload === 'saved'}
+                        style={{
+                          width: '100%', boxSizing: 'border-box', marginTop: 9, padding: '9px 11px',
+                          background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 9,
+                          color: 'rgba(255,255,255,0.85)', fontSize: 12.5, fontWeight: 300,
+                          fontFamily: "'Noto Sans KR', sans-serif", outline: 'none',
+                        }}
+                      />
+                    )}
+
                     <div style={{ display: 'flex', gap: 8, marginTop: 9 }}>
-                      <SmallBtn onClick={() => download(audioUrl, `회의록_${stamp()}.${extFor(mimeRef.current)}`)}>
+                      {uploadConfigured && (
+                        <SmallBtn
+                          onClick={saveToServer}
+                          disabled={upload === 'uploading' || upload === 'saved'}
+                          tone={upload === 'saved' ? 'ok' : upload === 'error' ? 'warn' : 'primary'}
+                        >
+                          {upload === 'uploading' ? '업로드 중…'
+                            : upload === 'saved' ? '✓ 저장 완료'
+                            : upload === 'error' ? '다시 시도'
+                            : '☁ 서버에 저장'}
+                        </SmallBtn>
+                      )}
+                      <SmallBtn onClick={() => download(audioUrl, `${title.trim() || autoTitle}.${extFor(mimeRef.current)}`)}>
                         녹음 파일 저장
                       </SmallBtn>
                     </div>
+
+                    {uploadError && (
+                      <div style={{
+                        fontSize: 11, lineHeight: 1.6, marginTop: 9, padding: '9px 11px', borderRadius: 9,
+                        background: 'rgba(255,120,120,0.09)', border: '1px solid rgba(255,120,120,0.28)',
+                        color: 'rgba(255,180,180,0.92)', fontFamily: "'Noto Sans KR', sans-serif",
+                      }}>{uploadError}<br />녹음은 아직 여기 있어요 — 다시 시도하거나 파일로 내려받으세요.</div>
+                    )}
+
                     <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.3)', fontFamily: "'Noto Sans KR', sans-serif", marginTop: 10, lineHeight: 1.6 }}>
-                      아직 서버에 저장되지 않아요. 창을 닫으면 사라지니 필요하면 먼저 내려받으세요.
+                      {upload === 'saved'
+                        ? '서버에 저장했어요. 이 창의 녹음본은 창을 닫으면 사라집니다.'
+                        : '아직 서버에 저장되지 않아요. 창을 닫으면 사라지니 먼저 저장하거나 내려받으세요.'}
                     </div>
                   </div>
                 )}
@@ -523,14 +603,21 @@ export default function MeetingRecorder() {
   )
 }
 
-function SmallBtn({ onClick, children }) {
+const TONES = {
+  default: { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.14)', color: 'rgba(185,222,255,0.9)' },
+  primary: { background: 'rgba(99,179,237,0.16)', border: '1px solid rgba(99,179,237,0.45)', color: 'rgba(190,225,255,0.95)' },
+  ok:      { background: 'rgba(120,220,160,0.12)', border: '1px solid rgba(120,220,160,0.4)', color: 'rgba(170,230,195,0.95)' },
+  warn:    { background: 'rgba(255,120,120,0.12)', border: '1px solid rgba(255,120,120,0.4)', color: 'rgba(255,180,180,0.95)' },
+}
+
+function SmallBtn({ onClick, children, disabled = false, tone = 'default' }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       style={{
-        flex: 1, padding: '8px 0', borderRadius: 9, cursor: 'pointer',
-        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.14)',
-        color: 'rgba(185,222,255,0.9)', fontSize: 11.5, fontFamily: "'Noto Sans KR', sans-serif",
+        flex: 1, padding: '8px 0', borderRadius: 9, cursor: disabled ? 'default' : 'pointer',
+        ...TONES[tone], opacity: disabled ? 0.6 : 1, fontSize: 11.5, fontFamily: "'Noto Sans KR', sans-serif",
       }}
     >{children}</button>
   )
