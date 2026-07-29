@@ -18,13 +18,20 @@ import { isIOS } from '../lib/inAppBrowser.js'
 
 // 브라우저마다 지원 코덱이 다릅니다. Chrome/Android는 webm/opus, iOS Safari는 mp4/aac.
 const MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
+// 아이폰(WebKit)은 webm에 대해 isTypeSupported가 true를 주기도 하지만, 실제로는 헤더만
+// 있는 빈 파일(5~25바이트)이 만들어지고 webm은 duration 정보가 없어 재생바도 안 움직입니다.
+// 그래서 iOS에서는 webm을 건너뛰고 mp4(aac)만 씁니다.
+const IOS_MIME_CANDIDATES = ['audio/mp4', 'audio/aac', 'audio/mpeg']
 
 function pickMime() {
   if (typeof MediaRecorder === 'undefined') return null
-  for (const m of MIME_CANDIDATES) {
+  const candidates = isIOS() ? IOS_MIME_CANDIDATES : MIME_CANDIDATES
+  for (const m of candidates) {
     if (MediaRecorder.isTypeSupported(m)) return m
   }
-  return '' // 빈 문자열 = 브라우저 기본값에 맡김
+  // iOS는 기본값에 맡기면 webm이 나올 수 있어 mp4로 못박습니다(정말 미지원이면 아래
+  // MediaRecorder 생성에서 에러가 표면화됩니다). 그 외 브라우저는 빈 문자열로 기본 코덱에 맡깁니다.
+  return isIOS() ? 'audio/mp4' : ''
 }
 
 function extFor(mime) {
@@ -47,6 +54,15 @@ function stamp() {
   const d = new Date()
   const p = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`
+}
+
+// 업로드 파일명용 ASCII 타임스탬프(recording_20260729_1830). 한글 제목을 파일명에 넣으면
+// n8n(Node) 멀티파트 파서가 latin1로 디코딩해 드라이브에서 깨지므로, 파일명은 영문+숫자로
+// 고정하고 한글 제목은 title 필드로 따로 보냅니다.
+function fileStamp() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`
 }
 
 const SpeechRecognitionCtor =
@@ -315,7 +331,22 @@ export default function MeetingRecorder() {
     // mimeType은 pickMime()이 고른 값을 그대로 씁니다 — iOS Safari는 webm을 만들지
     // 못해서 하드코딩하면 생성 자체가 실패합니다. 비트레이트만 낮춰 잡으면
     // 1시간에 약 14MB로, Cloudflare 100MB 제한에 여유가 생깁니다.
-    const recorder = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 32000 })
+    let recorder
+    try {
+      recorder = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 32000 })
+    } catch (e) {
+      // 코덱을 못 만들면(특히 iOS에서 mp4 미지원) 생성 자체가 던집니다. 예전엔 조용히
+      // 실패해 빈 녹음만 남았습니다 — 이제 이유를 화면에 띄웁니다.
+      setError(`이 브라우저에서 녹음 형식(${mime || '기본값'})을 만들지 못했어요. ${e?.message || ''}`.trim())
+      stream.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
+      return
+    }
+    // 인코더가 도중에 실패하면(브라우저 내부 오류) 알립니다. 이전에는 이 이벤트를 처리하지
+    // 않아, 깨진/빈 파일이 그대로 만들어졌습니다.
+    recorder.onerror = (e) => {
+      setError(`녹음 중 오류가 발생했어요 (${e?.error?.name || '인코딩 실패'}). 다시 시도해 주세요.`)
+    }
     recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
     recorder.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: mime || 'audio/webm' })
@@ -389,7 +420,9 @@ export default function MeetingRecorder() {
     setUpload('uploading')
     setUploadError('')
     try {
-      await uploadRecording(blob, { title: name, filename: `${name}.${extFor(mimeRef.current)}` })
+      // 파일명은 ASCII로 고정(recording_날짜시각)합니다. 한글 제목은 title 필드로 전달되어
+      // n8n에서 안전하게 쓸 수 있습니다 — 한글을 파일명에 넣으면 드라이브에서 깨집니다.
+      await uploadRecording(blob, { title: name, filename: `recording_${fileStamp()}.${extFor(mimeRef.current)}` })
       setUpload('saved')
     } catch (e) {
       // 실패해도 blob은 그대로 들고 있습니다 — 다시 시도하거나 내려받을 수 있습니다.

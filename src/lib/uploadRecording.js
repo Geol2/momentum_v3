@@ -13,7 +13,9 @@ const MAX_BYTES = 100 * 1024 * 1024
  * 사용자의 JWT로 인증하고(apiFetch가 붙여줍니다), 웹훅 주소와 키는 서버에만 있습니다.
  */
 export async function uploadRecording(blob, { title, filename } = {}) {
-  if (!blob || blob.size === 0) throw new Error('업로드할 녹음이 없어요.')
+  // iOS가 만든 헤더만 있는 빈 webm(5~25바이트)을 걸러냅니다. 1초짜리 정상 녹음도
+  // mp4/aac 32kbps면 수 KB이므로, 1KB 미만은 사실상 빈/깨진 파일입니다.
+  if (!blob || blob.size < 1024) throw new Error('녹음이 비어 있거나 너무 짧아요. 다시 녹음해 주세요.')
   if (blob.size > MAX_BYTES) {
     throw new Error(`파일이 너무 커요 (${(blob.size / 1024 / 1024).toFixed(0)}MB · 최대 100MB). 나눠서 녹음해 주세요.`)
   }
