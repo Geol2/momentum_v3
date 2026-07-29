@@ -1,5 +1,4 @@
 node_modules
 dist
-.next
 *.local
 .DS_Store
