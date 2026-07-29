@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { uploadRecording } from '../lib/uploadRecording.js'
+import { isIOS } from '../lib/inAppBrowser.js'
 
 /**
  * 🎙 회의록 녹음 — 1단계: 브라우저 안에서만 동작합니다.
@@ -72,6 +73,8 @@ export default function MeetingRecorder() {
   const [uploadError, setUploadError] = useState('')
   const [title, setTitle] = useState('')
   const [autoTitle, setAutoTitle] = useState('')
+  // 녹음 중 화면이 꺼지거나(잠금) 다른 앱으로 전환돼 녹음이 끊긴 경우 true.
+  const [interrupted, setInterrupted] = useState(false)
 
   const streamRef = useRef(null)
   const recorderRef = useRef(null)
@@ -85,10 +88,17 @@ export default function MeetingRecorder() {
   const wantSttRef = useRef(false)   // onend에서 재시작할지 여부
   const wakeLockRef = useRef(null)
   const transcriptRef = useRef(null) // 자동 스크롤용
+  // status(state)는 visibilitychange 콜백 안에서 최신값을 못 읽으므로 ref로도 미러링합니다.
+  const recordingRef = useRef(false)
 
   const supported = typeof navigator !== 'undefined'
     && !!navigator.mediaDevices?.getUserMedia
     && typeof MediaRecorder !== 'undefined'
+
+  // 아이폰(및 iOS 크롬)은 화면이 꺼지면 페이지를 정지시켜 웹 녹음이 끊깁니다. 그리고 iOS
+  // 크롬(CriOS)은 화면 잠금 방지(wakeLock)를 아예 지원하지 않아 Safari보다 더 잘 끊깁니다.
+  const ios = isIOS()
+  const iosChrome = ios && /CriOS/i.test(typeof navigator !== 'undefined' ? navigator.userAgent : '')
 
   // 전사 영역은 새 문장이 들어올 때마다 맨 아래로.
   useEffect(() => {
@@ -100,6 +110,7 @@ export default function MeetingRecorder() {
   useEffect(() => () => teardown(), [])
 
   function teardown() {
+    recordingRef.current = false
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
     wantSttRef.current = false
@@ -114,6 +125,70 @@ export default function MeetingRecorder() {
     wakeLockRef.current?.release().catch(() => {})
     wakeLockRef.current = null
   }
+
+  // ── 화면 잠금 방지 & 녹음 중단 감지 ─────────────────────────────────────────
+  // iOS/Safari는 페이지가 잠깐이라도 가려지면 wakeLock을 풀어버립니다. 녹음 중에는 화면이
+  // 다시 보일 때마다 다시 잡아줘야 자동 잠금으로 녹음이 끊기지 않습니다. (iOS 크롬은
+  // wakeLock 자체가 없어 조용히 실패 — 그래서 화면 상단에 경고 배너로 안내합니다.)
+  async function acquireWakeLock() {
+    if (!recordingRef.current) return
+    try {
+      wakeLockRef.current = await navigator.wakeLock?.request('screen')
+    } catch { /* 미지원 또는 거부 — 무시 */ }
+  }
+
+  // 화면이 꺼지거나 다른 앱으로 전환되면 iOS는 페이지를 정지시켜 녹음이 끊깁니다. 예전에는
+  // 조용히 실패해서 사용자는 "왜 안 됐지"만 알았습니다. 이제는 중단을 감지해 알리고,
+  // 끊기기 전까지 녹음한 부분은 저장할 수 있게 정리합니다.
+  function handleInterruption() {
+    if (!recordingRef.current) return
+    recordingRef.current = false
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+    setLevel(0)
+    wantSttRef.current = false
+    try { recognitionRef.current?.stop() } catch { /* 이미 멈춤 */ }
+    recognitionRef.current = null
+    setInterim('')
+
+    const rec = recorderRef.current
+    recorderRef.current = null
+    try {
+      // 아직 살아 있으면 stop() → onstop이 blob을 만듭니다. 이미 죽었으면(iOS가 정지시킴)
+      // onstop이 못 도니, 모아둔 청크로 여기서 직접 blob을 만들어 둡니다.
+      if (rec && rec.state !== 'inactive') {
+        rec.stop()
+      } else if (!blobRef.current && chunksRef.current.length) {
+        const blob = new Blob(chunksRef.current, { type: mimeRef.current || 'audio/webm' })
+        blobRef.current = blob
+        setAutoTitle(`회의록_${stamp()}`)
+        setAudioUrl(URL.createObjectURL(blob))
+      }
+    } catch { /* 이미 멈춤 */ }
+
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    streamRef.current = null
+    audioCtxRef.current?.close().catch(() => {})
+    audioCtxRef.current = null
+    wakeLockRef.current?.release().catch(() => {})
+    wakeLockRef.current = null
+
+    setInterrupted(true)
+    setStatus('done')
+  }
+
+  // 화면이 다시 켜질 때마다 wakeLock을 다시 잡고, 백그라운드 동안 녹음이 죽었으면 중단 처리.
+  useEffect(() => {
+    function onVisibility() {
+      if (document.visibilityState !== 'visible' || !recordingRef.current) return
+      acquireWakeLock()
+      if (recorderRef.current && recorderRef.current.state === 'inactive') {
+        handleInterruption()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
 
   // ── 마이크 입력 레벨 (녹음이 실제로 들어오고 있는지 눈으로 확인) ──────────────
   function startMeter(stream) {
@@ -212,6 +287,7 @@ export default function MeetingRecorder() {
     setUploadError('')
     setTitle('')
     setAutoTitle('')
+    setInterrupted(false)
     blobRef.current = null
     if (audioUrl) { URL.revokeObjectURL(audioUrl); setAudioUrl(null) }
 
@@ -229,6 +305,9 @@ export default function MeetingRecorder() {
       return
     }
     streamRef.current = stream
+    // 마이크 트랙이 끊기면(화면 잠금·다른 앱의 마이크 선점 등) 녹음도 사실상 끝난 것 —
+    // 중단으로 처리해 사용자에게 알립니다.
+    stream.getAudioTracks().forEach((t) => { t.onended = () => handleInterruption() })
 
     const mime = pickMime()
     mimeRef.current = mime
@@ -253,10 +332,10 @@ export default function MeetingRecorder() {
     startMeter(stream)
     startStt()
 
-    // 화면이 꺼지면 모바일에서 녹음이 끊깁니다. 지원하는 기기에서는 켜둔 채로 유지.
-    navigator.wakeLock?.request('screen')
-      .then((lock) => { wakeLockRef.current = lock })
-      .catch(() => {})
+    // 화면이 꺼지면 모바일에서 녹음이 끊깁니다. 지원하는 기기에서는 켜둔 채로 유지하고,
+    // 잠깐 가려졌다 돌아오면 visibilitychange에서 다시 잡습니다(iOS/Safari는 자동으로 풉니다).
+    recordingRef.current = true
+    acquireWakeLock()
 
     setSeconds(0)
     timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000)
@@ -264,6 +343,9 @@ export default function MeetingRecorder() {
   }
 
   function stop() {
+    // 정상 종료. 아래에서 트랙을 멈추면 track.onended가 불리는데, 이 플래그를 먼저 내려서
+    // handleInterruption이 "중단"으로 오인하지 않게 합니다.
+    recordingRef.current = false
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
     setLevel(0)
@@ -399,6 +481,18 @@ export default function MeetingRecorder() {
               </div>
             ) : (
               <>
+                {/* 아이폰 경고 — 웹은 화면이 꺼지면 녹음을 이어갈 수 없습니다(iOS 제약). */}
+                {ios && (
+                  <div style={{
+                    fontSize: 11, lineHeight: 1.6, marginBottom: 12, padding: '9px 11px', borderRadius: 9,
+                    background: 'rgba(230,180,90,0.10)', border: '1px solid rgba(230,180,90,0.32)',
+                    color: 'rgba(240,208,145,0.95)', fontFamily: "'Noto Sans KR', sans-serif",
+                  }}>
+                    ⚠️ 아이폰은 녹음 중 화면이 꺼지면 녹음이 멈춰요. 화면을 켜둔 채로 진행해 주세요.
+                    {iosChrome && <><br />크롬보다 <b>Safari</b>에서 더 안정적으로 동작합니다.</>}
+                  </div>
+                )}
+
                 {/* 타이머 + 레벨 미터 */}
                 <div style={{
                   background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
@@ -541,6 +635,17 @@ export default function MeetingRecorder() {
                 {/* 녹음 결과 재생 / 저장 */}
                 {status === 'done' && audioUrl && (
                   <div style={{ marginTop: 16 }}>
+                    {/* 녹음이 중단으로 끝난 경우 안내 — 조용히 실패하지 않도록. */}
+                    {interrupted && (
+                      <div style={{
+                        fontSize: 11, lineHeight: 1.6, marginBottom: 12, padding: '9px 11px', borderRadius: 9,
+                        background: 'rgba(255,120,120,0.10)', border: '1px solid rgba(255,120,120,0.3)',
+                        color: 'rgba(255,182,182,0.95)', fontFamily: "'Noto Sans KR', sans-serif",
+                      }}>
+                        ⚠️ 녹음이 중단됐어요. 화면이 꺼졌거나 다른 앱으로 전환된 것 같아요.
+                        끊기기 전까지 녹음한 부분은 아래에서 저장하거나 내려받을 수 있어요.
+                      </div>
+                    )}
                     <div style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', fontFamily: 'Outfit, sans-serif', marginBottom: 8 }}>
                       RECORDING
                     </div>
