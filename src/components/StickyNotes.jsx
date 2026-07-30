@@ -28,6 +28,8 @@ function Note({ note, color, onMove, onMoveEnd, onResize, onResizeEnd, onRemove,
   const resize = useRef(null)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(note.text)
+  // 접힘 상태는 화면에서만 잠깐 정리하는 용도라 로컬 상태로 둡니다(새로고침하면 다시 펼쳐짐).
+  const [collapsed, setCollapsed] = useState(false)
   const textareaRef = useRef(null)
 
   useEffect(() => {
@@ -112,10 +114,12 @@ function Note({ note, color, onMove, onMoveEnd, onResize, onResizeEnd, onRemove,
   return (
     <div
       onMouseDown={onMouseDown}
-      onDoubleClick={() => { if (!editing) startEdit() }}
+      onDoubleClick={() => { if (editing) return; if (collapsed) setCollapsed(false); else startEdit() }}
       style={{
-        position: 'fixed', left: note.x, top: note.y, zIndex: 95, width, height, minHeight: MIN_H,
-        background: color, borderRadius: 3, padding: '14px 14px 12px', color: '#3a3320',
+        position: 'fixed', left: note.x, top: note.y, zIndex: 95, width,
+        height: collapsed && !editing ? 'auto' : height, minHeight: collapsed && !editing ? 0 : MIN_H,
+        background: color, borderRadius: 3,
+        padding: collapsed && !editing ? '9px 12px' : '14px 14px 12px', color: '#3a3320',
         boxShadow: '0 12px 30px rgba(0,0,0,0.35)', transform: `rotate(${note.rot}deg)`,
         fontFamily: "'Noto Sans KR', sans-serif", cursor: editing ? 'default' : 'grab',
         userSelect: editing ? 'text' : 'none', display: 'flex', flexDirection: 'column', boxSizing: 'border-box',
@@ -142,6 +146,14 @@ function Note({ note, color, onMove, onMoveEnd, onResize, onResizeEnd, onRemove,
             color: '#3a3320', fontFamily: "'Noto Sans KR', sans-serif", resize: 'none', outline: 'none',
           }}
         />
+      ) : collapsed ? (
+        // 접힘: 제목 한 줄만 말줄임으로 보여주고 본문·시간·크기조절은 숨깁니다.
+        <div style={{
+          flex: 1, minWidth: 0, fontSize: 13, fontWeight: 400, lineHeight: 1.5, color: '#3a3320',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: onTogglePin ? 60 : 42,
+        }}>
+          {note.text.split('\n')[0] || ' '}
+        </div>
       ) : (
         <div style={{ flex: 1, overflowY: 'auto', fontSize: 13, fontWeight: 400, lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
           {/* 우측 상단 버튼이 가리는 건 첫 줄뿐이라 그만큼만 비웁니다.
@@ -151,9 +163,11 @@ function Note({ note, color, onMove, onMoveEnd, onResize, onResizeEnd, onRemove,
         </div>
       )}
 
-      <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: 9, color: 'rgba(60,51,32,0.5)', marginTop: 9, letterSpacing: '0.03em', flexShrink: 0 }}>
-        {editing ? 'Enter 저장 · Esc 취소' : timeLabel}
-      </div>
+      {!collapsed && (
+        <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: 9, color: 'rgba(60,51,32,0.5)', marginTop: 9, letterSpacing: '0.03em', flexShrink: 0 }}>
+          {editing ? 'Enter 저장 · Esc 취소' : timeLabel}
+        </div>
+      )}
 
       {!editing && (
         <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 2 }}>
@@ -164,12 +178,17 @@ function Note({ note, color, onMove, onMoveEnd, onResize, onResizeEnd, onRemove,
               style={{ ...iconBtn, fontSize: 12, color: note.pinned ? '#c0392b' : 'rgba(60,51,32,0.4)' }}
             >{note.pinned ? '📌' : '📍'}</button>
           )}
-          <button onClick={startEdit} title="수정" style={{ ...iconBtn, fontSize: 11 }}>✎</button>
+          <button
+            onClick={() => setCollapsed((c) => !c)}
+            title={collapsed ? '펼치기' : '접기'}
+            style={{ ...iconBtn, fontSize: 12 }}
+          >{collapsed ? '▸' : '▾'}</button>
+          {!collapsed && <button onClick={startEdit} title="수정" style={{ ...iconBtn, fontSize: 11 }}>✎</button>}
           <button onClick={() => onRemove(note.id)} title="삭제" style={{ ...iconBtn, fontSize: 15 }}>×</button>
         </div>
       )}
 
-      {!editing && (
+      {!editing && !collapsed && (
         <div
           data-resize
           onMouseDown={onResizeStart}
