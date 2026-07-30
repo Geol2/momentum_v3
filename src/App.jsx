@@ -17,11 +17,11 @@ import HiddenGame from './game/HiddenGame.jsx'
 import { useAuth } from './lib/useAuth.js'
 import { useIsMobile } from './lib/useIsMobile.js'
 import { todosApi, notesApi, diariesApi, settingsApi, tracksApi } from './lib/api.js'
-import { DAYS_KR, QUOTES, greetingFor, weatherIcon, dateKey } from './lib/data.js'
+import { BACKGROUNDS, DAYS_KR, QUOTES, greetingFor, weatherIcon, dateKey } from './lib/data.js'
 
 const DEFAULT_SETTINGS = {
   userName: '', use24h: true, showSeconds: true, tempUnit: 'C', showQuote: true, background: 'mountain',
-  remindLeadMinutes: 10,
+  remindLeadMinutes: 10, shuffleBgOnReturn: true,
 }
 
 export default function App() {
@@ -97,6 +97,34 @@ export default function App() {
     do { q = QUOTES[Math.floor(Math.random() * QUOTES.length)] } while (QUOTES.length > 1 && q === quote)
     setQuote(q)
   }
+
+  // 탭을 떠났다 돌아오면(visibilitychange → visible) 배경을 랜덤으로 바꿔주는 세션용 오버라이드.
+  // settings.background(사용자가 고른 값)는 그대로 두고, 화면에 그릴 값만 임시로 덮어씁니다 —
+  // 새로고침하면 오버라이드가 사라져 고른 배경에서 다시 시작합니다. 설정 토글로 끌 수 있습니다.
+  const [bgOverride, setBgOverride] = useState(null)
+  const displayedBackground = bgOverride || settings.background
+  // 최신 값을 visibilitychange 리스너(빈 deps로 한 번만 등록)에서 읽기 위한 미러.
+  const shuffleRef = useRef({ enabled: false, current: DEFAULT_SETTINGS.background })
+  useEffect(() => {
+    shuffleRef.current = {
+      enabled: settings.shuffleBgOnReturn !== false && auth.status === 'authenticated',
+      current: displayedBackground,
+    }
+  }, [settings.shuffleBgOnReturn, displayedBackground, auth.status])
+  // 사용자가 설정에서 배경을 직접 고르면 셔플 오버라이드를 지워 그 선택이 그대로 보이게 합니다.
+  useEffect(() => { setBgOverride(null) }, [settings.background])
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState !== 'visible') return
+      const { enabled, current } = shuffleRef.current
+      if (!enabled) return
+      const others = BACKGROUNDS.filter((b) => b.k !== current)
+      if (!others.length) return
+      setBgOverride(others[Math.floor(Math.random() * others.length)].k)
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [])
 
   // Weather from wttr.in.
   const [weather, setWeather] = useState({ status: 'loading' })
@@ -229,7 +257,7 @@ export default function App() {
   )
 
   if (auth.status === 'booting') {
-    return <StarField background={settings.background} />
+    return <StarField background={displayedBackground} />
   }
   if (auth.status === 'anonymous') {
     return <Login onLogin={auth.login} onSignup={auth.signup} onRequestCode={auth.requestCode} expired={auth.expired} />
@@ -237,7 +265,7 @@ export default function App() {
 
   return (
     <>
-      <StarField background={settings.background} />
+      <StarField background={displayedBackground} />
 
       {/* Desktop: floating fixed widgets. Mobile: they drop into the column below. */}
       {!isMobile && (

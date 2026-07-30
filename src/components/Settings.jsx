@@ -91,6 +91,14 @@ export default function Settings({ settings, onChange, user, onLogout }) {
             </div>
           </div>
 
+          {/* 돌아올 때 배경 바꾸기 — 탭을 떠났다 돌아오면 다른 배경으로 셔플 (기본 켜짐) */}
+          <div style={{ height: 12 }} />
+          <Toggle
+            label="돌아올 때 배경 바꾸기"
+            on={settings.shuffleBgOnReturn !== false}
+            onToggle={() => set({ shuffleBgOnReturn: settings.shuffleBgOnReturn === false })}
+          />
+
           {/* Reminders */}
           <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '14px 0 12px' }} />
           <ReminderSettings settings={settings} set={set} open={open} />
