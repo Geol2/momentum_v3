@@ -4,7 +4,7 @@ import { pushApi } from '../lib/api.js'
 import { disablePush, enablePush, isSubscribed, isIOS, isStandalone, pushBlockedReason, pushSupported } from '../lib/push.js'
 
 // Gear button + settings popover (name, clock format, seconds, temp unit, quote, 알림).
-export default function Settings({ settings, onChange, user, onLogout }) {
+export default function Settings({ settings, onChange, user, onLogout, currentBackground }) {
   const [open, setOpen] = useState(false)
   const set = (patch) => onChange({ ...settings, ...patch })
 
@@ -66,7 +66,9 @@ export default function Settings({ settings, onChange, user, onLogout }) {
             <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.6)', fontFamily: "'Noto Sans KR', sans-serif", marginBottom: 7 }}>배경</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 7 }}>
               {BACKGROUNDS.map((b) => {
-                const active = (settings.background || BACKGROUNDS[0].k) === b.k
+                // 셔플로 배경이 바뀌면 지금 화면에 보이는 배경(currentBackground)을
+                // 하이라이트한다. 없으면 저장된 배경으로 폴백.
+                const active = (currentBackground || settings.background || BACKGROUNDS[0].k) === b.k
                 return (
                   <button
                     key={b.k}

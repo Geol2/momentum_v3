@@ -362,7 +362,7 @@ export default function App() {
         )}
       </div>
 
-      <Settings settings={settings} onChange={setSettings} user={auth.user} onLogout={auth.logout} />
+      <Settings settings={settings} onChange={setSettings} user={auth.user} onLogout={auth.logout} currentBackground={displayedBackground} />
 
       {/* unified account search across diaries · todos · notes */}
       <Search onOpenDiary={openDiary} onJumpToDate={(k) => setSelectedDateKey(k)} />
