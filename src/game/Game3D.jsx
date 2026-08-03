@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Stars, Sparkles } from '@react-three/drei'
 import * as THREE from 'three'
@@ -8,6 +8,7 @@ import * as THREE from 'three'
 //   • WASD : 이동 (카메라 기준)
 //   • 마우스 드래그 : 카메라 회전 / 휠 : 줌
 //   • 좌클릭 / Space : 공격 · Shift : 질주 · ESC : 종료
+//   • 스테이지가 오를수록 적이 강해지고 수도 늘어납니다. 10스테이지마다 보스.
 // Everything renders from primitives — zero external assets, so it works offline.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -60,7 +61,9 @@ export default function Game3D({ onExit }) {
   // value actually changes.
   const bus = useRef({
     playerPos: new THREE.Vector3(0, 0, 0),
-    camera: { yaw: 0, pitch: 0.62, dist: 12 },
+    // dist는 플레이어와 카메라 사이 거리. 멀찍이서 넓게 보여야 몰려오는 적을 미리
+    // 읽을 수 있어서 기본값을 넉넉히 잡았습니다 (휠로 7~34 사이 조절).
+    camera: { yaw: 0, pitch: 0.66, dist: 19 },
     keys: {},
     move: { x: 0, z: 0 }, // analog touch stick: x = strafe (right+), z = forward(+)
     touchSprint: false,   // touch 질주 button held
@@ -89,10 +92,17 @@ export default function Game3D({ onExit }) {
     level: 1, xp: 0, xpNext: 80, atk: 30, // leveling: kills/shards give XP → level up raises maxHp & atk
     // 스테이지: 목표 처치 수를 채우면 올라가고, 적의 체력·공격력·속도·동시 등장 수가 함께 오릅니다.
     stage: 1, stageKills: 0, stageGoal: stageGoalFor(1),
+    // 보스 체력 — HUD가 화면 위쪽 보스 바를 그릴 때 읽습니다. 0이면 보스가 없는 상태.
+    bossHp: 0, bossMaxHp: 0,
     toast: '', toastAt: 0,
   }).current
 
   const api = useMemo(() => {
+    const advanceStage = () => {
+      bus.stage += 1
+      bus.stageKills = 0
+      bus.stageGoal = stageGoalFor(bus.stage)
+    }
     // grant XP and roll over into level-ups; each level raises max HP & attack, and heals full
     const gainXp = (n) => {
       bus.xp += n
@@ -123,15 +133,23 @@ export default function Game3D({ onExit }) {
 
       // 목표 처치 수를 채우면 다음 스테이지로. 새로 스폰되는 적부터 강해집니다
       // (이미 살아있는 적은 스폰 당시의 능력치를 그대로 유지).
-      const cleared = bus.stageKills >= bus.stageGoal
-      if (cleared) {
-        bus.stage += 1
-        bus.stageKills = 0
-        bus.stageGoal = stageGoalFor(bus.stage)
-      }
+      // 단, 보스 스테이지는 잡몹을 아무리 잡아도 넘어가지 않습니다 — 보스 전용.
+      const cleared = !isBossStage(bus.stage) && bus.stageKills >= bus.stageGoal
+      if (cleared) advanceStage()
       bus.toast = cleared ? `⚔ 스테이지 ${bus.stage}` : `처치! +${stageScoreFor(bus.stage)}`
       bus.toastAt = performance.now()
       gainXp(stageXpFor(bus.stage)) // XP per kill — may override the toast with a level-up
+    },
+    onBossKill: () => {
+      const beaten = bus.stage // 스테이지를 올리기 전 값 — 보상 계산 기준
+      bus.kills += 1
+      bus.score += bossScoreFor(beaten)
+      advanceStage() // 보스를 잡는 것 자체가 스테이지 돌파입니다
+      gainXp(bossXpFor(beaten))
+      // gainXp가 레벨 업 토스트를 띄웠을 수 있으니 마지막에 덮어씁니다 —
+      // 보스전에서는 격파 알림이 레벨 업보다 중요해요 (레벨은 배지로도 보입니다).
+      bus.toast = `👑 보스 격파!  스테이지 ${bus.stage}`
+      bus.toastAt = performance.now()
     },
     damage: (n, dirX = 0, dirZ = 0) => {
       if (bus.dead) return
@@ -211,7 +229,7 @@ export default function Game3D({ onExit }) {
     bus.camera.pitch = THREE.MathUtils.clamp(bus.camera.pitch + dy * 0.004, 0.12, 1.35)
   }
   const onWheel = (e) => {
-    bus.camera.dist = THREE.MathUtils.clamp(bus.camera.dist + Math.sign(e.deltaY) * 1.1, 5, 26)
+    bus.camera.dist = THREE.MathUtils.clamp(bus.camera.dist + Math.sign(e.deltaY) * 1.4, 7, 34)
   }
   const onClickAttack = () => {
     if (bus.dead || bus.finisherPending) return // ignore clicks while a smash is already charging
@@ -261,7 +279,7 @@ export default function Game3D({ onExit }) {
       <Canvas
         shadows
         dpr={[1, 1.75]}
-        camera={{ fov: 55, near: 0.1, far: 400, position: [0, 8, 12] }}
+        camera={{ fov: 62, near: 0.1, far: 400, position: [0, 13, 19] }}
         onClick={onClickAttack}
       >
         <World bus={bus} api={api} />
@@ -365,17 +383,18 @@ function TouchBtn({ label, size = 62, primary, onDown, onUp }) {
 // this is the ONLY React state that updates during gameplay, and it touches
 // nothing inside the <Canvas>.
 function GameHud({ bus, onExit, onRespawn }) {
-  const [ui, setUi] = useState({ hp: 100, maxHp: 100, score: 0, kills: 0, dead: false, toast: '', level: 1, xp: 0, xpNext: 80, atk: 30, wandLevel: 0, stage: 1, stageKills: 0, stageGoal: 8 })
+  const [ui, setUi] = useState({ hp: 100, maxHp: 100, score: 0, kills: 0, dead: false, toast: '', level: 1, xp: 0, xpNext: 80, atk: 30, wandLevel: 0, stage: 1, stageKills: 0, stageGoal: 8, bossHp: 0, bossMaxHp: 0 })
   useEffect(() => {
     let raf
-    let prev = { hp: -1, maxHp: -1, score: -1, kills: -1, dead: null, toast: null, level: -1, xp: -1, atk: -1, wandLevel: -1, stage: -1, stageKills: -1 }
+    let prev = { hp: -1, maxHp: -1, score: -1, kills: -1, dead: null, toast: null, level: -1, xp: -1, atk: -1, wandLevel: -1, stage: -1, stageKills: -1, bossHp: -1, bossMaxHp: -1 }
     const tick = () => {
       const toast = bus.toastAt && performance.now() - bus.toastAt < 1400 ? bus.toast : ''
       if (bus.hp !== prev.hp || bus.maxHp !== prev.maxHp || bus.score !== prev.score || bus.kills !== prev.kills ||
           bus.dead !== prev.dead || toast !== prev.toast || bus.level !== prev.level || bus.xp !== prev.xp || bus.atk !== prev.atk ||
-          bus.wandLevel !== prev.wandLevel || bus.stage !== prev.stage || bus.stageKills !== prev.stageKills) {
-        prev = { hp: bus.hp, maxHp: bus.maxHp, score: bus.score, kills: bus.kills, dead: bus.dead, toast, level: bus.level, xp: bus.xp, atk: bus.atk, wandLevel: bus.wandLevel, stage: bus.stage, stageKills: bus.stageKills }
-        setUi({ hp: bus.hp, maxHp: bus.maxHp, score: bus.score, kills: bus.kills, dead: bus.dead, toast, level: bus.level, xp: bus.xp, xpNext: bus.xpNext, atk: bus.atk, wandLevel: bus.wandLevel, stage: bus.stage, stageKills: bus.stageKills, stageGoal: bus.stageGoal })
+          bus.wandLevel !== prev.wandLevel || bus.stage !== prev.stage || bus.stageKills !== prev.stageKills ||
+          bus.bossHp !== prev.bossHp || bus.bossMaxHp !== prev.bossMaxHp) {
+        prev = { hp: bus.hp, maxHp: bus.maxHp, score: bus.score, kills: bus.kills, dead: bus.dead, toast, level: bus.level, xp: bus.xp, atk: bus.atk, wandLevel: bus.wandLevel, stage: bus.stage, stageKills: bus.stageKills, bossHp: bus.bossHp, bossMaxHp: bus.bossMaxHp }
+        setUi({ hp: bus.hp, maxHp: bus.maxHp, score: bus.score, kills: bus.kills, dead: bus.dead, toast, level: bus.level, xp: bus.xp, xpNext: bus.xpNext, atk: bus.atk, wandLevel: bus.wandLevel, stage: bus.stage, stageKills: bus.stageKills, stageGoal: bus.stageGoal, bossHp: bus.bossHp, bossMaxHp: bus.bossMaxHp })
       }
       raf = requestAnimationFrame(tick)
     }
@@ -387,7 +406,8 @@ function GameHud({ bus, onExit, onRespawn }) {
     <>
       <Hud hp={ui.hp} maxHp={ui.maxHp} score={ui.score} kills={ui.kills} toast={ui.toast}
         level={ui.level} xp={ui.xp} xpNext={ui.xpNext} atk={ui.atk} wandLevel={ui.wandLevel}
-        stage={ui.stage} stageKills={ui.stageKills} stageGoal={ui.stageGoal} onExit={onExit} />
+        stage={ui.stage} stageKills={ui.stageKills} stageGoal={ui.stageGoal}
+        bossHp={ui.bossHp} bossMaxHp={ui.bossMaxHp} onExit={onExit} />
       {ui.dead && <DeathScreen score={ui.score} kills={ui.kills} level={ui.level} stage={ui.stage} onRespawn={onRespawn} onExit={onExit} />}
     </>
   )
@@ -435,6 +455,8 @@ function World({ bus, api }) {
       {stars.map((s) => <Collectible key={s.id} data={s} bus={bus} api={api} />)}
       {wands.map((w) => <WandPickup key={w.id} data={w} bus={bus} api={api} />)}
       {enemies.map((e) => <Enemy key={e.id} data={e} bus={bus} api={api} />)}
+      {/* 10스테이지마다 깨어나는 보스. 한 마리뿐이라 항상 마운트해두고 잠재웁니다. */}
+      <Boss bus={bus} api={api} />
 
       {/* 뱀서-style auto skill: fires homing magic missiles at the nearest enemies
           while any 매직완드 is owned (bus.wandLevel > 0). */}
@@ -1339,6 +1361,185 @@ function Enemy({ data, bus, api }) {
   )
 }
 
+// ── 보스 ──────────────────────────────────────────────────────────────────────
+// 10스테이지마다 한 마리만 깨어납니다. 잡몹과 같은 상태 머신이지만 훨씬 크고 느리고,
+// 내려찍기가 광역이라 거리를 벌려야 피할 수 있습니다. 잡으면 곧바로 다음 스테이지.
+const BOSS_RADIUS = 1.8   // 덩치가 커서 중심까지 파고들 수 없으니 공격 판정에 더해줍니다
+const BOSS_Y = 2.2
+
+function Boss({ bus, api }) {
+  const group = useRef()
+  const core = useRef()
+  const crown = useRef()
+  const bar = useRef()
+  const tele = useRef()
+  const teleMat = useRef()
+  const state = useRef({
+    hp: 0, maxHp: 1, alive: false, x: 0, z: 0, seen: 0, hurtT: 0,
+    mode: 'chase', timer: 0, cool: 0, struck: false, lx: 0, lz: 0,
+    dmg: bossDamageFor(BOSS_EVERY), speed: bossSpeedFor(BOSS_EVERY),
+    isBoss: true, // 매직완드 등에서 보스를 구분해야 할 때를 위한 표식
+  })
+
+  // 잡몹과 같은 목록에 등록해서 매직완드 같은 자동 조준 스킬이 보스도 노립니다.
+  useEffect(() => {
+    bus.enemies.push(state.current)
+    return () => { const i = bus.enemies.indexOf(state.current); if (i >= 0) bus.enemies.splice(i, 1) }
+  }, [bus])
+
+  useFrame((_, dtRaw) => {
+    const dt = Math.min(dtRaw, 0.05)
+    const s = state.current
+    const g = group.current
+    if (!g) return
+
+    // ── 잠들어 있는 상태 ──
+    // 보스를 잡으면 스테이지가 1 올라 보스 스테이지가 아니게 되므로, 같은 보스가
+    // 다시 살아나는 일 없이 다음 10단위 스테이지에서 새로 깨어납니다.
+    if (!s.alive) {
+      if (!isBossStage(bus.stage)) {
+        if (bus.bossMaxHp !== 0) { bus.bossHp = 0; bus.bossMaxHp = 0 }
+        g.visible = false
+        return
+      }
+      const spot = spawnPosAwayFrom(bus.playerPos.x, bus.playerPos.z)
+      s.x = spot.x; s.z = spot.z
+      s.maxHp = bossHpFor(bus.stage); s.hp = s.maxHp
+      s.dmg = bossDamageFor(bus.stage); s.speed = bossSpeedFor(bus.stage)
+      s.mode = 'chase'; s.timer = 0; s.cool = 1.2; s.struck = false; s.hurtT = 0
+      s.seen = bus.attackSeq
+      s.alive = true
+      g.visible = true
+      g.position.set(s.x, BOSS_Y, s.z)
+      bus.bossMaxHp = s.maxHp; bus.bossHp = s.hp
+      bus.toast = `👑 보스 등장!`
+      bus.toastAt = performance.now()
+      bus.shake = Math.max(bus.shake, 0.5)
+      return
+    }
+
+    const p = bus.playerPos
+    const dx = p.x - s.x, dz = p.z - s.z
+    const dist = Math.hypot(dx, dz) || 0.0001
+    const nx = dx / dist, nz = dz / dist
+    if (s.cool > 0) s.cool -= dt
+
+    // ── 전투 상태 머신 ── 잡몹과 흐름은 같고 시간·거리만 보스 값입니다.
+    // 보스는 절대 배회하지 않습니다 — 맵 어디에 있든 계속 쫓아옵니다.
+    if (s.mode === 'windup') {
+      s.timer -= dt
+      if (s.timer <= 0) { s.mode = 'strike'; s.timer = BOSS_STRIKE; s.struck = false; s.lx = nx; s.lz = nz }
+    } else if (s.mode === 'strike') {
+      if (!s.struck) {
+        s.struck = true
+        // 내려찍기는 그 자리 광역 — 돌진이 아니라 반경 안에 있으면 맞습니다.
+        if (dist < BOSS_HITRANGE && !bus.invuln && !bus.dead) api.damage(s.dmg, s.lx, s.lz)
+        bus.shake = Math.max(bus.shake, 0.55)
+      }
+      s.timer -= dt
+      if (s.timer <= 0) { s.mode = 'recover'; s.timer = BOSS_RECOVER; s.cool = BOSS_RECOVER + 0.7 }
+    } else if (s.mode === 'recover') {
+      s.timer -= dt
+      if (s.timer <= 0) s.mode = 'chase'
+    } else if (dist > BOSS_REACH) {
+      s.x += nx * s.speed * dt; s.z += nz * s.speed * dt; s.mode = 'chase'
+    } else if (s.cool <= 0) {
+      s.mode = 'windup'; s.timer = BOSS_WINDUP // 사거리 안 → 크게 예고하고 내려찍기
+    } else {
+      s.mode = 'chase' // 쿨다운 중엔 붙어서 기다립니다
+    }
+
+    // 플레이어의 공격. 덩치가 커서 중심까지 파고들 수 없으니 반지름만큼 여유를 줍니다.
+    if (bus.attackSeq !== s.seen && performance.now() - bus.attackAt < 200) {
+      s.seen = bus.attackSeq
+      if (dist < (bus.attackRange || ATTACK_RANGE) + BOSS_RADIUS) {
+        s.hp -= (bus.attackDamage || 30); s.hurtT = 1
+        // 보스는 밀리지 않습니다 — 넉백으로 무한정 붙잡아둘 수 없게.
+      }
+    }
+
+    bus.bossHp = Math.max(0, s.hp)
+
+    // 사망 — 근접이든 매직완드든 hp를 0으로 만든 쪽과 상관없이 여기서 한 번만 처리.
+    if (s.hp <= 0) {
+      s.alive = false
+      g.visible = false
+      bus.bossHp = 0; bus.bossMaxHp = 0
+      bus.shake = Math.max(bus.shake, 0.9)
+      api.onBossKill()
+      return
+    }
+
+    // ── 표현 ──
+    const bobY = BOSS_Y + Math.sin(performance.now() * 0.0022) * 0.3
+    g.position.set(s.x, bobY, s.z)
+    g.rotation.y += dt * (s.mode === 'windup' ? 3.2 : 0.7)
+    if (crown.current) crown.current.rotation.y -= dt * 1.6
+    if (bar.current) {
+      bar.current.scale.x = Math.max(0.001, s.hp / s.maxHp)
+      bar.current.parent.lookAt(p.x, bobY, p.z)
+    }
+    if (core.current) {
+      let ei = 1.6
+      if (s.mode === 'windup') ei = 1.6 + (1 - s.timer / BOSS_WINDUP) * 3.4
+      else if (s.mode === 'strike') ei = 5.5
+      if (s.hurtT > 0) { s.hurtT -= dt * 3; ei += s.hurtT * 2.5 }
+      core.current.material.emissiveIntensity = ei
+    }
+    // 바닥의 붉은 예고 원 — 내려찍기 범위 그대로라 밖으로 나가면 피할 수 있습니다.
+    if (tele.current) {
+      tele.current.position.y = 0.06 - bobY
+      if (s.mode === 'windup') {
+        tele.current.visible = true
+        const w = 1 - s.timer / BOSS_WINDUP
+        tele.current.scale.setScalar(0.55 + w * 0.45)
+        if (teleMat.current) teleMat.current.opacity = 0.16 + w * 0.5
+      } else if (s.mode === 'strike') {
+        tele.current.visible = true
+        tele.current.scale.setScalar(1)
+        if (teleMat.current) teleMat.current.opacity = 0.7
+      } else {
+        tele.current.visible = false
+      }
+    }
+  })
+
+  return (
+    <group ref={group} position={[0, BOSS_Y, 0]} visible={false}>
+      <mesh ref={core} castShadow>
+        <dodecahedronGeometry args={[1.5, 0]} />
+        <meshStandardMaterial color="#3d0a1c" emissive="#e0245e" emissiveIntensity={1.6} roughness={0.35} toneMapped={false} />
+      </mesh>
+      {/* 가시 오라 */}
+      <mesh>
+        <icosahedronGeometry args={[2.1, 1]} />
+        <meshStandardMaterial color="#ff6a9a" wireframe transparent opacity={0.34} toneMapped={false} />
+      </mesh>
+      {/* 왕관 — 보스임을 한눈에 */}
+      <mesh ref={crown} position={[0, 1.95, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[1.1, 0.16, 8, 20]} />
+        <meshStandardMaterial color="#5a3d0a" emissive="#ffc65a" emissiveIntensity={2.2} toneMapped={false} />
+      </mesh>
+      {/* 내려찍기 예고 원 (범위 = BOSS_HITRANGE) */}
+      <mesh ref={tele} visible={false} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.3, BOSS_HITRANGE, 56]} />
+        <meshBasicMaterial ref={teleMat} color="#ff2b2b" transparent opacity={0} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} />
+      </mesh>
+      {/* 머리 위 체력 바 */}
+      <group position={[0, 2.9, 0]}>
+        <mesh position={[0, 0, -0.01]}>
+          <planeGeometry args={[3.2, 0.26]} />
+          <meshBasicMaterial color="#2a0714" />
+        </mesh>
+        <mesh ref={bar}>
+          <planeGeometry args={[3.2, 0.26]} />
+          <meshBasicMaterial color="#ff3d6e" />
+        </mesh>
+      </group>
+    </group>
+  )
+}
+
 // ── Collectible moon-shards ──────────────────────────────────────────────────
 function Collectible({ data, bus, api }) {
   const ref = useRef()
@@ -1844,7 +2045,7 @@ function buildStars() {
 // 적은 죽어도 사라지지 않고 일정 시간 뒤 되살아납니다. 컴포넌트를 매번
 // 마운트/언마운트하면 프레임이 튀므로, 고정 크기 풀을 돌려 쓰는 방식입니다.
 // 풀 크기가 동시 등장 가능한 최대 적 수이고, 그중 몇이 활성인지는 스테이지가 정합니다.
-const ENEMY_POOL = 16
+const ENEMY_POOL = 30
 const ENEMY_RESPAWN_MS = 2600
 const ENEMY_SPAWN_MIN_D = 26   // 플레이어 코앞에 튀어나오지 않도록 최소 거리
 const ENEMY_SPAWN_MAX_D = 46
@@ -1852,12 +2053,34 @@ const ENEMY_SPAWN_MAX_D = 46
 function stageEnemyHp(stage) { return Math.round(100 * (1 + (stage - 1) * 0.35)) }
 function stageEnemyDamage(stage) { return 16 + (stage - 1) * 3 }
 function stageEnemySpeed(stage) { return Math.min(6.2, 3.4 + (stage - 1) * 0.25) }
-/** 스테이지가 오를수록 동시에 덤비는 수가 늘어납니다 (풀 크기가 상한). */
-function stageActiveCount(stage) { return Math.min(ENEMY_POOL, 5 + stage) }
+/**
+ * 스테이지가 오를수록 동시에 덤비는 수가 늘어납니다 (풀 크기가 상한).
+ * 1스테이지 6마리로 시작해 한 단계마다 1~2마리씩 붙고, 20스테이지에서 정원(30)이 찹니다.
+ */
+function stageActiveCount(stage) { return Math.min(ENEMY_POOL, 5 + Math.round(stage * 1.3)) }
 /** 다음 스테이지까지 필요한 처치 수. */
 function stageGoalFor(stage) { return 8 + (stage - 1) * 4 }
 function stageScoreFor(stage) { return 50 + (stage - 1) * 15 }
 function stageXpFor(stage) { return 40 + (stage - 1) * 8 }
+
+// ── 보스 ──────────────────────────────────────────────────────────────────────
+// 10스테이지마다 보스가 나옵니다. 보스 스테이지에서는 처치 수를 채워도 넘어가지
+// 않고, 보스를 쓰러뜨려야만 다음 스테이지로 갑니다. 잡몹은 그동안에도 계속 나와요.
+const BOSS_EVERY = 10
+function isBossStage(stage) { return stage % BOSS_EVERY === 0 }
+/** 몇 번째 보스인가 (10스테이지=1, 20스테이지=2 …) — 보스 능력치의 기준. */
+function bossTier(stage) { return Math.max(1, Math.round(stage / BOSS_EVERY)) }
+function bossHpFor(stage) { return Math.round(1600 * (1 + (bossTier(stage) - 1) * 0.85)) }
+function bossDamageFor(stage) { return Math.round(stageEnemyDamage(stage) * 1.7) }
+function bossSpeedFor(stage) { return Math.min(4.6, 2.7 + (bossTier(stage) - 1) * 0.35) }
+function bossScoreFor(stage) { return 600 * bossTier(stage) }
+function bossXpFor(stage) { return 320 * bossTier(stage) }
+const BOSS_SCALE = 3.2        // 잡몹 대비 덩치
+const BOSS_REACH = 6.0        // 이 거리 안에 들어오면 내려찍기를 준비합니다
+const BOSS_HITRANGE = 7.6     // 실제로 맞는 범위 (내려찍기는 광역이라 더 넓음)
+const BOSS_WINDUP = 1.15      // 잡몹보다 길게 — 보고 피할 수 있어야 합니다
+const BOSS_STRIKE = 0.2
+const BOSS_RECOVER = 0.9
 
 /** 플레이어에게서 충분히 떨어진, 맵 안쪽의 스폰 좌표. */
 function spawnPosAwayFrom(px, pz) {
@@ -1890,11 +2113,121 @@ function buildWands() {
   return out
 }
 
+// 아이템 한 칸. level이 0이면 "아직 없음" 상태로 흐릿하게 자리만 지킵니다.
+// key에 level을 물려두면 레벨이 오를 때마다 팝 애니메이션이 다시 재생돼요.
+function ItemSlot({ icon, name, level = 0, detail }) {
+  const owned = level > 0
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+      <div
+        key={level}
+        style={{
+          position: 'relative', width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19,
+          background: owned ? 'rgba(90,168,255,0.18)' : 'rgba(255,255,255,0.04)',
+          border: owned ? '1px solid rgba(130,195,255,0.55)' : '1px dashed rgba(255,255,255,0.16)',
+          boxShadow: owned ? '0 0 14px rgba(90,168,255,0.28)' : 'none',
+          filter: owned ? 'none' : 'grayscale(1)',
+          opacity: owned ? 1 : 0.35,
+          animation: owned ? 'itemPop 0.35s cubic-bezier(0.16,1,0.3,1)' : 'none',
+        }}
+      >
+        {icon}
+        {owned && (
+          <div style={{
+            position: 'absolute', right: -5, bottom: -5, padding: '1px 5px', borderRadius: 7,
+            background: 'linear-gradient(135deg,#4d6bd0,#8258d6)', fontSize: 9.5, fontWeight: 700,
+            boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
+          }}>
+            {level}
+          </div>
+        )}
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 12, color: owned ? 'rgba(230,240,255,0.95)' : 'rgba(255,255,255,0.4)' }}>
+          {name}{owned && <b style={{ marginLeft: 5, color: '#9fd0ff' }}>Lv.{level}</b>}
+        </div>
+        <div style={{ fontSize: 10.5, color: 'rgba(225,233,255,0.45)', marginTop: 2 }}>{detail}</div>
+      </div>
+    </div>
+  )
+}
+
+// ── 조작 안내 ─────────────────────────────────────────────────────────────────
+// 예전에는 화면 위쪽 한가운데에 두 줄이 항상 떠 있어서, 캐릭터 패널과 겹치고
+// 다 외운 뒤에도 계속 시야를 가렸습니다. 처음 몇 초만 펼쳐뒀다가 접고, 필요하면
+// ? 버튼으로 다시 열도록 바꿨습니다.
+const CONTROLS = [
+  ['이동', 'WASD · 왼쪽 스틱'],
+  ['시점', '화면 드래그'],
+  ['공격', '좌클릭 · 공격 버튼'],
+  ['콤보', '좌클릭 3연타 (마지막 강타)'],
+  ['구르기', 'Space · 구르기 버튼'],
+  ['질주', 'Shift · 질주 버튼'],
+  ['시야', '마우스 휠로 확대·축소'],
+  ['나가기', 'ESC · ✕ 버튼'],
+]
+
+const HINT_AUTOHIDE_MS = 7000
+
+function ControlsHint() {
+  const [open, setOpen] = useState(true)
+
+  // 시작하고 잠깐만 보여줍니다. 사용자가 직접 연 경우(open을 토글)에는 다시 7초 뒤 닫힘.
+  useEffect(() => {
+    if (!open) return
+    const t = setTimeout(() => setOpen(false), HINT_AUTOHIDE_MS)
+    return () => clearTimeout(t)
+  }, [open])
+
+  return (
+    <>
+      {/* ✕ 나가기 버튼(right:20) 왼쪽에 나란히 */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-label="조작 안내"
+        style={{
+          position: 'absolute', top: 18, right: 106, pointerEvents: 'auto', cursor: 'pointer',
+          width: 34, height: 34, borderRadius: 10, border: '1px solid rgba(255,255,255,0.2)',
+          background: open ? 'rgba(60,84,150,0.8)' : 'rgba(20,26,48,0.7)', color: '#dce6ff',
+          fontSize: 14, fontFamily: 'inherit', backdropFilter: 'blur(6px)',
+        }}
+      >?</button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 60, right: 20, width: 236, pointerEvents: 'none',
+          padding: '13px 15px', borderRadius: 13, background: 'rgba(10,14,32,0.8)',
+          border: '1px solid rgba(255,255,255,0.13)', backdropFilter: 'blur(10px)',
+          boxShadow: '0 12px 30px rgba(0,0,0,0.45)',
+          animation: 'hintIn 0.25s ease both',
+        }}>
+          <div style={{
+            fontSize: 10.5, letterSpacing: '0.16em', color: 'rgba(170,192,255,0.7)',
+            marginBottom: 9, paddingBottom: 8, borderBottom: '1px solid rgba(255,255,255,0.09)',
+          }}>조작</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '46px 1fr', rowGap: 6, columnGap: 10, fontSize: 11.5 }}>
+            {CONTROLS.map(([action, keys]) => (
+              <Fragment key={action}>
+                <div style={{ color: 'rgba(255,255,255,0.5)' }}>{action}</div>
+                <div style={{ color: 'rgba(225,233,255,0.9)' }}>{keys}</div>
+              </Fragment>
+            ))}
+          </div>
+        </div>
+      )}
+      <style>{'@keyframes hintIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}'}</style>
+    </>
+  )
+}
+
 // ── HUD / overlays ────────────────────────────────────────────────────────────
 function Hud({ hp, maxHp, score, kills, toast, level, xp, xpNext, atk, wandLevel = 0,
-               stage = 1, stageKills = 0, stageGoal = 8, onExit }) {
+               stage = 1, stageKills = 0, stageGoal = 8, bossHp = 0, bossMaxHp = 0, onExit }) {
   const hpPct = Math.max(0, Math.min(100, (hp / maxHp) * 100))
   const xpPct = Math.max(0, Math.min(100, (xp / xpNext) * 100))
+  const bossFight = bossMaxHp > 0
+  const bossPct = bossFight ? Math.max(0, Math.min(100, (bossHp / bossMaxHp) * 100)) : 0
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', fontFamily: "'Noto Sans KR', sans-serif", color: '#eaf0ff' }}>
       {/* top-left character panel */}
@@ -1921,13 +2254,22 @@ function Hud({ hp, maxHp, score, kills, toast, level, xp, xpNext, atk, wandLevel
 
         {/* 다음 스테이지까지의 진행도 */}
         <div style={{ position: 'relative', width: 250, height: 6, borderRadius: 4, background: 'rgba(255,255,255,0.08)', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)' }}>
+          {/* 보스 스테이지에서는 처치 수 대신 보스를 얼마나 깎았는지를 보여줍니다. */}
           <div style={{
-            width: `${Math.min(100, (stageKills / Math.max(1, stageGoal)) * 100)}%`, height: '100%',
-            background: 'linear-gradient(90deg,#ffab5e,#ffd89b)', transition: 'width 0.25s',
+            width: `${isBossStage(stage)
+              ? (bossFight ? 100 - bossPct : 0)
+              : Math.min(100, (stageKills / Math.max(1, stageGoal)) * 100)}%`,
+            height: '100%',
+            background: isBossStage(stage)
+              ? 'linear-gradient(90deg,#ff3d6e,#ffa1bd)'
+              : 'linear-gradient(90deg,#ffab5e,#ffd89b)',
+            transition: 'width 0.25s',
           }} />
         </div>
         <div style={{ fontSize: 11.5, color: 'rgba(225,233,255,0.62)', marginTop: -3 }}>
-          다음 스테이지까지 {Math.max(0, stageGoal - stageKills)}마리
+          {isBossStage(stage)
+            ? '👑 보스를 쓰러뜨려야 다음 스테이지로 갑니다'
+            : `다음 스테이지까지 ${Math.max(0, stageGoal - stageKills)}마리`}
         </div>
         {/* HP bar with numbers */}
         <div style={{ position: 'relative', width: 250, height: 17, borderRadius: 8, background: 'rgba(255,255,255,0.1)', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)' }}>
@@ -1949,28 +2291,53 @@ function Hud({ hp, maxHp, score, kills, toast, level, xp, xpNext, atk, wandLevel
           <span>✦ 파편 <b>{score}</b></span>
           <span>☠ 처치 <b>{kills}</b></span>
         </div>
-        {/* owned auto-skill items (뱀서-style) */}
-        {wandLevel > 0 && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 8,
-              background: 'rgba(90,168,255,0.16)', border: '1px solid rgba(120,190,255,0.4)', fontSize: 12,
-            }}>
-              <span style={{ fontSize: 14 }}>🪄</span> 매직완드 <b>Lv.{wandLevel}</b>
-            </div>
-          </div>
-        )}
+        {/* 획득한 아이템 (뱀서-style 자동 스킬).
+            없을 때도 빈 슬롯으로 자리를 지킵니다 — 그래야 뭘 먹었을 때 어디가
+            달라졌는지 바로 눈에 들어와요. */}
+        <div style={{ marginTop: 5 }}>
+          <div style={{ fontSize: 10, letterSpacing: '0.16em', color: 'rgba(180,200,255,0.5)', marginBottom: 5 }}>아이템</div>
+          <ItemSlot
+            icon="🪄"
+            name="매직완드"
+            level={wandLevel}
+            detail={wandLevel > 0
+              ? `미사일 ${Math.min(wandLevel, 5)}발 · ${wandInterval(wandLevel).toFixed(1)}초마다`
+              : '주워서 자동 공격 얻기'}
+          />
+        </div>
       </div>
 
-      {/* controls hint — moved to the top so it clears the on-screen stick/buttons */}
-      <div style={{
-        position: 'absolute', top: 60, left: '50%', transform: 'translateX(-50%)', textAlign: 'center',
-        maxWidth: 'calc(100vw - 32px)', fontSize: 11.5, lineHeight: 1.65, color: 'rgba(200,215,255,0.5)',
-        pointerEvents: 'none',
-      }}>
-        <div>왼쪽 스틱 <b>이동</b> · 화면 드래그 <b>시점</b> · 버튼 <b>공격·구르기·질주</b></div>
-        <div style={{ opacity: 0.65 }}>PC: WASD · 마우스드래그 · 좌클릭 연타 콤보 · Space · Shift · ESC</div>
-      </div>
+      {/* 보스 체력 바 — 보스전 동안만. 조이스틱·액션 버튼 위쪽 빈 자리라
+          모바일에서도 무엇과도 겹치지 않습니다. */}
+      {bossFight && (
+        <div style={{
+          position: 'absolute', bottom: 132, left: '50%', transform: 'translateX(-50%)',
+          width: 'min(420px, calc(100vw - 40px))', textAlign: 'center',
+          animation: 'bossIn 0.4s cubic-bezier(0.16,1,0.3,1) both',
+        }}>
+          <div style={{
+            fontSize: 12, letterSpacing: '0.18em', color: '#ffc2d4', marginBottom: 6,
+            textShadow: '0 2px 8px rgba(0,0,0,0.85)',
+          }}>
+            👑 스테이지 {stage} 보스
+          </div>
+          <div style={{
+            position: 'relative', height: 15, borderRadius: 8, overflow: 'hidden',
+            background: 'rgba(20,4,12,0.78)', border: '1px solid rgba(255,110,150,0.5)',
+            boxShadow: '0 4px 20px rgba(255,60,110,0.28)',
+          }}>
+            <div style={{ width: `${bossPct}%`, height: '100%', background: 'linear-gradient(90deg,#ff2f62,#ff8fb0)', transition: 'width 0.2s' }} />
+            <div style={{
+              position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 9.5, fontWeight: 700, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.7)',
+            }}>
+              {Math.ceil(bossHp)} / {bossMaxHp}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ControlsHint />
 
       {/* toast */}
       {toast && (
@@ -1992,7 +2359,9 @@ function Hud({ hp, maxHp, score, kills, toast, level, xp, xpNext, atk, wandLevel
         }}
       >✕ 나가기</button>
 
-      <style>{'@keyframes popToast{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}'}</style>
+      <style>{'@keyframes popToast{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}'
+        + '@keyframes bossIn{from{opacity:0;transform:translate(-50%,14px)}to{opacity:1;transform:translate(-50%,0)}}'
+        + '@keyframes itemPop{0%{transform:scale(0.7)}55%{transform:scale(1.18)}100%{transform:scale(1)}}'}</style>
     </div>
   )
 }
