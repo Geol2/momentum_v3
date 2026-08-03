@@ -22,7 +22,7 @@ self.addEventListener('push', (event) => {
     data = { body: event.data ? event.data.text() : '' }
   }
 
-  const title = data.title || '달빛 서랍'
+  const title = data.title || '모멘텀'
   const options = {
     body: data.body || '',
     icon: '/icon-192.png',
