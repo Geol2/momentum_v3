@@ -63,6 +63,23 @@ export function useAuth() {
     return u
   }, [])
 
+  // Step 1 of the password reset: email a 6-digit code. The backend answers 204 even
+  // for an unknown address, so this resolving tells us nothing about the account.
+  const forgotPassword = useCallback(async (email) => {
+    await apiFetch('/api/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    })
+  }, [])
+
+  // Step 2: swap the password. No token comes back — the user logs in with the new one.
+  const resetPassword = useCallback(async (email, code, password) => {
+    await apiFetch('/api/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ email, code, password }),
+    })
+  }, [])
+
   const logout = useCallback(() => {
     clearToken()
     setUser(null)
@@ -70,5 +87,5 @@ export function useAuth() {
     setStatus('anonymous')
   }, [])
 
-  return { status, user, expired, login, signup, requestCode, logout }
+  return { status, user, expired, login, signup, requestCode, forgotPassword, resetPassword, logout }
 }

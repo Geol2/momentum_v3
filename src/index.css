@@ -74,6 +74,34 @@ input, textarea { caret-color: #bcc8ff; }
   50% { opacity: 0.25; }
 }
 
+/* 로그인 화면 — 달이 천천히 숨 쉬듯 밝아졌다 어두워집니다 */
+@keyframes moonBreathe {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 14px rgba(255,232,180,0.3)); }
+  50% { transform: scale(1.05); filter: drop-shadow(0 0 28px rgba(255,232,180,0.55)); }
+}
+/* 카드가 안개에서 걷히듯 떠오릅니다 */
+@keyframes loginIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.985); filter: blur(5px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+.login-field {
+  transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.login-field:focus {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(150, 195, 255, 0.48);
+  box-shadow: 0 0 0 3px rgba(120, 170, 255, 0.12);
+}
+.login-field:disabled { opacity: 0.55; }
+
+.login-submit { transition: filter 0.2s ease, transform 0.12s ease; }
+.login-submit:not(:disabled):hover { filter: brightness(1.12); }
+.login-submit:not(:disabled):active { transform: translateY(1px); }
+
+.login-link { transition: color 0.2s ease; }
+.login-link:hover { color: rgba(224, 240, 255, 1); }
+
 /* Diary paper caret + placeholder */
 .diary-paper textarea::placeholder,
 .diary-paper input::placeholder { color: rgba(120, 105, 75, 0.4); }

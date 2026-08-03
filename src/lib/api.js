@@ -40,7 +40,10 @@ export const AUTH_EXPIRED_EVENT = 'byeolbit:auth-expired'
 
 // 로그인·회원가입처럼 "아직 토큰이 없는 게 정상"인 경로. 여기서 나온 401은
 // 세션 만료가 아니라 비밀번호 오류이므로 로그아웃 이벤트를 쏘면 안 됩니다.
-const PUBLIC_PATHS = ['/api/auth/login', '/api/auth/signup', '/api/auth/request-code']
+const PUBLIC_PATHS = [
+  '/api/auth/login', '/api/auth/signup', '/api/auth/request-code',
+  '/api/auth/forgot-password', '/api/auth/reset-password',
+]
 
 export async function apiFetch(path, options = {}) {
   const token = getToken()

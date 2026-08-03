@@ -260,7 +260,16 @@ export default function App() {
     return <StarField background={displayedBackground} />
   }
   if (auth.status === 'anonymous') {
-    return <Login onLogin={auth.login} onSignup={auth.signup} onRequestCode={auth.requestCode} expired={auth.expired} />
+    return (
+      <Login
+        onLogin={auth.login}
+        onSignup={auth.signup}
+        onRequestCode={auth.requestCode}
+        onForgotPassword={auth.forgotPassword}
+        onResetPassword={auth.resetPassword}
+        expired={auth.expired}
+      />
+    )
   }
 
   return (
