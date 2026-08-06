@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Stars, Sparkles } from '@react-three/drei'
 import * as THREE from 'three'
+import { Occluders, updateOcclusionMask } from './occlusionMask'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 달빛 원정 — a hidden WoW-style third-person 3D RPG easter egg.
@@ -446,11 +447,15 @@ function World({ bus, api }) {
       <Ground />
       <LightPools />
       <RuneCircle />
-      {/* great luminous trees framing the clearing as scenic landmarks */}
-      <WorldTree position={[-20, 0, -42]} scale={1.25} />
-      <WorldTree position={[34, 0, -30]} scale={0.95} />
-      <WorldTree position={[8, 0, 46]} scale={1.05} />
-      {decorations.map((d, i) => <Decoration key={i} {...d} />)}
+      {/* 카메라와 캐릭터 사이에 끼면 화면 좌표로 도려내진다 (occlusionMask.jsx).
+          바닥(Ground)은 절대 여기 넣지 말 것 — 경사면에서 하늘로 구멍이 뚫린다. */}
+      <Occluders>
+        {/* great luminous trees framing the clearing as scenic landmarks */}
+        <WorldTree position={[-20, 0, -42]} scale={1.25} />
+        <WorldTree position={[34, 0, -30]} scale={0.95} />
+        <WorldTree position={[8, 0, 46]} scale={1.05} />
+        {decorations.map((d, i) => <Decoration key={i} {...d} />)}
+      </Occluders>
       <Lanterns />
       {stars.map((s) => <Collectible key={s.id} data={s} bus={bus} api={api} />)}
       {wands.map((w) => <WandPickup key={w.id} data={w} bus={bus} api={api} />)}
@@ -494,7 +499,7 @@ function Player({ bus }) {
   const facing = useRef(Math.PI)
   // idle-gesture scheduler: after a few still seconds, play a random little motion
   const idle = useRef({ t: 0, next: 3, kind: null, gt: 0, dur: 0 })
-  const { camera } = useThree()
+  const { camera, gl } = useThree()
 
   // A flat arrow that lies on the ground pointing out the character's front — the
   // clearest "which way am I looking" cue in a top-down WoW-style view.
@@ -906,6 +911,9 @@ function Player({ bus }) {
       camera.position.z += (Math.random() - 0.5) * bus.shake
     }
     camera.lookAt(target)
+
+    // 카메라가 확정된 뒤에 마스크를 갱신해야 한 프레임 밀리지 않는다.
+    updateOcclusionMask(camera, gl, bus.playerPos)
   })
 
   return (
