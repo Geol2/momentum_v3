@@ -139,8 +139,9 @@ export default function Settings({ settings, onChange, user, onLogout, currentBa
 }
 
 /**
- * 할 일 시간 알림 (Web Push). The toggle owns the browser subscription; the lead-time
- * picker is an ordinary account setting the backend's scheduler reads.
+ * 알림 (Web Push). The toggle owns the browser subscription; everything below it —
+ * lead time, 습관 알림 시각 — is an ordinary account setting the backend's schedulers read,
+ * so it only shows once the subscription actually exists.
  */
 function ReminderSettings({ settings, set, open }) {
   const [on, setOn] = useState(false)
@@ -245,6 +246,10 @@ function ReminderSettings({ settings, set, open }) {
               >테스트 알림 보내기</button>
             )}
 
+            {/* 습관 알림 — 아침엔 오늘 할 습관, 밤엔 아직 체크 안 한 습관.
+                구독이 있어야 의미가 있으므로 알림이 켜진 상태에서만 보여줍니다. */}
+            {on && <HabitReminderSettings settings={settings} set={set} note={note} />}
+
             {msg && note(msg.text, msg.ok ? 'good' : 'bad')}
             {!msg && needsInstall && note('아이폰은 공유 → "홈 화면에 추가"로 설치한 뒤 여기서 알림을 켜주세요.')}
             {!msg && !needsInstall && blocked && note(blocked, 'bad')}
@@ -253,6 +258,49 @@ function ReminderSettings({ settings, set, open }) {
           </>
         )}
     </div>
+  )
+}
+
+/**
+ * 습관 알림 시각. 값은 백엔드 스케줄러가 읽는 "HH:mm" 문자열이고, 여기서는 그중 몇 개만
+ * 고르게 합니다 — 분 단위까지 고르게 하면 입력 UI가 커지는 데 비해, 실제로 필요한 건
+ * "아침 언제쯤 / 밤 언제쯤"이라서요.
+ */
+function HabitReminderSettings({ settings, set, note }) {
+  const on = settings.habitRemind !== false
+
+  return (
+    <>
+      <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '13px 0 11px' }} />
+      <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.6)', fontFamily: "'Noto Sans KR', sans-serif", marginBottom: 7 }}>
+        습관 알림
+      </div>
+
+      <Toggle label="습관 알림 받기" on={on} onToggle={() => set({ habitRemind: !on })} />
+
+      {on && (
+        <>
+          <Segmented
+            label="아침 예고"
+            width={140}
+            options={[{ k: '06:00', t: '6시' }, { k: '07:00', t: '7시' }, { k: '08:00', t: '8시' }]}
+            value={settings.habitMorningTime ?? '07:00'}
+            onSelect={(v) => set({ habitMorningTime: v })}
+          />
+          <Segmented
+            label="밤 확인"
+            width={140}
+            options={[{ k: '21:00', t: '9시' }, { k: '22:00', t: '10시' }, { k: '23:00', t: '11시' }]}
+            value={settings.habitEveningTime ?? '22:00'}
+            onSelect={(v) => set({ habitEveningTime: v })}
+          />
+        </>
+      )}
+
+      {note(on
+        ? '아침엔 오늘 할 습관을, 밤엔 아직 체크 안 한 습관을 알려드려요. 다 체크한 날은 보내지 않아요.'
+        : '습관을 깜빡해도 알려드리지 않아요.')}
+    </>
   )
 }
 

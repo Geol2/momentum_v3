@@ -23,6 +23,7 @@ import { BACKGROUNDS, DAYS_KR, QUOTES, greetingFor, weatherIcon, dateKey } from 
 const DEFAULT_SETTINGS = {
   userName: '', use24h: true, showSeconds: true, tempUnit: 'C', showQuote: true, background: 'mountain',
   remindLeadMinutes: 10, shuffleBgOnReturn: true,
+  habitRemind: true, habitMorningTime: '07:00', habitEveningTime: '22:00',
 }
 
 export default function App() {
