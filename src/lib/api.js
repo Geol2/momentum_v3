@@ -122,6 +122,22 @@ export const diariesApi = {
   remove: (dateKey) => apiFetch(`/api/diaries/${dateKey}`, { method: 'DELETE' }),
 }
 
+// 습관 트래커 — 정의(habits)와 날짜별 체크(logs)를 나눠 둡니다. 정의는 몇 개뿐이라
+// 통째로 받고, 체크 기록은 날짜가 갈수록 끝없이 늘어나므로 화면에 보이는 달만 받습니다.
+// today를 함께 보내는 이유: dateKey가 브라우저 로컬 날짜라, 서버가 자기 시간대로 "오늘"을
+// 판단하면 연속일이 하루 틀어집니다.
+export const habitsApi = {
+  list: (today) => apiFetch(`/api/habits${today ? `?today=${today}` : ''}`),
+  create: (habit) => apiFetch('/api/habits', { method: 'POST', body: JSON.stringify(habit) }),
+  update: (id, patch) => apiFetch(`/api/habits/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  remove: (id) => apiFetch(`/api/habits/${id}`, { method: 'DELETE' }),
+
+  logs: (from, to) => apiFetch(`/api/habits/logs?from=${from}&to=${to}`),
+  // 토글 POST가 아니라 PUT/DELETE인 이유: 네트워크 재시도가 겹쳐도 체크 상태가 뒤집히지 않습니다.
+  check: (id, dateKey, today) => apiFetch(`/api/habits/${id}/logs/${dateKey}?today=${today}`, { method: 'PUT' }),
+  uncheck: (id, dateKey, today) => apiFetch(`/api/habits/${id}/logs/${dateKey}?today=${today}`, { method: 'DELETE' }),
+}
+
 export const settingsApi = {
   get: () => apiFetch('/api/settings'),
   update: (settings) => apiFetch('/api/settings', { method: 'PUT', body: JSON.stringify(settings) }),

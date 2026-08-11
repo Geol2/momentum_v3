@@ -4,6 +4,7 @@ import Clock from './components/Clock.jsx'
 import Calendar from './components/Calendar.jsx'
 import WeatherQuote from './components/WeatherQuote.jsx'
 import TodoSection from './components/TodoSection.jsx'
+import HabitSection from './components/HabitSection.jsx'
 import MemoSection from './components/MemoSection.jsx'
 import StickyNotes from './components/StickyNotes.jsx'
 import DiaryModal from './components/DiaryModal.jsx'
@@ -16,7 +17,7 @@ import MeetingRecorder from './components/MeetingRecorder.jsx'
 import HiddenGame from './game/HiddenGame.jsx'
 import { useAuth } from './lib/useAuth.js'
 import { useIsMobile } from './lib/useIsMobile.js'
-import { todosApi, notesApi, diariesApi, settingsApi, tracksApi } from './lib/api.js'
+import { todosApi, notesApi, diariesApi, settingsApi, tracksApi, habitsApi } from './lib/api.js'
 import { BACKGROUNDS, DAYS_KR, QUOTES, greetingFor, weatherIcon, dateKey } from './lib/data.js'
 
 const DEFAULT_SETTINGS = {
@@ -41,6 +42,11 @@ export default function App() {
   const [todos, setTodos] = useState([])
   const [notes, setNotes] = useState([])
   const [tracks, setTracks] = useState([])
+  // 습관 정의는 통째로, 체크 기록은 `${habitId}:${dateKey}` 키의 Set으로 들고 있습니다.
+  // 기록은 날짜가 갈수록 무한히 늘어나므로 화면에 필요한 달만 불러와 합칩니다.
+  const [habits, setHabits] = useState([])
+  const [habitLogs, setHabitLogs] = useState(() => new Set())
+  const loadedHabitMonths = useRef(new Set())
 
   // Which day the todo panel is showing. null = follow "today" live; a dateKey = a day the user picked on the calendar.
   const [selectedDateKey, setSelectedDateKey] = useState(null)
@@ -63,21 +69,48 @@ export default function App() {
     if (auth.status !== 'authenticated') {
       if (auth.status === 'anonymous') {
         setSettingsLocal(DEFAULT_SETTINGS); setDiaries({}); setTodos([]); setNotes([]); setTracks([])
+        setHabits([]); setHabitLogs(new Set()); loadedHabitMonths.current.clear()
       }
       return
     }
     let cancelled = false
-    Promise.all([settingsApi.get(), diariesApi.list(), todosApi.list(), notesApi.list(), tracksApi.list()])
-      .then(([s, d, t, n, tr]) => {
+    Promise.all([
+      settingsApi.get(), diariesApi.list(), todosApi.list(), notesApi.list(), tracksApi.list(),
+      // 습관 API가 없는(아직 갱신되지 않은) 백엔드에 붙어도 나머지 데이터는 그대로 뜨게 합니다.
+      // Promise.all은 하나만 실패해도 전부 버리므로, 여기서 미리 받아 빈 목록으로 떨어뜨립니다.
+      habitsApi.list(todayKey).catch((e) => { console.error('failed to load habits', e); return [] }),
+    ])
+      .then(([s, d, t, n, tr, h]) => {
         if (cancelled) return
         setSettingsLocal(s)
         setDiaries(Object.fromEntries(d.map((e) => [e.dateKey, { title: e.title, body: e.body, mood: e.mood }])))
         setTodos(t)
         setNotes(n)
         setTracks(tr)
+        setHabits(h)
       }).catch((e) => console.error('failed to load account data', e))
     return () => { cancelled = true }
   }, [auth.status])
+
+  // 보고 있는 날이 속한 달의 체크 기록을 (아직 없으면) 불러옵니다. 달력으로 지난 달을
+  // 넘겨봐도 그 달만 추가로 받아오고, 이미 받은 달은 다시 부르지 않습니다.
+  useEffect(() => {
+    if (auth.status !== 'authenticated') return
+    const monthKey = activeDateKey.slice(0, 7)
+    if (loadedHabitMonths.current.has(monthKey)) return
+    loadedHabitMonths.current.add(monthKey)
+    habitsApi.logs(`${monthKey}-01`, `${monthKey}-31`)
+      .then((rows) => setHabitLogs((prev) => {
+        const next = new Set(prev)
+        rows.forEach((r) => next.add(`${r.habitId}:${r.dateKey}`))
+        return next
+      }))
+      .catch((e) => {
+        // 실패한 달은 표시를 지워, 날짜를 다시 오갈 때 재시도되게 합니다.
+        loadedHabitMonths.current.delete(monthKey)
+        console.error('failed to load habit logs', e)
+      })
+  }, [auth.status, activeDateKey])
 
   // Settings writes are debounced — the name field fires onChange per keystroke,
   // and we don't want a PUT /api/settings for every character typed.
@@ -198,6 +231,54 @@ export default function App() {
   const editTodo = (id, patch) => {
     setTodos((t) => t.map((x) => (x.id === id ? { ...x, ...patch } : x)))
     todosApi.update(id, patch).catch((e) => console.error('failed to save todo', e))
+  }
+
+  // 습관 handlers. 체크는 아침에 여러 개를 연달아 누르는 동작이라, 할 일 토글과 달리
+  // 서버 응답을 기다리지 않고 먼저 화면에 반영하고 실패하면 되돌립니다.
+  const toggleHabit = async (habitId) => {
+    const key = `${habitId}:${activeDateKey}`
+    const on = !habitLogs.has(key)
+    setHabitLogs((prev) => {
+      const next = new Set(prev)
+      if (on) next.add(key)
+      else next.delete(key)
+      return next
+    })
+    try {
+      const res = on
+        ? await habitsApi.check(habitId, activeDateKey, todayKey)
+        : await habitsApi.uncheck(habitId, activeDateKey, todayKey)
+      // 연속일은 서버가 다시 계산해 돌려줍니다 — 지난 날짜를 소급 체크하면 며칠씩 뛸 수 있어서.
+      setHabits((hs) => hs.map((h) => (
+        h.id === habitId ? { ...h, currentStreak: res.currentStreak, bestStreak: res.bestStreak } : h
+      )))
+    } catch (e) {
+      setHabitLogs((prev) => {
+        const next = new Set(prev)
+        if (on) next.delete(key)
+        else next.add(key)
+        return next
+      })
+      console.error('failed to toggle habit', e)
+    }
+  }
+  const addHabit = async (habit) => {
+    const created = await habitsApi.create(habit)
+    setHabits((h) => [...h, created])
+  }
+  const editHabit = (id, patch) => {
+    setHabits((h) => h.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+    habitsApi.update(id, patch).catch((e) => console.error('failed to save habit', e))
+  }
+  const removeHabit = (id) => {
+    setHabits((h) => h.filter((x) => x.id !== id))
+    // 습관을 지우면 서버에서 기록도 함께 사라지므로, 화면의 체크 표시도 같이 걷어냅니다.
+    setHabitLogs((prev) => {
+      const next = new Set()
+      prev.forEach((k) => { if (!k.startsWith(`${id}:`)) next.add(k) })
+      return next
+    })
+    habitsApi.remove(id).catch((e) => console.error('failed to delete habit', e))
   }
 
   // Sticky-note handlers.
@@ -335,6 +416,18 @@ export default function App() {
             onRemove={removeTodo}
             onEdit={editTodo}
             onResetToToday={() => setSelectedDateKey(null)}
+          />
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '22px 0' }} />
+          <HabitSection
+            habits={habits}
+            doneKeys={habitLogs}
+            dateKey={activeDateKey}
+            isToday={isViewingToday}
+            isFuture={activeDateKey > todayKey}
+            onToggle={toggleHabit}
+            onAdd={addHabit}
+            onEdit={editHabit}
+            onRemove={removeHabit}
           />
           <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '22px 0' }} />
           <MemoSection

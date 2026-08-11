@@ -270,7 +270,7 @@ export default function DiaryModal({ open, dateInfo, entry, onSave, onDelete, on
                 type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="제목"
                 style={{
                   width: '100%', background: 'transparent', border: 'none', borderBottom: '1px solid rgba(150,130,90,0.25)',
-                  padding: '4px 0 8px', fontFamily: "'Gowun Batang', serif", fontSize: 20, fontWeight: 700,
+                  padding: '4px 0 8px', fontFamily: "'Nanum Pen Script', 'Gowun Batang', cursive", fontSize: 23, fontWeight: 700,
                   color: '#3d3320', marginBottom: 14, lineHeight: 1.5,
                 }}
               />
@@ -278,17 +278,17 @@ export default function DiaryModal({ open, dateInfo, entry, onSave, onDelete, on
                 value={body} onChange={(e) => setBody(e.target.value)} placeholder="오늘 하루는 어땠나요?" rows={9}
                 style={{
                   width: '100%', background: 'transparent', border: 'none', resize: 'none',
-                  fontFamily: "'Gowun Batang', serif", fontSize: 15.5, lineHeight: '34px', color: '#4a3f28',
+                  fontFamily: "'Nanum Pen Script', 'Gowun Batang', cursive", fontSize: 18, lineHeight: '34px', color: '#4a3f28',
                   letterSpacing: '0.01em', minHeight: 240,
                 }}
               />
             </>
           ) : (
             <>
-              <div style={{ fontFamily: "'Gowun Batang', serif", fontSize: 21, fontWeight: 700, color: '#3d3320', lineHeight: '34px', marginBottom: 6 }}>
+              <div style={{ fontFamily: "'Nanum Pen Script', 'Gowun Batang', cursive", fontSize: 24, fontWeight: 700, color: '#3d3320', lineHeight: '34px', marginBottom: 6 }}>
                 {title || '(제목 없음)'}
               </div>
-              <div style={{ fontFamily: "'Gowun Batang', serif", fontSize: 15.5, lineHeight: '34px', color: '#4a3f28', whiteSpace: 'pre-wrap', wordBreak: 'break-word', letterSpacing: '0.01em' }}>
+              <div style={{ fontFamily: "'Nanum Pen Script', 'Gowun Batang', cursive", fontSize: 18, lineHeight: '34px', color: '#4a3f28', whiteSpace: 'pre-wrap', wordBreak: 'break-word', letterSpacing: '0.01em' }}>
                 {body}
               </div>
             </>

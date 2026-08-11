@@ -94,6 +94,12 @@ export const QUOTES = [
   { text: '작은 것에 감사하면 큰 것이 찾아온다.', author: '작자 미상' },
 ]
 
+// 습관에 붙이는 이모지·색 팔레트. 자유 입력 대신 고른 값만 쓰게 해서 목록이 한눈에
+// 구분되면서도 화면 톤이 흐트러지지 않게 합니다.
+export const HABIT_EMOJIS = ['💪', '📚', '🏃', '💧', '🧘', '🛏️', '🥗', '✍️', '🎧', '🧹', '💊', '☀️']
+
+export const HABIT_COLORS = ['#63b3ed', '#86efac', '#fcd34d', '#fda4af', '#c4b5fd', '#f9a8d4']
+
 // Sticky-note pastel colors, cycled as notes are added.
 export const NOTE_COLORS = [
   'linear-gradient(135deg, #fef3a0, #fde68a)',
@@ -134,6 +140,16 @@ export function dateKey(y, m, d) {
 
 // 공지사항 — 최신 항목을 배열 맨 위에 추가하세요.
 export const NOTICES = [
+  {
+    date: '2026-08-11',
+    title: '습관 트래커 추가',
+    body: [
+      '• 할 일 아래에 "오늘 습관"이 생겼어요. 매일 이어가고 싶은 일을 등록해두고 체크하세요',
+      '• 습관을 며칠 연속으로 지켰는지 🔥 연속일로 보여드려요',
+      '• 오른쪽 위 "관리"에서 습관을 추가·수정·삭제할 수 있어요 (이모지와 색도 고를 수 있어요)',
+      '• 달력에서 지난 날짜를 고르면 깜빡한 날도 뒤늦게 체크할 수 있어요',
+    ].join('\n'),
+  },
   {
     date: '2026-08-03',
     title: '로그인 화면 단장 · 비밀번호 찾기',
