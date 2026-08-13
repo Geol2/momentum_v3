@@ -117,7 +117,8 @@ export default function Calendar({ now, diaries, todos = [], selectedDateKey, on
                   {(hasOpenTodo || hasDoneAllTodo) && (
                     <div style={{
                       width: 5, height: 5, borderRadius: '50%', boxSizing: 'border-box',
-                      background: hasOpenTodo ? 'rgba(233,213,160,0.85)' : 'rgba(99,179,237,0.55)',
+                      // 남은 할 일은 노랑, 다 끝낸 날은 초록 — 할 일 목록의 완료 표시와 같은 색.
+                      background: hasOpenTodo ? 'rgba(233,213,160,0.85)' : 'rgba(134,239,172,0.8)',
                     }} />
                   )}
                   {hasDiary && (
@@ -166,7 +167,10 @@ export default function Calendar({ now, diaries, todos = [], selectedDateKey, on
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
             <span style={{ fontSize: 12, flexShrink: 0 }}>✅</span>
             {selTodo && selTodo.total > 0 ? (
-              <span style={{ fontSize: 11, color: 'rgba(233,213,160,0.9)', fontFamily: "'Noto Sans KR', sans-serif" }}>
+              <span style={{
+                fontSize: 11, fontFamily: "'Noto Sans KR', sans-serif",
+                color: selTodo.done === selTodo.total ? 'rgba(134,239,172,0.9)' : 'rgba(233,213,160,0.9)',
+              }}>
                 할 일 {selTodo.done}/{selTodo.total} 완료
               </span>
             ) : (

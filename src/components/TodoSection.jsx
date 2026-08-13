@@ -32,12 +32,16 @@ const editInput = {
   fontFamily: "'Noto Sans KR', sans-serif", outline: 'none',
 }
 
+// 완료 색 — 해빗 트래커 팔레트(HABIT_COLORS)의 초록과 같은 값이라, 두 목록의
+// "다 했다" 표시가 화면에서 하나로 읽힙니다.
+const DONE = '#86efac'
+
 // Small pill shown under a todo when it has a time or place.
 function Badge({ icon, children, dim }) {
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 300,
-      color: dim ? 'rgba(255,255,255,0.22)' : 'rgba(99,179,237,0.72)', letterSpacing: '0.02em',
+      color: dim ? 'rgba(196,240,210,0.42)' : 'rgba(99,179,237,0.72)', letterSpacing: '0.02em',
     }}>
       <span style={{ opacity: 0.85 }}>{icon}</span>{children}
     </span>
@@ -106,7 +110,10 @@ export default function TodoSection({ todos, label = '오늘 할 일', isToday =
           )}
         </div>
         {todos.length > 0 && (
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.18)', letterSpacing: '0.06em' }}>{done} / {todos.length} 완료</div>
+          <div style={{
+            fontSize: 10, letterSpacing: '0.06em',
+            color: done === todos.length ? 'rgba(134,239,172,0.75)' : 'rgba(255,255,255,0.18)',
+          }}>{done} / {todos.length} 완료</div>
         )}
       </div>
 
@@ -162,19 +169,25 @@ export default function TodoSection({ todos, label = '오늘 할 일', isToday =
             const editing = editingId === item.id
             return (
               <div key={item.id} style={{
-                display: 'flex', alignItems: editing ? 'flex-start' : 'center', gap: 11, background: 'rgba(0,0,0,0.55)',
-                border: '1px solid rgba(255,255,255,0.14)', borderRadius: 12, padding: '12px 13px',
+                display: 'flex', alignItems: editing ? 'flex-start' : 'center', gap: 11,
+                background: item.done ? `${DONE}1f` : 'rgba(0,0,0,0.55)',
+                border: `1px solid ${item.done ? `${DONE}66` : 'rgba(255,255,255,0.14)'}`,
+                borderRadius: 12, padding: '12px 13px',
                 backdropFilter: 'blur(8px)', animation: 'itemIn 0.3s ease both',
+                transition: 'background 0.18s, border-color 0.18s',
               }}>
+                {/* 체크하면 초록으로 꽉 채워 어두운 ✓를 얹습니다 — 해빗 트래커의 완료 배지와
+                    같은 모양이라, 멀리서 훑어도 끝난 항목이 바로 보입니다. */}
                 <button onClick={() => onToggle(item.id)} style={{
                   width: 21, height: 21, minWidth: 21, borderRadius: 6, marginTop: editing ? 2 : 0,
-                  border: item.done ? '1.5px solid rgba(99,179,237,0.65)' : '1.5px solid rgba(255,255,255,0.22)',
-                  background: item.done ? 'rgba(99,179,237,0.2)' : 'transparent', cursor: 'pointer', padding: 0,
+                  border: `1.5px solid ${item.done ? DONE : 'rgba(255,255,255,0.22)'}`,
+                  background: item.done ? DONE : 'transparent', cursor: 'pointer', padding: 0,
                   flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'background 0.18s, border-color 0.18s',
                 }}>
                   {item.done && (
                     <svg width="11" height="8" viewBox="0 0 11 8" fill="none">
-                      <path d="M1 3.8L4 6.8L10 1" stroke="rgba(99,179,237,0.92)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M1 3.8L4 6.8L10 1" stroke="rgba(10,14,24,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   )}
                 </button>
@@ -224,8 +237,9 @@ export default function TodoSection({ todos, label = '오늘 할 일', isToday =
                   >
                     <span style={{
                       fontSize: 14, fontWeight: 300, letterSpacing: '0.01em', wordBreak: 'break-word',
-                      color: item.done ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.82)',
+                      color: item.done ? 'rgba(196,240,210,0.52)' : 'rgba(255,255,255,0.82)',
                       textDecoration: item.done ? 'line-through' : 'none',
+                      textDecorationColor: item.done ? 'rgba(134,239,172,0.5)' : undefined,
                     }}>{item.text}</span>
                     {(item.timeLabel || item.place) && (
                       <span style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
