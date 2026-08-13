@@ -14,6 +14,7 @@ import Notice from './components/Notice.jsx'
 import MusicPlayer from './components/MusicPlayer.jsx'
 import Login from './components/Login.jsx'
 import MeetingRecorder from './components/MeetingRecorder.jsx'
+import PdfTranslator from './components/PdfTranslator.jsx'
 import HiddenGame from './game/HiddenGame.jsx'
 import { useAuth } from './lib/useAuth.js'
 import { useIsMobile } from './lib/useIsMobile.js'
@@ -472,6 +473,9 @@ export default function App() {
 
       {/* 회의록 녹음 — 1단계: 브라우저 안에서만 (업로드·유료 STT 없음) */}
       <MeetingRecorder />
+
+      {/* 논문 PDF 번역 — 추출·OCR은 브라우저 안에서, 번역은 내장 번역기 또는 서버 */}
+      <PdfTranslator />
 
       {/* Copyright */}
       {/* On mobile the notice pill and the gear/search buttons already fill the bottom
