@@ -478,7 +478,7 @@ export default function App() {
       <PdfTranslator />
 
       {/* Copyright */}
-      {/* On mobile the notice pill and the gear/search buttons already fill the bottom
+      {/* On mobile the notice pill and the gear/search buttons alrea2dy fill the bottom
           strip, so sit above them instead of underneath. */}
       <div style={{
         position: 'fixed', bottom: isMobile ? 76 : 16, left: '50%', transform: 'translateX(-50%)', zIndex: 90,
