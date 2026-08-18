@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import StarField from './components/StarField.jsx'
 import Clock from './components/Clock.jsx'
 import Calendar from './components/Calendar.jsx'
@@ -94,11 +94,9 @@ export default function App() {
     return () => { cancelled = true }
   }, [auth.status])
 
-  // 보고 있는 날이 속한 달의 체크 기록을 (아직 없으면) 불러옵니다. 달력으로 지난 달을
-  // 넘겨봐도 그 달만 추가로 받아오고, 이미 받은 달은 다시 부르지 않습니다.
-  useEffect(() => {
+  // 한 달치 체크 기록을 (아직 없으면) 불러옵니다. 이미 받은 달은 다시 부르지 않습니다.
+  const loadHabitMonth = useCallback((monthKey) => {
     if (auth.status !== 'authenticated') return
-    const monthKey = activeDateKey.slice(0, 7)
     if (loadedHabitMonths.current.has(monthKey)) return
     loadedHabitMonths.current.add(monthKey)
     habitsApi.logs(`${monthKey}-01`, `${monthKey}-31`)
@@ -112,7 +110,13 @@ export default function App() {
         loadedHabitMonths.current.delete(monthKey)
         console.error('failed to load habit logs', e)
       })
-  }, [auth.status, activeDateKey])
+  }, [auth.status])
+
+  // 보고 있는 날이 속한 달. (달력이 다른 달로 넘어갈 때는 Calendar의 onMonthChange가
+  // 같은 함수를 호출해, 화면에 보이는 달의 습관 마커도 비어 보이지 않습니다.)
+  useEffect(() => {
+    loadHabitMonth(activeDateKey.slice(0, 7))
+  }, [loadHabitMonth, activeDateKey])
 
   // Settings writes are debounced — the name field fires onChange per keystroke,
   // and we don't want a PUT /api/settings for every character typed.
@@ -365,9 +369,12 @@ export default function App() {
           now={now}
           diaries={diaries}
           todos={todos}
+          habits={habits}
+          habitLogs={habitLogs}
           selectedDateKey={selectedDateKey}
           onSelectDate={setSelectedDateKey}
           onOpenDiary={openDiary}
+          onMonthChange={loadHabitMonth}
         />
       )}
 
@@ -449,9 +456,12 @@ export default function App() {
               now={now}
               diaries={diaries}
               todos={todos}
+              habits={habits}
+              habitLogs={habitLogs}
               selectedDateKey={selectedDateKey}
               onSelectDate={setSelectedDateKey}
               onOpenDiary={openDiary}
+              onMonthChange={loadHabitMonth}
               mobile
             />
             <WeatherQuote
