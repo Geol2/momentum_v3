@@ -1,12 +1,12 @@
 /**
- * 상세 지구 렌더러
- *  - 실제 대륙 윤곽(Natural Earth) + 위도/노이즈 기반 지형 색(빙하·툰드라·사막·열대우림·온대림)
- *  - 자전(자전축 23.4° 기울기), 따로 흐르는 구름층
- *  - 태양 방향 조명: 낮/밤 경계(터미네이터), 바다 반사광, 대기 산란 테두리
- *  - 밤쪽 도시 불빛
+ * 상세 지구 렌더러 — 실시간
+ *  - 실제 대륙 윤곽(Natural Earth) + 기후대 기반 지형 색(빙하·툰드라·사막·열대우림·온대림)
+ *  - 현재 시각으로 태양 직하점(적위·경도)을 계산해 실제 낮/밤을 그대로 표현
+ *  - 바다 반사광, 대기 산란 테두리, 밤쪽 도시 불빛, 천천히 흐르는 구름
+ *  - 화면은 관측자 위치(내 위치)를 정면에 두는 정사영(북쪽이 위)
  *
- * 비싼 계산(위도·경도 역투영, 조명)은 화면 크기별로 한 번만 하고,
- * 매 프레임에는 "경도 + 자전각"으로 텍스처를 조회만 한다.
+ * 역투영(픽셀 → 위도·경도)은 화면 크기/시점별로 한 번,
+ * 조명은 태양이 움직일 때(30초마다), 매 프레임에는 구름 오프셋만 반영한다.
  */
 import { LAND_W, LAND_H, LAND_RLE_B64 } from './earth-data.js'
 
@@ -14,10 +14,37 @@ const TW = LAND_W
 const TH = LAND_H
 const CW = 1024 // 구름 텍스처
 const CH = 512
-const TILT = (23.4 * Math.PI) / 180
 const MAX_D = 560 // 오프스크린 최대 해상도(px)
-const ROT_PERIOD = 120 // 자전 1바퀴(초) — 실제보다 훨씬 빠르게
-const CLOUD_DRIFT = 0.12 // 구름이 지표보다 조금 더 빠르게 흐름
+const CLOUD_PERIOD = 900 // 구름이 한 바퀴 흐르는 시간(초) — 분위기용
+const SUN_REFRESH_MS = 30 * 1000
+const DEG = Math.PI / 180
+
+/** 현재 시각의 태양 직하점(위도·경도, 도) — NOAA 근사식, 오차 약 0.1° 수준 */
+export function subsolarPoint(date = new Date()) {
+  const n = date.getTime() / 86400000 + 2440587.5 - 2451545.0 // J2000 기준 일수
+  const L = (280.46 + 0.9856474 * n) % 360
+  const g = ((357.528 + 0.9856003 * n) % 360) * DEG
+  const lam = (L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * DEG // 황경
+  const eps = (23.439 - 0.0000004 * n) * DEG // 황도 경사
+  const dec = Math.asin(Math.sin(eps) * Math.sin(lam))
+  const ra = Math.atan2(Math.cos(eps) * Math.sin(lam), Math.cos(lam))
+  const gmst = (280.46061837 + 360.98564736629 * n) % 360
+  let lon = ra / DEG - gmst
+  lon = ((((lon + 180) % 360) + 360) % 360) - 180
+  return { lat: dec / DEG, lon }
+}
+
+/** 지점(lat, lon)의 태양 고도(도) */
+export function solarElevation(lat, lon, date = new Date()) {
+  const s = subsolarPoint(date)
+  const a = vec(lat, lon), b = vec(s.lat, s.lon)
+  return Math.asin(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) / DEG
+}
+
+function vec(latDeg, lonDeg) {
+  const la = latDeg * DEG, lo = lonDeg * DEG
+  return [Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)]
+}
 
 // ───────── 노이즈 ─────────
 function hash3(x, y, z, seed) {
@@ -202,27 +229,20 @@ function buildTextures() {
   return { color, lights, isOcean, clouds }
 }
 
-// ───────── 화면 크기별 역투영/조명 캐시 ─────────
-function buildProjection(D) {
+// ───────── 시점별 역투영 캐시 (정사영, 시점 중심 = 관측자) ─────────
+function buildProjection(D, lat0, lon0) {
   const N = D * D
   const inside = new Uint8Array(N)
-  const texY = new Uint16Array(N)
+  const texIdx = new Uint32Array(N)
   const cloudYf = new Float32Array(N)
-  const lon0 = new Float32Array(N) // 0..1 (자전 전)
-  const day = new Float32Array(N) // 낮 정도(디퓨즈 포함)
-  const night = new Float32Array(N) // 밤 정도(불빛 표시용)
-  const spec = new Float32Array(N)
-  const rim = new Float32Array(N)
-  const edge = new Float32Array(N) // 가장자리 안티앨리어싱 알파
-
-  // 태양은 화면 왼쪽(태양계에서 태양이 지구의 -x 방향) + 살짝 앞쪽
-  let L = [-0.82, 0.18, 0.55]
-  const ll = Math.hypot(...L); L = L.map((v) => v / ll)
-  let Hh = [L[0], L[1], L[2] + 1]
-  const hl = Math.hypot(...Hh); Hh = Hh.map((v) => v / hl)
-  const ct = Math.cos(TILT), st = Math.sin(TILT)
+  const lonU = new Float32Array(N) // 0..1
+  const P = new Float32Array(N * 3) // 지구 고정 좌표 단위벡터
+  const viewZ = new Float32Array(N)
+  const edge = new Float32Array(N)
+  const C = vec(lat0, lon0)
+  const E = [-Math.sin(lon0 * DEG), Math.cos(lon0 * DEG), 0]
+  const Nn = [-Math.sin(lat0 * DEG) * Math.cos(lon0 * DEG), -Math.sin(lat0 * DEG) * Math.sin(lon0 * DEG), Math.cos(lat0 * DEG)]
   const R = D / 2
-
   for (let py = 0; py < D; py++) {
     for (let px = 0; px < D; px++) {
       const k = py * D + px
@@ -233,59 +253,77 @@ function buildProjection(D) {
       inside[k] = 1
       edge[k] = Math.max(0, Math.min(1, (1 - d) * R + 0.5))
       const z = Math.sqrt(Math.max(0, 1 - x * x - y * y))
-      // 자전축 기울기: 화면 z축 기준으로 되돌려 지구 고정 좌표로
-      const ex = x * ct + y * st
-      const ey = -x * st + y * ct
-      const lat = Math.asin(Math.max(-1, Math.min(1, ey)))
-      const lon = Math.atan2(ex, z)
-      texY[k] = Math.min(TH - 1, Math.floor((0.5 - lat / Math.PI) * TH))
+      const X = x * E[0] + y * Nn[0] + z * C[0]
+      const Y = x * E[1] + y * Nn[1] + z * C[1]
+      const Z = x * E[2] + y * Nn[2] + z * C[2]
+      P[k * 3] = X; P[k * 3 + 1] = Y; P[k * 3 + 2] = Z
+      viewZ[k] = z
+      const lat = Math.asin(Math.max(-1, Math.min(1, Z)))
+      const lon = Math.atan2(Y, X)
+      const u = lon / (Math.PI * 2) + 0.5
+      const row = Math.min(TH - 1, Math.floor((0.5 - lat / Math.PI) * TH))
+      texIdx[k] = row * TW + Math.min(TW - 1, Math.floor(u * TW))
+      lonU[k] = u
       cloudYf[k] = Math.max(0, Math.min(CH - 1, (0.5 - lat / Math.PI) * CH - 0.5))
-      lon0[k] = lon / (Math.PI * 2) + 0.5
-      const nd = x * L[0] + y * L[1] + z * L[2]
-      day[k] = smooth(-0.1, 0.25, nd) * (0.25 + 0.75 * Math.max(0, nd))
-      night[k] = 1 - smooth(-0.15, 0.05, nd)
-      const nh = Math.max(0, x * Hh[0] + y * Hh[1] + z * Hh[2])
-      spec[k] = Math.pow(nh, 48) * smooth(-0.05, 0.2, nd)
-      rim[k] = Math.pow(1 - z, 2.4) * (0.15 + 0.85 * smooth(-0.3, 0.3, nd))
     }
   }
-  return { D, inside, texY, cloudYf, lon0, day, night, spec, rim, edge }
+  return { D, lat0, lon0, C, inside, texIdx, cloudYf, lonU, P, viewZ, edge, day: new Float32Array(N), night: new Float32Array(N), spec: new Float32Array(N), rim: new Float32Array(N) }
+}
+
+// 태양 방향에 따른 조명 갱신
+function computeLighting(proj, sunLat, sunLon) {
+  const { D, inside, P, viewZ, C, day, night, spec, rim } = proj
+  const S = vec(sunLat, sunLon)
+  let H = [S[0] + C[0], S[1] + C[1], S[2] + C[2]]
+  const hl = Math.hypot(...H) || 1; H = H.map((v) => v / hl)
+  for (let k = 0, N = D * D; k < N; k++) {
+    if (!inside[k]) continue
+    const x = P[k * 3], y = P[k * 3 + 1], z = P[k * 3 + 2]
+    const nd = x * S[0] + y * S[1] + z * S[2] // = sin(태양 고도)
+    day[k] = smooth(-0.1, 0.2, nd) * (0.22 + 0.78 * Math.max(0, nd))
+    night[k] = 1 - smooth(-0.12, 0.03, nd)
+    const nh = Math.max(0, x * H[0] + y * H[1] + z * H[2])
+    spec[k] = Math.pow(nh, 48) * smooth(-0.05, 0.2, nd)
+    rim[k] = Math.pow(1 - viewZ[k], 2.4) * (0.12 + 0.88 * smooth(-0.3, 0.3, nd))
+  }
 }
 
 export function createEarthRenderer() {
   let tex = null
   let proj = null
   let canvas = null, cctx = null, img = null
-  let lastRot = -1
-  let rotOffset = 0
-  const rotAt = (time) => {
-    const r = (time / ROT_PERIOD + rotOffset) % 1
-    return r < 0 ? r + 1 : r
-  }
+  let view = { lat: 37.5665, lon: 126.978 }
+  let sunAt = 0, sun = null
+  let lastCloud = -1, dirty = true
 
   function ensure(D) {
     if (!tex) tex = buildTextures()
-    if (!proj || proj.D !== D) {
-      proj = buildProjection(D)
+    if (!proj || proj.D !== D || proj.lat0 !== view.lat || proj.lon0 !== view.lon) {
+      proj = buildProjection(D, view.lat, view.lon)
       canvas = document.createElement('canvas')
       canvas.width = canvas.height = D
       cctx = canvas.getContext('2d')
       img = cctx.createImageData(D, D)
-      lastRot = -1
+      sunAt = 0
+    }
+    const now = Date.now()
+    if (now - sunAt > SUN_REFRESH_MS) {
+      sun = subsolarPoint(new Date(now))
+      computeLighting(proj, sun.lat, sun.lon)
+      sunAt = now
+      dirty = true
     }
   }
 
-  function paint(rot) {
-    const { D, inside, texY, cloudYf, lon0, day, night, spec, rim, edge } = proj
+  function paint(cloudShift) {
+    const { D, inside, texIdx, cloudYf, lonU, day, night, spec, rim, edge } = proj
     const { color, lights, isOcean, clouds } = tex
     const out = img.data
-    const cRot = rot * (1 + CLOUD_DRIFT)
     for (let k = 0, N = D * D; k < N; k++) {
       const o = k * 4
       if (!inside[k]) { out[o + 3] = 0; continue }
-      let u = lon0[k] + rot; u -= Math.floor(u)
-      const ti = texY[k] * TW + ((u * TW) | 0)
-      let cu = lon0[k] + cRot; cu -= Math.floor(cu)
+      const ti = texIdx[k]
+      let cu = lonU[k] - cloudShift; cu -= Math.floor(cu)
       const fx = cu * CW - 0.5, x0 = fx < 0 ? CW - 1 : fx | 0, x1 = x0 + 1 === CW ? 0 : x0 + 1, wx = fx - Math.floor(fx)
       const fy = cloudYf[k], y0 = fy | 0, y1 = Math.min(CH - 1, y0 + 1), wy = fy - y0
       const ca = ((clouds[y0 * CW + x0] * (1 - wx) + clouds[y0 * CW + x1] * wx) * (1 - wy) +
@@ -294,16 +332,12 @@ export function createEarthRenderer() {
       const dl = day[k]
       let r = color[ti * 3] * dl, g = color[ti * 3 + 1] * dl, b = color[ti * 3 + 2] * dl
       if (isOcean[ti]) { const sp = spec[k] * 220; r += sp; g += sp; b += sp * 0.95 }
-      // 밤쪽 도시 불빛 (구름에 조금 가려짐)
       const li = lights[ti] * night[k] * (1 - ca * 0.7)
       r += li * 1.1; g += li * 0.82; b += li * 0.4
-      // 구름
-      const cl = 245 * (0.06 + dl * 1.05)
+      const cl = 245 * (0.05 + dl * 1.05)
       r = r + (cl - r) * ca; g = g + (cl - g) * ca; b = b + (cl * 1.02 - b) * ca
-      // 대기 산란 테두리
       const rm = rim[k]
       r += 70 * rm; g += 140 * rm; b += 255 * rm
-
       out[o] = r > 255 ? 255 : r
       out[o + 1] = g > 255 ? 255 : g
       out[o + 2] = b > 255 ? 255 : b
@@ -313,17 +347,20 @@ export function createEarthRenderer() {
   }
 
   return {
+    /** 화면 정면에 둘 지점(관측자 위치) */
+    setView(lat, lon) { view = { lat, lon } },
+    /** 현재 계산된 태양 직하점 */
+    get sun() { return sun || subsolarPoint() },
     /** (X, Y): 화면 중심, R: 화면 반지름(px), time: 초, dpr: 기기 픽셀 비율 */
     draw(ctx, X, Y, R, time, dpr = 1) {
       const D = Math.max(16, Math.min(MAX_D, Math.round(R * 2 * dpr)))
       ensure(D)
-      const rot = rotAt(time)
-      // 1px도 안 움직였으면 다시 그리지 않음
-      if (lastRot < 0 || Math.abs(rot - lastRot) * Math.PI * D > 0.35) {
-        paint(rot)
-        lastRot = rot
+      const cloudShift = (time / CLOUD_PERIOD) % 1
+      if (dirty || lastCloud < 0 || Math.abs(cloudShift - lastCloud) * Math.PI * D > 0.35) {
+        paint(cloudShift)
+        lastCloud = cloudShift
+        dirty = false
       }
-      // 바깥 대기광
       const glow = ctx.createRadialGradient(X, Y, R * 0.98, X, Y, R * 1.12)
       glow.addColorStop(0, 'rgba(110,170,255,0.55)')
       glow.addColorStop(1, 'rgba(110,170,255,0)')
@@ -332,25 +369,18 @@ export function createEarthRenderer() {
       ctx.imageSmoothingEnabled = true
       ctx.drawImage(canvas, X - R, Y - R, R * 2, R * 2)
     },
-    /** 주어진 경도(도)가 time 시점에 화면 정면(약간 오른쪽)에 오도록 자전각을 맞춘다 */
-    face(lonDeg, time, viewLonDeg = 26) {
-      // 텍스처 경도 = 화면 경도 + rot·360 이므로 rot = (경도 − 화면경도)/360
-      rotOffset = (lonDeg - viewLonDeg) / 360 - time / ROT_PERIOD
-      lastRot = -1
-    },
     /** 위도·경도(도)를 화면 좌표로. z<0 이면 지구 뒤편 */
-    project(latDeg, lonDeg, X, Y, R, time) {
-      const lat = (latDeg * Math.PI) / 180
-      const lv = (lonDeg * Math.PI) / 180 - rotAt(time) * Math.PI * 2
-      const ex = Math.cos(lat) * Math.sin(lv)
-      const ey = Math.sin(lat)
-      const z = Math.cos(lat) * Math.cos(lv)
-      const ct = Math.cos(TILT), st = Math.sin(TILT)
-      const x = ex * ct - ey * st
-      const y = ex * st + ey * ct
+    project(latDeg, lonDeg, X, Y, R) {
+      const p = vec(latDeg, lonDeg)
+      const lo = view.lon * DEG, la = view.lat * DEG
+      const C = vec(view.lat, view.lon)
+      const E = [-Math.sin(lo), Math.cos(lo), 0]
+      const Nn = [-Math.sin(la) * Math.cos(lo), -Math.sin(la) * Math.sin(lo), Math.cos(la)]
+      const x = p[0] * E[0] + p[1] * E[1] + p[2] * E[2]
+      const y = p[0] * Nn[0] + p[1] * Nn[1] + p[2] * Nn[2]
+      const z = p[0] * C[0] + p[1] * C[1] + p[2] * C[2]
       return { x: X + x * R, y: Y - y * R, z }
     },
-    /** 무거운 텍스처를 미리 만들어 두기(선택) */
     warmup() { if (!tex) tex = buildTextures() },
   }
 }

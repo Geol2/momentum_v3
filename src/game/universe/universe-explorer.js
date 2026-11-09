@@ -11,7 +11,7 @@
  *   });
  */
 
-import { createEarthRenderer } from './earth.js';
+import { createEarthRenderer, solarElevation } from './earth.js';
 
 // ───────────────────────── 단위 / 상수 ─────────────────────────
 const LY = 9.4607e15;          // 1광년 (m)
@@ -415,14 +415,14 @@ export function mountUniverseExplorer(container, opts = {}) {
   // 기본값은 서울. 브라우저 위치 권한이 허용되면 실제 위치로 바꾼다.
   const DEFAULT_LOC = { lat: 37.5665, lon: 126.978, label: '서울', approx: true };
   let myLoc = fixedLocation ? { approx: false, label: '내 위치', ...fixedLocation } : DEFAULT_LOC;
-  earth.face(myLoc.lon, performance.now() / 1000);
+  earth.setView(myLoc.lat, myLoc.lon);
   if (!fixedLocation && geolocate && navigator.geolocation) {
     try {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           if (destroyed) return;
           myLoc = { lat: pos.coords.latitude, lon: pos.coords.longitude, label: '내 위치', approx: false };
-          earth.face(myLoc.lon, performance.now() / 1000);
+          earth.setView(myLoc.lat, myLoc.lon);
           toast('📍 현재 위치를 찾았어요');
         },
         () => { /* 거부·실패 → 서울 기본값 유지 */ },
@@ -511,7 +511,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => btn.addEventListener(ev, () => { zoomVel = 0; }));
   });
   ui.slider.addEventListener('input', () => { markInteracted(); setTarget(parseFloat(ui.slider.value)); });
-  $('.mu-home').addEventListener('click', () => { setTarget(S_START); earth.face(myLoc.lon, performance.now() / 1000); });
+  $('.mu-home').addEventListener('click', () => setTarget(S_START));
 
   // ── 키보드 ──
   const onKey = (e) => {
@@ -577,7 +577,14 @@ export function mountUniverseExplorer(container, opts = {}) {
     setText('step', ui.step, `${idx + 1}/${LEVELS.length}`);
     setText('name', ui.name, lv.name);
     const fmtCoord = (v, pos, neg) => `${Math.abs(v).toFixed(2)}°${v >= 0 ? pos : neg}`;
-    const locLine = ` 📍 ${myLoc.label}${myLoc.approx ? '(기본값)' : ''} ${fmtCoord(myLoc.lat, 'N', 'S')}, ${fmtCoord(myLoc.lon, 'E', 'W')}`;
+    let locLine = '';
+    if (idx === 0) {
+      const now = new Date();
+      const elev = solarElevation(myLoc.lat, myLoc.lon, now);
+      const phase = elev > 0 ? '☀️ 낮' : elev > -6 ? '🌆 해질녘·새벽' : elev > -18 ? '🌒 어스름' : '🌙 밤';
+      const hhmm = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+      locLine = ` 📍 ${myLoc.label}${myLoc.approx ? '(기본값)' : ''} ${fmtCoord(myLoc.lat, 'N', 'S')}, ${fmtCoord(myLoc.lon, 'E', 'W')} · ${hhmm} ${phase} (태양 고도 ${elev.toFixed(0)}°)`;
+    }
     setText('desc', ui.desc, idx === 0 ? lv.desc + locLine : lv.desc);
     const span = Math.pow(10, s);
     const sc = `화면 폭 ≈ <b>${fmtLength(span)}</b> · 빛으로 ${fmtLightTime(span)}`;
@@ -800,7 +807,7 @@ export function mountUniverseExplorer(container, opts = {}) {
         if (er > 5) {
           earth.draw(ctx, X, Y, er, time, dpr);
           // 📍 내 위치 핀
-          const p = earth.project(myLoc.lat, myLoc.lon, X, Y, er, time);
+          const p = earth.project(myLoc.lat, myLoc.lon, X, Y, er);
           const pa = smooth(-0.02, 0.18, p.z);
           if (pa > 0.02 && er > 14) {
             const pulse = 1 + 0.5 * ((time * 1.2) % 1);
