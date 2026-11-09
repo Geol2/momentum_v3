@@ -20,3 +20,11 @@ public/gaia/ (Gaia 별 타일, 약 985만 개)
 galaxies-2mrs.bin (근처 우주 은하 약 4만 3천 개)
   2MASS Redshift Survey (Huchra et al. 2012, ApJS 199, 26) — 거리 값은 NANOGrav Galaxy Catalog (2MRS)
   https://github.com/nanograv/nanograv_galaxy_catalog_2MRS (GPL-3.0) 에서 가져와 좌표·거리만 압축
+
+small-bodies.bin / small-bodies.json (소행성·근지구 소행성)
+  소행성 15만 개: The Asteroid Orbital Elements Database (astorb.dat), Lowell Observatory — 2013년 epoch 스냅샷
+  (https://asteroid.lowell.edu/astorb/, 사본: github.com/jwshaffstall/asteroid-orbit-3d-webgl)
+  근지구 소행성 4,056개·근접 목록: NASA/JPL Small-Body Database (2026-07 스냅샷, github.com/ethandanielfang/Perigee 경유)
+  혜성·성간 천체 궤도 요소: JPL SBDB / MPC 공개 값 (일부 근사)
+
+인공위성·우주쓰레기: CelesTrak GP 궤도 자료(https://celestrak.org)를 브라우저에서 실시간으로 받아 SGP4(satellite.js, MIT)로 계산

@@ -21,6 +21,9 @@ import catalogUrl from './exo-catalog.json?url';
 import skyUrl from './sky-catalog.json?url';
 import { loadDeepStars, deepSpect, starId, bvRgb } from './deep-stars.js';
 import { createGaiaTiles, bpColorKo, GAIA_ATTRIB } from './gaia-tiles.js';
+import { createSatellites, azKo } from './sats.js';
+import { createSound } from './sound.js';
+import { loadSmallBodies, CLASS_KO, CLASS_COL, diamKm, orbitLine, jdNow } from './small-bodies.js';
 import { plutoHelio, DWARFS, PROBES, probeDistanceAU } from './outer.js';
 import dayUrl from './earth-day.webp';
 import reliefUrl from './earth-relief.webp';
@@ -31,6 +34,7 @@ const AU = 1.496e11;           // 1천문단위 (m)
 const MLY = 1e6 * LY;          // 100만 광년
 const R_OBS = 46.5e9 * LY;     // 관측 가능한 우주 반지름
 const C = 2.998e8;             // 빛의 속도
+const DEG = Math.PI / 180;
 
 // s = log10(화면 짧은 변이 담는 실제 길이, m)
 const S_MIN = 5.0;   // 약 100 km (지구 표면 확대)
@@ -466,7 +470,9 @@ const CSS = `
   clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);box-shadow:inset 0 0 10px rgba(61,255,143,.25);
   animation:mu3dpulse 2.4s ease-in-out infinite}
 .mu-3d[hidden]{display:none}
-.mu-more{top:102px;animation:none;font-size:11px}
+.mu-more{top:148px;animation:none;font-size:11px}
+.mu-snd{top:102px;animation:none;font-size:15px;opacity:.6}
+.mu-snd.on{opacity:1;background:rgba(61,255,143,.3);color:#eafff2}
 .mu-more.on{background:rgba(61,255,143,.3);color:#eafff2}
 @keyframes mu3dpulse{50%{box-shadow:inset 0 0 14px rgba(61,255,143,.55),0 0 12px rgba(61,255,143,.5)}}
 .mu-bottom{position:absolute;left:0;right:0;bottom:0;padding:0 12px calc(12px + env(safe-area-inset-bottom));z-index:6;
@@ -533,6 +539,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     </div>
     <button class="mu-close" aria-label="닫기">✕</button>
     <button class="mu-3d" hidden aria-label="3D로 은하 보기">3D</button>
+    <button class="mu-3d mu-snd" aria-label="소리 켜기" title="우주 소리 (펄서·플라스마·블랙홀)">♪</button>
     <button class="mu-3d mu-more" hidden aria-label="Gaia 별 약 985만 개 켜기" title="Gaia DR3 별 약 985만 개 (보이는 곳만 받기)">G★</button>
     <div class="mu-toast mu-frame"></div>
     <div class="mu-hint mu-frame">드래그로 이동 · 핀치·휠로 가리킨 곳 확대 · 두 번 탭하면 그곳으로</div>
@@ -964,6 +971,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     }
     if (best && best.probe) {
       const pr = best.probe;
+      soundFor(best);
       toast(`${pr.name} · 태양에서 약 ${Math.round(pr.au)} AU · 빛으로 ${(pr.au * 1.496e11 / 2.998e8 / 3600).toFixed(1)}시간 · ${pr.desc}`);
     } else if (best && best.sys) enterSystem(best.sys);
     else if (best && best.cat !== undefined) enterCatalog(best.cat);
@@ -1022,7 +1030,10 @@ export function mountUniverseExplorer(container, opts = {}) {
         `${con} · ${r[5].toFixed(1)}등급${r[10] ? ' · 거리: Gaia DR3' : ''}`];
     }
     if (t.deepStar) return deepInfo(t.deepStar.L.d, t.deepStar.i);
-    if (t.dso) return [t.dso.name, `${fmtLy(t.dso.ly)} · ${DSO_KO[t.dso.kind]}`, t.dso.desc];
+    if (t.sat !== undefined && satSys) return satInfo(t.sat);
+    if (t.small) return smallInfo(t.small);
+    if (t.comet) { const c = t.comet; return [c.name, `${c.kind === 'iso' ? '성간 천체 · 태양계 밖에서 옴' : '혜성'} · 지금 태양에서 ${c.r.toFixed(1)} AU`, c.desc]; }
+    if (t.dso) return [t.dso.name, `${fmtLy(t.dso.ly)} · ${DSO_KO[t.dso.kind]}${t.dso.kind === 'bh' ? ' · 탭하면 블랙홀 체험' : (t.dso.kind === 'psr' || t.dso.kind === 'mag') && sound.on ? ' · ♪ 신호음' : ''}`, t.dso.desc];
     if (t.gal) return [t.gal.name, `${fmtLy(t.gal.ly)} · 국부은하군`, t.gal.desc];
     if (t.deep) return [t.deep.name, `${fmtMly(t.deep.mly)}${t.deep.kind === 'far' || t.deep.mly > 5000 ? ' (공동 거리)' : ''} · ${DEEP_KO[t.deep.kind]}`, t.deep.desc];
     if (t.name) {
@@ -1040,7 +1051,9 @@ export function mountUniverseExplorer(container, opts = {}) {
       const d = Math.hypot(p.x - x, p.y - y);
       if (d < 18 && (!best || d < best.d)) best = { p, d };
     }
-    const hit = best ? best.p : pickDeep(x, y, 10);
+    const hit = best ? best.p : pickSat(x, y, 12) || pickSmall(x, y, 10) || pickDeep(x, y, 10);
+    if (hit && hit.dso && hit.dso.kind === 'bh') { openBH(bhTarget(hit.dso.name)); return true; }
+    soundFor(hit);
     const lab = hit && hoverLabel(hit);
     if (!lab) return false;
     toast(lab.filter(Boolean).join(' · '));
@@ -1055,11 +1068,15 @@ export function mountUniverseExplorer(container, opts = {}) {
     };
     for (const t of lastMoonScreen) consider(t, 16);
     if (!best) for (const t of lastPlanetScreen) consider(t, t.cat !== undefined || t.sky !== undefined ? 10 : 20);
+    if (!best) { const st = pickSat(hoverPt.x, hoverPt.y, 7) || pickSmall(hoverPt.x, hoverPt.y, 6); if (st) return st; }
     if (!best) return pickDeep(hoverPt.x, hoverPt.y, 6);
     return best && best.t;
   }
+  let lastSoundKey = '';
   function drawHover(time) {
     const t = pickHover();
+    const sk = t ? (t.dso ? t.dso.name : t.probe ? t.probe.name : '') : '';
+    if (sk !== lastSoundKey) { lastSoundKey = sk; soundFor(t); }
     overlay.style.cursor = t ? 'pointer' : '';
     if (!t) return;
     const lab = hoverLabel(t);
@@ -1202,6 +1219,30 @@ export function mountUniverseExplorer(container, opts = {}) {
 
   // ── 모달 ──
   $('.mu-close').addEventListener('click', () => close());
+  // 소리
+  const sound = createSound();
+  const btnSnd = $('.mu-snd');
+  btnSnd.addEventListener('click', () => { const on = sound.toggle(); btnSnd.classList.toggle('on', on); toast(on ? '소리 켬 — 펄서·보이저에 올리면 실제 주기로 재현한 소리, 블랙홀에선 중력파 처프' : '소리 끔'); });
+  function soundFor(t) {
+    if (!sound.on) return;
+    if (t && t.dso) sound.hover(t.dso.kind, t.dso.name);
+    else if (t && t.probe && /보이저 1/.test(t.probe.name)) sound.hover('voyager');
+    else sound.hover(null);
+  }
+  // 블랙홀 체험
+  let bhView = null;
+  async function openBH(target) {
+    if (bhView) return;
+    bhView = 'loading';
+    try {
+      const { openBlackHole } = await import('./blackhole.js');
+      if (destroyed) return;
+      const paused = !g3; // 3D가 열려 있으면 2D는 이미 멈춤
+      if (paused) cancelAnimationFrame(raf);
+      bhView = openBlackHole(root, { target, sound, onClose: () => { bhView = null; if (paused && !destroyed && !g3) { last = performance.now(); raf = requestAnimationFrame(frame); } } });
+    } catch (e) { bhView = null; toast('블랙홀 체험을 열 수 없어요'); }
+  }
+  const bhTarget = (name) => (/궁수자리 A/.test(name) ? 'sgra' : /백조자리 X-1|V404|GRS|A0620/.test(name) ? 'cygx1' : /가이아/.test(name) ? 'gaiabh3' : /M87/.test(name) ? 'm87' : 'sgra');
   // 3D 은하 보기 (필요할 때만 불러옴)
   let g3 = null;
   const btn3d = $('.mu-3d');
@@ -1218,7 +1259,7 @@ export function mountUniverseExplorer(container, opts = {}) {
       g3 = openGalaxy3D(root, {
         sky, exo: catalog, layers: starLayers.map((L) => L.d), describeDeep: deepInfo, subscribe: (f) => { g3Listeners.add(f); return () => g3Listeners.delete(f); },
         gaia: { toggle: () => toggleGaia(), get on() { return gaiaOn; }, view: (x0, x1, y0, y1, cell) => { if (gaiaOn) gaia.update(x0, x1, y0, y1, cell); } }, dwarfs: world.lgDwarfs, preset, dsoKo: DSO_KO,
-        describeStar: (i) => hoverLabel({ sky: i }),
+        describeStar: (i) => hoverLabel({ sky: i }), openBH: (k) => openBH(k),
         onClose: () => { g3 = null; if (!destroyed) { last = performance.now(); raf = requestAnimationFrame(frame); } },
       });
     } catch (e) { g3 = null; toast('3D 보기를 열 수 없어요'); }
@@ -1416,6 +1457,198 @@ export function mountUniverseExplorer(container, opts = {}) {
         if (tappable) lastPlanetScreen.push({ cat: i, x: X, y: Y, wx: catalog.x[i], wy: catalog.y[i] });
       }
     }
+  }
+
+  // ───────────── 소행성 · 혜성 · 성간 천체 ─────────────
+  let small = null, smallReq = false, smallA = 0, smallKey = '', smallSel = null;
+  const smallCv = document.createElement('canvas'), smallCtx = smallCv.getContext('2d');
+  let smallImg = null, smallBuf = null;
+  const CLASS_U32 = CLASS_COL.map((c) => { const m = c.match(/[\d.]+/g).map(Number); return ((255 << 24) | (m[2] << 16) | (m[1] << 8) | m[0]) >>> 0; });
+  function drawSmall(a, camX, camY, mpp, time) {
+    smallA = a;
+    if (a < 0.02) return;
+    if (!smallReq) { smallReq = true; loadSmallBodies().then((d) => { if (!destroyed) small = d; }).catch(() => { smallReq = false; }); }
+    if (!small) return;
+    const k = AU / mpp, ox = W / 2 - (camX - SUN[0]) / mpp, oy = H / 2 + (camY - SUN[1]) / mpp;
+    const Wc = Math.max(1, Math.round(W * dpr)), Hc = Math.max(1, Math.round(H * dpr));
+    const key = `${Wc}|${Hc}|${ox}|${oy}|${k}`;
+    if (key !== smallKey) {
+      smallKey = key;
+      if (smallCv.width !== Wc || smallCv.height !== Hc) { smallCv.width = Wc; smallCv.height = Hc; smallImg = null; }
+      if (!smallImg) { smallImg = smallCtx.createImageData(Wc, Hc); smallBuf = new Uint32Array(smallImg.data.buffer); }
+      smallBuf.fill(0);
+      const { x, y, cls } = small, kd = k * dpr, oxd = ox * dpr, oyd = oy * dpr, big = dpr >= 1.5;
+      for (let i = 0; i < small.N; i++) {
+        const X = (oxd + x[i] * kd) | 0, Y = (oyd - y[i] * kd) | 0;
+        if (X < 0 || Y < 0 || X >= Wc - 1 || Y >= Hc - 1) continue;
+        const j = Y * Wc + X, c = CLASS_U32[cls[i]];
+        smallBuf[j] = c; if (big) { smallBuf[j + 1] = c; smallBuf[j + Wc] = c; smallBuf[j + Wc + 1] = c; }
+      }
+      smallCtx.putImageData(smallImg, 0, 0);
+    }
+    ctx.globalAlpha = a * 0.9;
+    ctx.drawImage(smallCv, 0, 0, W, H);
+    // 근지구 소행성(위험 천체는 더 밝게)
+    for (const n of small.neos) {
+      const X = ox + n.x * k, Y = oy - n.y * k;
+      if (X < -3 || X > W + 3 || Y < -3 || Y > H + 3) continue;
+      ctx.globalAlpha = a; ctx.fillStyle = n.pha ? '#ff4d5e' : '#ff9a7a';
+      ctx.fillRect(X - 1.2, Y - 1.2, 2.4, 2.4);
+    }
+    // 선택한 천체 궤도
+    if (smallSel && smallSel.line) {
+      ctx.globalAlpha = a * 0.8; ctx.strokeStyle = '#3dff8f'; ctx.lineWidth = 1;
+      ctx.beginPath(); smallSel.line.forEach(([px, py], i) => (i ? ctx.lineTo(ox + px * k, oy - py * k) : ctx.moveTo(ox + px * k, oy - py * k))); ctx.stroke();
+    }
+    // 혜성 · 성간 천체: 궤도선 + 현재 위치
+    for (const c of small.comets) {
+      const col = c.kind === 'iso' ? '255,110,255' : '120,230,255';
+      ctx.globalAlpha = a * 0.45; ctx.strokeStyle = `rgb(${col})`; ctx.lineWidth = 1; ctx.setLineDash(c.kind === 'iso' ? [5, 4] : []);
+      ctx.beginPath(); c.line.forEach(([px, py], i) => (i ? ctx.lineTo(ox + px * k, oy - py * k) : ctx.moveTo(ox + px * k, oy - py * k))); ctx.stroke(); ctx.setLineDash([]);
+      const X = ox + c.x * k, Y = oy - c.y * k;
+      if (X < -40 || X > W + 40 || Y < -20 || Y > H + 20) continue;
+      ctx.globalAlpha = a; ctx.fillStyle = `rgb(${col})`;
+      ctx.beginPath(); ctx.arc(X, Y, 2.6, 0, Math.PI * 2); ctx.fill();
+      // 꼬리: 태양 반대쪽 (가까울수록 길게)
+      if (c.r < 6) { const ux = c.x / c.r, uy = c.y / c.r, L = 26 / Math.max(0.6, c.r); ctx.globalAlpha = a * 0.6; ctx.strokeStyle = `rgb(${col})`; ctx.beginPath(); ctx.moveTo(X, Y); ctx.lineTo(X + ux * L, Y - uy * L); ctx.stroke(); }
+      ctx.globalAlpha = a; ctx.font = '600 10.5px "SF Mono",Menlo,Consolas,"Apple SD Gothic Neo","Noto Sans KR",monospace'; ctx.textAlign = 'left';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.strokeText(c.name, X + 6, Y - 5); ctx.fillStyle = `rgb(${col})`; ctx.fillText(c.name, X + 6, Y - 5);
+      if (a > 0.3) lastPlanetScreen.push({ comet: c, hoverOnly: true, x: X, y: Y });
+    }
+    if (a > 0.3) {
+      const txt = `소행성 ${small.N.toLocaleString('ko-KR')} · 근지구 ${small.neos.length.toLocaleString('ko-KR')} · 혜성·성간 천체 ${small.comets.length}`;
+      ctx.globalAlpha = a * 0.8; ctx.font = '600 10.5px "SF Mono",Menlo,Consolas,"Apple SD Gothic Neo","Noto Sans KR",monospace'; ctx.textAlign = 'center';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.strokeText(txt, W / 2, H - 170); ctx.fillStyle = '#d8c8a8'; ctx.fillText(txt, W / 2, H - 170);
+    }
+  }
+  let smallPickC = { t: 0, px: -1, py: -1, hit: null };
+  function pickSmall(px, py, r) {
+    if (!small || smallA < 0.3) return null;
+    const now = performance.now();
+    if (smallPickC.px === px && smallPickC.py === py && now - smallPickC.t < 250) return smallPickC.hit;
+    const [camX, camY] = getCam(s), mpp = mppAt(s), k = AU / mpp;
+    const ox = W / 2 - (camX - SUN[0]) / mpp, oy = H / 2 + (camY - SUN[1]) / mpp;
+    let best = null, bd = r * r;
+    for (const n of small.neos) { const dx = ox + n.x * k - px, dy = oy - n.y * k - py, d2 = dx * dx + dy * dy; if (d2 < bd) { bd = d2; best = { neo: n }; } }
+    const { x, y } = small;
+    for (let i = 0; i < small.N; i++) {
+      const dx = ox + x[i] * k - px; if (dx > r || dx < -r) continue;
+      const dy = oy - y[i] * k - py, d2 = dx * dx + dy * dy;
+      if (d2 < bd) { bd = d2; best = { ast: i }; }
+    }
+    let hit = null;
+    if (best) {
+      const bx = best.neo ? best.neo.x : x[best.ast], by = best.neo ? best.neo.y : y[best.ast];
+      hit = { small: best, hoverOnly: true, x: ox + bx * k, y: oy - by * k };
+    }
+    smallPickC = { t: now, px, py, hit };
+    return hit;
+  }
+  function smallInfo(b) {
+    const fmtD = (km) => (km >= 1 ? `${km < 10 ? km.toFixed(1) : Math.round(km)}km` : `${Math.round(km * 1000)}m`);
+    if (b.neo) {
+      const n = b.neo;
+      const per = Math.pow(n.a, 1.5);
+      const next = (small.cad || []).find((c) => c.des === n.pdes && c.jd > jdNow());
+      const cls = { APO: '아폴로형', ATE: '아텐형', AMO: '아모르형', IEO: '아티라형' }[n.klass] || '';
+      smallSel = { line: orbitLine(n.el ? { ...n.el, q: n.a * (1 - n.e) } : n, 200) };
+      return [n.name === n.pdes ? n.pdes : `${n.name} (${n.pdes})`, `근지구 소행성 · ${cls}${n.pha ? ' · 잠재적 위험 천체' : ''} · 지름 약 ${fmtD(n.diam || diamKm(n.H))}`,
+        `궤도 ${n.a.toFixed(2)} AU · 공전 ${per.toFixed(2)}년${n.moidLd ? ` · 지구 궤도와 최소 ${n.moidLd.toFixed(1)}달거리` : ''}${next ? ` · 다음 근접 ${next.cd.slice(0, 11)} (${(next.dist * 389).toFixed(1)}달거리)` : ''}`];
+    }
+    const i = b.ast, a = small.a[i], e = small.e[i], Hm = small.H[i] / 10, cls = classifyIdx(i);
+    smallSel = null;
+    return [small.names[i] || `소행성 #${i + 1}`, `${CLASS_KO[cls]} · 지름 약 ${fmtD(diamKm(Hm))} · 궤도 ${a.toFixed(2)} AU`, `공전 ${Math.pow(a, 1.5).toFixed(1)}년 · 이심률 ${e.toFixed(2)} · 위치는 2013년 궤도 요소로 계산(대략)`];
+  }
+  const classifyIdx = (i) => small.cls[i];
+
+  // ───────────── 인공위성 ─────────────
+  let satSys = null, satA = 0, satSX = new Float32Array(0), satSY = new Float32Array(0), satVis = new Uint8Array(0);
+  let satKinds = null, satKindsN = -1, issPath = null, issPathAt = 0, issPasses = null, issPassAt = 0;
+  const SAT_STYLE = { station: ['#3dff8f', 2.6], active: ['rgba(235,240,255,0.95)', 1.6], starlink: ['rgba(130,205,255,0.85)', 1.3], debris: ['rgba(255,140,90,0.9)', 1.4] };
+  const SAT_KO = { station: '우주정거장', active: '인공위성', starlink: '스타링크 위성', debris: '우주쓰레기(파편)' };
+  function drawSats(X, Y, R, a, time) {
+    if (!satSys) satSys = createSatellites();
+    const S = satSys, n = S.count;
+    if (!n) return;
+    S.step(5);
+    if (satKindsN !== n) { // 종류별 인덱스
+      satKinds = { station: [], starlink: [], active: [], debris: [] };
+      S.sats.forEach((q, i) => satKinds[q.kind].push(i));
+      satKindsN = n;
+      satSX = new Float32Array(n); satSY = new Float32Array(n); satVis = new Uint8Array(n);
+    }
+    const v = earth.getView(), la = v.lat * DEG, lo = v.lon * DEG;
+    const C = [Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)], E = [-Math.sin(lo), Math.cos(lo), 0], Nn = [-Math.sin(la) * Math.cos(lo), -Math.sin(la) * Math.sin(lo), Math.cos(la)];
+    const P = S.pos, ok = S.ok;
+    const pr = (x, y, z) => [X + (x * E[0] + y * E[1] + z * E[2]) * R, Y - (x * Nn[0] + y * Nn[1] + z * Nn[2]) * R, x * C[0] + y * C[1] + z * C[2]];
+    // ISS 궤도선
+    const iss = S.sats.findIndex((q) => /^ISS/.test(q.name));
+    if (iss >= 0 && ok[iss]) {
+      if (!issPath || performance.now() - issPathAt > 15000) { issPath = S.orbitPath(iss); issPathAt = performance.now(); }
+      ctx.globalAlpha = a * 0.55; ctx.strokeStyle = '#3dff8f'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); let pen = false;
+      for (const [x, y, z] of issPath) { const q = pr(x, y, z); const hidden = q[2] < 0 && (q[0] - X) ** 2 + (q[1] - Y) ** 2 < R * R; if (hidden) { pen = false; continue; } if (!pen) { ctx.moveTo(q[0], q[1]); pen = true; } else ctx.lineTo(q[0], q[1]); }
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+    for (const kind of ['debris', 'active', 'starlink', 'station']) {
+      const [col, sz] = SAT_STYLE[kind];
+      ctx.globalAlpha = a; ctx.fillStyle = col;
+      const h = sz / 2;
+      for (const i of satKinds[kind]) {
+        satVis[i] = 0;
+        if (!ok[i]) continue;
+        const x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2];
+        const sx2 = X + (x * E[0] + y * E[1] + z * E[2]) * R, sy2 = Y - (x * Nn[0] + y * Nn[1] + z * Nn[2]) * R;
+        if (sx2 < -4 || sx2 > W + 4 || sy2 < -4 || sy2 > H + 4) continue;
+        const zz = x * C[0] + y * C[1] + z * C[2];
+        if (zz < 0 && (sx2 - X) ** 2 + (sy2 - Y) ** 2 < R * R) continue; // 지구 뒤
+        ctx.fillRect(sx2 - h, sy2 - h, sz, sz);
+        satSX[i] = sx2; satSY[i] = sy2; satVis[i] = 1;
+      }
+    }
+    // 정거장 라벨
+    for (const i of satKinds.station) {
+      if (!satVis[i]) continue;
+      const nm = S.sats[i].name;
+      const lab = /^ISS/.test(nm) ? 'ISS 국제우주정거장' : /CSS|TIANHE/.test(nm) ? '톈궁 우주정거장' : null;
+      if (!lab) continue;
+      ctx.globalAlpha = a; ctx.strokeStyle = '#3dff8f'; ctx.lineWidth = 1.2;
+      const r2 = 5 + Math.sin(time * 4) * 1.2;
+      ctx.beginPath(); ctx.arc(satSX[i], satSY[i], r2, 0, Math.PI * 2); ctx.stroke();
+      ctx.font = '700 11px "SF Mono",Menlo,Consolas,"Apple SD Gothic Neo","Noto Sans KR",monospace'; ctx.textAlign = 'left';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.strokeText(lab, satSX[i] + 9, satSY[i] - 6);
+      ctx.fillStyle = '#a6ffcb'; ctx.fillText(lab, satSX[i] + 9, satSY[i] - 6);
+    }
+    // 범례
+    if (a > 0.3 && S.ready) {
+      const c = S.counts;
+      const txt = `실시간 · 위성 ${(c.active + c.station).toLocaleString('ko-KR')} · 스타링크 ${c.starlink.toLocaleString('ko-KR')} · 우주쓰레기 ${c.debris.toLocaleString('ko-KR')} (CelesTrak)`;
+      ctx.globalAlpha = a * 0.85; ctx.font = '600 10.5px "SF Mono",Menlo,Consolas,"Apple SD Gothic Neo","Noto Sans KR",monospace'; ctx.textAlign = 'center';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.8)'; const ly = Math.min(H - 170, Y + R * 1.08 + 18);
+      ctx.strokeText(txt, W / 2, ly); ctx.fillStyle = '#a6ffcb'; ctx.fillText(txt, W / 2, ly);
+    }
+  }
+  function pickSat(px, py, r) {
+    if (!satSys || satA < 0.3) return null;
+    let best = -1, bd = r * r;
+    for (let i = 0; i < satVis.length; i++) {
+      if (!satVis[i]) continue;
+      const dx = satSX[i] - px, dy = satSY[i] - py, d2 = dx * dx + dy * dy;
+      if (d2 < bd || (satSys.sats[i].kind === 'station' && d2 < bd * 2.5)) { bd = d2; best = i; }
+    }
+    return best < 0 ? null : { sat: best, hoverOnly: true, x: satSX[best], y: satSY[best] };
+  }
+  function satInfo(i) {
+    const S = satSys, q = S.sats[i];
+    const l2 = `${SAT_KO[q.kind]} · 고도 ${fmtKo(Math.round(S.alt[i]))}km · 초속 ${S.vel[i].toFixed(2)}km`;
+    let l3 = q.kind === 'debris' ? S.debrisKo(q.group) : `NORAD ${q.id}${q.year ? ` · ${q.year}년 발사` : ''}`;
+    if (/^ISS/.test(q.name)) {
+      if (!issPasses || Date.now() - issPassAt > 10 * 60000) { issPasses = S.passes(i, myLoc.lat, myLoc.lon, (d) => solarElevation(myLoc.lat, myLoc.lon, d)); issPassAt = Date.now(); }
+      const p = issPasses[0];
+      const f = (t) => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+      l3 = p ? `${myLoc.label}에서 맨눈으로: ${f(p.start)} · 최고 ${Math.round(p.maxEl)}° · ${azKo(p.azStart)}→${azKo(p.azEnd)} (약 ${Math.max(1, Math.round((p.end - p.start) / 60000))}분)` : `${myLoc.label}에서 48시간 안에 맨눈으로 보이는 통과 없음`;
+    }
+    return [q.name, l2, l3];
   }
 
   // ───────────── 렌더링 ─────────────
@@ -1760,12 +1993,12 @@ export function mountUniverseExplorer(container, opts = {}) {
     // ── 소행성대 · 카이퍼 벨트 · 왜행성 · 탐사선 ──
     const aAst = band(s, 10.6, 13.2) * (focus ? 1 - focus.blend : 1);
     if (aAst > 0.02) {
-      drawCloud(world.asteroids, aAst * 0.9, 1.3);
+      drawSmall(Math.max(aAst, band(s, 12.4, 15.6) * (focus ? 1 - focus.blend : 1)), camX, camY, mpp, time);
       label('소행성대 · 2.1~3.3 AU', SUN[0], SUN[1] - 3.3 * AU, aAst * smooth(11.4, 11.7, s), { dy: -6, color: '#d8c8a8', size: 10 });
     }
     const aKui = band(s, 12.4, 15.6) * (focus ? 1 - focus.blend : 1);
     if (aKui > 0.02) {
-      drawCloud(world.kuiper, aKui, 1.4);
+      if (aAst <= 0.02) drawSmall(aKui, camX, camY, mpp, time);
       label('카이퍼 벨트 · 30~50 AU', SUN[0], SUN[1] - 50 * AU, aKui * smooth(13.0, 13.3, s) * (1 - smooth(14.8, 15.2, s)), { dy: -6, color: '#aac4ff', size: 11 });
       // 명왕성 (실제 위치·궤도)
       ctx.globalAlpha = aKui * 0.35; ctx.strokeStyle = '#c6b3a0'; ctx.lineWidth = 1;
@@ -2066,6 +2299,10 @@ export function mountUniverseExplorer(container, opts = {}) {
           ctx.fillStyle = '#5fa8ff';
           ctx.beginPath(); ctx.arc(X, Y, Math.max(er, 1), 0, Math.PI * 2); ctx.fill();
         }
+        // ── 인공위성 · 우주쓰레기 (실시간) ──
+        const aSat = smooth(5.3, 5.9, s) * (1 - smooth(8.7, 9.3, s)) * (focus ? 1 - focus.blend : 1);
+        satA = aSat;
+        if (aSat > 0.02 && er > 2) drawSats(X, Y, er, aSat, time);
       }
     }
     earth.endFrame?.();
@@ -2130,6 +2367,8 @@ export function mountUniverseExplorer(container, opts = {}) {
   function destroy() {
     destroyed = true;
     if (g3 && g3 !== 'loading') g3.destroy();
+    if (bhView && bhView !== 'loading') bhView.destroy();
+    sound.destroy();
     cancelAnimationFrame(raf);
     clearTimeout(toastTimer);
     ro.disconnect();

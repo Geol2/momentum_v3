@@ -237,7 +237,7 @@ const fmtLy = (ly) => {
  * @param {{ sky?:any, exo?:any, dwarfs?:Array, preset?:string, describeStar?:Function, dsoKo?:Object, onClose?:Function }} opts
  */
 export function openGalaxy3D(host, opts = {}) {
-  const { sky, exo, layers = [], subscribe, gaia, describeDeep, dwarfs = [], preset = 'mw', describeStar, dsoKo = {}, onClose } = opts;
+  const { sky, exo, layers = [], subscribe, gaia, openBH, describeDeep, dwarfs = [], preset = 'mw', describeStar, dsoKo = {}, onClose } = opts;
   if (!document.getElementById('g3-style')) {
     const st = document.createElement('style'); st.id = 'g3-style'; st.textContent = CSS3D; document.head.appendChild(st);
   }
@@ -548,11 +548,11 @@ export function openGalaxy3D(host, opts = {}) {
     lg: { t: [M31[0] * 0.4, M31[1] * 0.4, M31[2] * 0.4], d: 4.6e6, pitch: 0.55, title: '국부은하군 3D', desc: '우리은하·안드로메다·삼각형자리 은하와 위성은하 수십 개. 실제 방향과 거리로 배치했어요.' },
     cosmos: { t: SUN, d: 1.45e9, pitch: 0.42, yaw: 0.35, frame: 'sg', title: '근처 우주 · 초은하단 지도', desc: '2MASS 적외선 하늘 탐사(2MRS)로 거리를 잰 실제 은하 약 4만 3천 개. 파란 원반은 초은하면(1억~5억 광년), 하늘색=초은하단 · 노랑=은하 벽 · 빨강=보이드. 가운데 빈 띠는 은하수에 가려 못 보는 곳(회피 영역).' },
   };
-  const ORDER = [['mw', '우리은하'], ['side', '옆모습'], ['gc', '은하 중심'], ['sun', '태양 주변'], ['lmc', '대마젤란'], ['m31', '안드로메다'], ['m33', '삼각형자리'], ['lg', '국부은하군'], ['cosmos', '근처 우주'], ['gaia', 'Gaia 별 985만'], ['rot', '자동회전']];
+  const ORDER = [['mw', '우리은하'], ['side', '옆모습'], ['gc', '은하 중심'], ['sun', '태양 주변'], ['lmc', '대마젤란'], ['m31', '안드로메다'], ['m33', '삼각형자리'], ['lg', '국부은하군'], ['cosmos', '근처 우주'], ['bh', '블랙홀 체험'], ['gaia', 'Gaia 별 985만'], ['rot', '자동회전']];
   const bar = $('.g3-bar');
   for (const [k, name] of ORDER) {
     const b = document.createElement('button'); b.textContent = name; b.dataset.k = k;
-    b.addEventListener('click', () => { if (k === 'gaia') { gaia?.toggle(); b.classList.toggle('on', !!gaia?.on); if (gaia?.on && dist > 30000) go('sun'); } else if (k === 'rot') { autoRot = !autoRot; b.classList.toggle('on', autoRot); } else go(k); });
+    b.addEventListener('click', () => { if (k === 'bh') { openBH?.('sgra'); } else if (k === 'gaia') { gaia?.toggle(); b.classList.toggle('on', !!gaia?.on); if (gaia?.on && dist > 30000) go('sun'); } else if (k === 'rot') { autoRot = !autoRot; b.classList.toggle('on', autoRot); } else go(k); });
     bar.appendChild(b);
   }
   bar.querySelector('[data-k="rot"]').classList.add('on');
@@ -561,7 +561,7 @@ export function openGalaxy3D(host, opts = {}) {
   function go(k, instant = false) {
     const p = PRESETS[k];
     $('.g3-top h3').textContent = p.title; $('.g3-top p').textContent = p.desc;
-    bar.querySelectorAll('button').forEach((b) => b.dataset.k !== 'rot' && b.dataset.k !== 'gaia' && b.classList.toggle('on', b.dataset.k === k));
+    bar.querySelectorAll('button').forEach((b) => b.dataset.k !== 'rot' && b.dataset.k !== 'gaia' && b.dataset.k !== 'bh' && b.classList.toggle('on', b.dataset.k === k));
     goal = { target: new THREE.Vector3(...p.t), dist: p.d, pitch: p.pitch, yaw: p.yaw };
     goalFrame = p.frame === 'sg' ? sgQ : idQ;
     if (p.yaw !== undefined) autoRot = false, bar.querySelector('[data-k="rot"]')?.classList.remove('on');
