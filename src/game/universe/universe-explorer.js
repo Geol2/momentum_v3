@@ -12,6 +12,7 @@
  */
 
 import { createEarthRenderer, solarElevation } from './earth.js';
+import sdfUrl from './earth-sdf.webp';
 
 // ───────────────────────── 단위 / 상수 ─────────────────────────
 const LY = 9.4607e15;          // 1광년 (m)
@@ -21,7 +22,7 @@ const R_OBS = 46.5e9 * LY;     // 관측 가능한 우주 반지름
 const C = 2.998e8;             // 빛의 속도
 
 // s = log10(화면 짧은 변이 담는 실제 길이, m)
-const S_MIN = 7.3;   // 약 2만 km
+const S_MIN = 5.0;   // 약 100 km (지구 표면 확대)
 const S_MAX = 27.35; // 관측 가능한 우주 지름의 약 2.5배
 const S_START = 7.45;
 
@@ -408,7 +409,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   };
 
   const world = buildWorld();
-  const earth = createEarthRenderer();
+  const earth = createEarthRenderer({ sdfUrl });
 
   // ── 내 위치 ──
   let destroyed = false;
@@ -593,6 +594,51 @@ export function mountUniverseExplorer(container, opts = {}) {
     const pct = `${(found.size / LEVELS.length) * 100}%`;
     if (hudCache.pct !== pct) { hudCache.pct = pct; ui.fill.style.width = pct; }
     setText('prog', ui.progText, `발견 ${found.size}/${LEVELS.length}`);
+  }
+
+  // ── 도시 라벨 (확대할수록 더 많이) ──
+  // [이름, 위도, 경도, 단계] 단계 1: 세계 주요 도시, 2: 국내·지역 도시
+  const CITIES = [
+    ['서울', 37.57, 126.98, 1], ['부산', 35.18, 129.08, 1], ['도쿄', 35.68, 139.69, 1], ['오사카', 34.69, 135.5, 1],
+    ['베이징', 39.9, 116.4, 1], ['상하이', 31.23, 121.47, 1], ['홍콩', 22.32, 114.17, 1], ['타이베이', 25.03, 121.57, 1],
+    ['마닐라', 14.6, 120.98, 1], ['싱가포르', 1.35, 103.82, 1], ['방콕', 13.76, 100.5, 1], ['하노이', 21.03, 105.85, 1],
+    ['뭄바이', 19.08, 72.88, 1], ['델리', 28.61, 77.21, 1], ['두바이', 25.2, 55.27, 1], ['모스크바', 55.76, 37.62, 1],
+    ['이스탄불', 41.01, 28.98, 1], ['카이로', 30.04, 31.24, 1], ['라고스', 6.52, 3.38, 1], ['나이로비', -1.29, 36.82, 1],
+    ['요하네스버그', -26.2, 28.05, 1], ['런던', 51.51, -0.13, 1], ['파리', 48.86, 2.35, 1], ['베를린', 52.52, 13.4, 1],
+    ['로마', 41.9, 12.5, 1], ['마드리드', 40.42, -3.7, 1], ['뉴욕', 40.71, -74.0, 1], ['시카고', 41.88, -87.63, 1],
+    ['로스앤젤레스', 34.05, -118.24, 1], ['샌프란시스코', 37.77, -122.42, 1], ['밴쿠버', 49.28, -123.12, 1],
+    ['멕시코시티', 19.43, -99.13, 1], ['상파울루', -23.55, -46.63, 1], ['부에노스아이레스', -34.6, -58.38, 1],
+    ['리마', -12.05, -77.04, 1], ['시드니', -33.87, 151.21, 1], ['멜버른', -37.81, 144.96, 1], ['오클랜드', -36.85, 174.76, 1],
+    ['자카르타', -6.21, 106.85, 1], ['블라디보스토크', 43.12, 131.89, 1], ['평양', 39.04, 125.76, 1],
+    ['인천', 37.46, 126.71, 2], ['수원', 37.26, 127.03, 2], ['춘천', 37.88, 127.73, 2], ['강릉', 37.75, 128.88, 2],
+    ['대전', 36.35, 127.38, 2], ['청주', 36.64, 127.49, 2], ['전주', 35.82, 127.15, 2], ['광주', 35.16, 126.85, 2],
+    ['대구', 35.87, 128.6, 2], ['울산', 35.54, 129.31, 2], ['포항', 36.02, 129.34, 2], ['창원', 35.23, 128.68, 2],
+    ['목포', 34.81, 126.39, 2], ['여수', 34.76, 127.66, 2], ['제주', 33.5, 126.53, 2], ['서귀포', 33.25, 126.56, 2],
+    ['울릉도', 37.48, 130.9, 2], ['독도', 37.24, 131.87, 2], ['후쿠오카', 33.59, 130.4, 2], ['나고야', 35.18, 136.91, 2],
+    ['삿포로', 43.06, 141.35, 2], ['다롄', 38.91, 121.6, 2], ['칭다오', 36.07, 120.38, 2], ['선양', 41.8, 123.43, 2],
+  ];
+  function drawCities(X, Y, R) {
+    const t1 = smooth(320, 520, R), t2 = smooth(2600, 4200, R);
+    if (t1 < 0.02) return;
+    const pin = earth.project(myLoc.lat, myLoc.lon, X, Y, R);
+    ctx.font = '600 11px -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif';
+    ctx.textAlign = 'left';
+    for (const [name, la, lo, tier] of CITIES) {
+      const a = tier === 1 ? t1 : t2;
+      if (a < 0.02) continue;
+      const p = earth.project(la, lo, X, Y, R);
+      if (p.z < 0.12 || p.x < -40 || p.x > W + 40 || p.y < -20 || p.y > H + 20) continue;
+      if (Math.hypot(p.x - pin.x, p.y - pin.y) < 34) continue; // 내 위치 핀과 겹치면 생략
+      const al = a * smooth(0.12, 0.3, p.z);
+      ctx.globalAlpha = al;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)';
+      ctx.strokeText(name, p.x + 5, p.y + 4);
+      ctx.fillStyle = 'rgba(235,240,255,.95)';
+      ctx.fillText(name, p.x + 5, p.y + 4);
+    }
+    ctx.globalAlpha = 1;
   }
 
   // ───────────── 렌더링 ─────────────
@@ -805,7 +851,8 @@ export function mountUniverseExplorer(container, opts = {}) {
       if (onScreen(X, Y, er * 1.2)) {
         ctx.globalAlpha = 1;
         if (er > 5) {
-          earth.draw(ctx, X, Y, er, time, dpr);
+          earth.draw(ctx, X, Y, er, time, dpr, W, H, Math.abs(targetS - s) > 0.003 || zoomVel !== 0);
+          drawCities(X, Y, er);
           // 📍 내 위치 핀
           const p = earth.project(myLoc.lat, myLoc.lon, X, Y, er);
           const pa = smooth(-0.02, 0.18, p.z);
