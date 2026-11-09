@@ -11,11 +11,11 @@
  */
 import { LAND_W, LAND_H, LAND_RLE_B64 } from './earth-data.js'
 
-const TW = LAND_W
-const TH = LAND_H
-const CW = 1024 // 구름 텍스처
-const CH = 512
-const CLOUD_PERIOD = 6 * 3600 // 구름이 한 바퀴 흐르는 시간(초) — 분위기용
+export const TW = LAND_W
+export const TH = LAND_H
+export const CW = 1024 // 구름 텍스처
+export const CH = 512
+export const CLOUD_PERIOD = 6 * 3600 // 구름이 한 바퀴 흐르는 시간(초) — 분위기용
 const SUN_REFRESH_MS = 30 * 1000
 const DEG = Math.PI / 180
 
@@ -190,7 +190,7 @@ const METROS = [
   [-33.87, 151.21, 5.3, 1.05], [-37.81, 144.96, 5.1, 1.05], [-27.47, 153.03, 2.6, 1.05], [-31.95, 115.86, 2.1, 1.05], [-34.93, 138.6, 1.4, 1.05],
   [-36.85, 174.76, 1.7, 1.05], [-41.29, 174.78, 0.4, 1],
 ]
-const LW = 4096, LH = 2048 // 도시 불빛 고해상도 텍스처
+export const LW = 4096, LH = 2048 // 도시 불빛 고해상도 텍스처
 
 function splatMetros() {
   const f = new Float32Array(LW * LH)
@@ -221,7 +221,7 @@ function splatMetros() {
 // ───────── 텍스처 생성 (1024×512 기후/색 텍스처) ─────────
 // 육지색·바다색을 모든 텍셀에 대해 따로 만들어 두고,
 // 실제 육지/바다 구분은 고해상도 해안선 거리장(SDF)으로 픽셀마다 정한다.
-function buildTextures() {
+export function buildTextures() {
   const land = decodeLand()
   const near = blur(land, TW, TH, 5) // 해안 근접도(내륙일수록 ↑)
   const nB = sphereNoise(TW / 2, TH / 2, 3.2, 11, 5)
@@ -494,6 +494,13 @@ export function createEarthRenderer({ sdfUrl } = {}) {
   return {
     /** 화면 정면에 둘 지점(관측자 위치) */
     setView(lat, lon) { view = { lat, lon }; lastKey = '' },
+    getView() { return { ...view } },
+    /** 드래그 회전(라디안): dx>0 → 동쪽이 보이도록, dy>0 → 북쪽이 보이도록 */
+    rotateBy(dx, dy) {
+      view = { lat: Math.max(-89, Math.min(89, view.lat + dy / DEG)), lon: ((view.lon - dx / DEG + 540) % 360) - 180 }
+      lastKey = ''
+    },
+    endFrame() {},
     /** 현재 계산된 태양 직하점 */
     get sun() { return sun || subsolarPoint() },
     /**

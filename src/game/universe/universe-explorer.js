@@ -13,6 +13,7 @@
 
 import { createEarthRenderer, solarElevation } from './earth.js';
 import sdfUrl from './earth-sdf.webp';
+import { createEarthGL, canUseWebGL } from './earth-gl.js';
 
 // ───────────────────────── 단위 / 상수 ─────────────────────────
 const LY = 9.4607e15;          // 1광년 (m)
@@ -313,7 +314,9 @@ const CSS = `
 .mu-root{position:absolute;inset:0;overflow:hidden;background:#03040a;color:#e8ecff;
   font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo","Noto Sans KR",sans-serif;
   user-select:none;-webkit-user-select:none;touch-action:none}
-.mu-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:ns-resize}
+.mu-canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.mu-overlay{cursor:grab;touch-action:none}
+.mu-overlay:active{cursor:grabbing}
 .mu-top{position:absolute;top:0;left:0;right:0;padding:16px 56px 0 16px;pointer-events:none}
 .mu-title{font-size:20px;font-weight:700;letter-spacing:-0.3px;text-shadow:0 2px 8px #000}
 .mu-step{display:inline-block;font-size:11px;font-weight:600;padding:2px 7px;margin-right:6px;border-radius:99px;
@@ -370,13 +373,14 @@ export function mountUniverseExplorer(container, opts = {}) {
   root.className = 'mu-root';
   root.innerHTML = `
     <canvas class="mu-canvas"></canvas>
+    <canvas class="mu-canvas mu-overlay"></canvas>
     <div class="mu-top">
       <div class="mu-title"><span class="mu-step"></span><span class="mu-name"></span></div>
       <div class="mu-desc"></div>
     </div>
     <button class="mu-close" aria-label="닫기">✕</button>
     <div class="mu-toast"></div>
-    <div class="mu-hint">↑ 위로 쓸어 올리면 우주 밖으로 · 휠/핀치도 돼요</div>
+    <div class="mu-hint">드래그로 지구 돌리기 · 핀치·휠·슬라이더로 우주 밖까지</div>
     <div class="mu-bottom">
       <div class="mu-scale"></div>
       <div class="mu-controls">
@@ -401,7 +405,10 @@ export function mountUniverseExplorer(container, opts = {}) {
 
   const $ = (sel) => root.querySelector(sel);
   const canvas = $('.mu-canvas');
-  const ctx = canvas.getContext('2d');
+  const overlay = $('.mu-overlay');
+  const baseCtx = canvas.getContext('2d');
+  const octx = overlay.getContext('2d');
+  let ctx = baseCtx; // 지구보다 위에 그릴 것은 octx 로 바꿔서 그린다
   const ui = {
     step: $('.mu-step'), name: $('.mu-name'), desc: $('.mu-desc'), scale: $('.mu-scale'),
     slider: $('.mu-slider'), fill: $('.mu-progress-fill'), progText: $('.mu-progress span'),
@@ -409,7 +416,12 @@ export function mountUniverseExplorer(container, opts = {}) {
   };
 
   const world = buildWorld();
-  const earth = createEarthRenderer({ sdfUrl });
+  // 3D(WebGL2) 지구 — 안 되면 2D 지구로 자동 전환
+  let earth = null;
+  if (canUseWebGL()) {
+    try { earth = createEarthGL(root, { sdfUrl, before: overlay }); } catch (err) { console.warn('3D 지구 초기화 실패, 2D로 전환', err); }
+  }
+  if (!earth) earth = createEarthRenderer({ sdfUrl });
 
   // ── 내 위치 ──
   let destroyed = false;
@@ -455,7 +467,8 @@ export function mountUniverseExplorer(container, opts = {}) {
     const r = root.getBoundingClientRect();
     W = Math.max(1, r.width); H = Math.max(1, r.height);
     dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    canvas.width = overlay.width = Math.round(W * dpr);
+    canvas.height = overlay.height = Math.round(H * dpr);
   }
   const ro = new ResizeObserver(resize);
   ro.observe(root);
@@ -472,7 +485,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
     setTarget(targetS + d * 0.0018);
   };
-  canvas.addEventListener('wheel', onWheel, { passive: false });
+  overlay.addEventListener('wheel', onWheel, { passive: false });
 
   // ── 입력: 드래그(1손가락) / 핀치(2손가락) ──
   const pointers = new Map();
@@ -481,18 +494,29 @@ export function mountUniverseExplorer(container, opts = {}) {
     const [a, b] = [...pointers.values()];
     return Math.hypot(a.x - b.x, a.y - b.y);
   };
-  canvas.addEventListener('pointerdown', (e) => {
-    canvas.setPointerCapture(e.pointerId);
+  // 지구가 화면을 크게 차지할 때: 1손가락 드래그 = 지구 회전 (관성 포함)
+  let spin = { vx: 0, vy: 0 };
+  const earthRadiusPx = () => 6.371e6 / (Math.pow(10, s) / Math.min(W, H));
+  const canSpin = () => earth.gl && earthRadiusPx() > 40 && s < 9.6;
+  overlay.addEventListener('pointerdown', (e) => {
+    overlay.setPointerCapture(e.pointerId);
+    spin = { vx: 0, vy: 0 };
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.size === 2) lastPinch = pinchDist();
     markInteracted();
   });
-  canvas.addEventListener('pointermove', (e) => {
+  overlay.addEventListener('pointermove', (e) => {
     const p = pointers.get(e.pointerId);
     if (!p) return;
     if (pointers.size === 1) {
-      const dy = e.clientY - p.y;
-      setTarget(targetS - dy * 0.012); // 위로 끌면 멀어짐
+      const dx = e.clientX - p.x, dy = e.clientY - p.y;
+      if (canSpin()) {
+        const r = earthRadiusPx();
+        earth.rotateBy(dx / r, dy / r);
+        spin = { vx: dx / r, vy: dy / r };
+      } else {
+        setTarget(targetS - dy * 0.012); // 위로 끌면 멀어짐
+      }
     }
     p.x = e.clientX; p.y = e.clientY;
     if (pointers.size === 2) {
@@ -502,8 +526,8 @@ export function mountUniverseExplorer(container, opts = {}) {
     }
   });
   const endPointer = (e) => { pointers.delete(e.pointerId); lastPinch = pointers.size === 2 ? pinchDist() : 0; };
-  canvas.addEventListener('pointerup', endPointer);
-  canvas.addEventListener('pointercancel', endPointer);
+  overlay.addEventListener('pointerup', endPointer);
+  overlay.addEventListener('pointercancel', (e) => { endPointer(e); spin = { vx: 0, vy: 0 }; });
 
   // ── 입력: 버튼 길게 누르기 ──
   root.querySelectorAll('[data-zoom]').forEach((btn) => {
@@ -512,7 +536,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => btn.addEventListener(ev, () => { zoomVel = 0; }));
   });
   ui.slider.addEventListener('input', () => { markInteracted(); setTarget(parseFloat(ui.slider.value)); });
-  $('.mu-home').addEventListener('click', () => setTarget(S_START));
+  $('.mu-home').addEventListener('click', () => { setTarget(S_START); spin = { vx: 0, vy: 0 }; earth.setView(myLoc.lat, myLoc.lon); });
 
   // ── 키보드 ──
   const onKey = (e) => {
@@ -586,7 +610,12 @@ export function mountUniverseExplorer(container, opts = {}) {
       const hhmm = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
       locLine = ` 📍 ${myLoc.label}${myLoc.approx ? '(기본값)' : ''} ${fmtCoord(myLoc.lat, 'N', 'S')}, ${fmtCoord(myLoc.lon, 'E', 'W')} · ${hhmm} ${phase} (태양 고도 ${elev.toFixed(0)}°)`;
     }
-    setText('desc', ui.desc, idx === 0 ? lv.desc + locLine : lv.desc);
+    let extra = '';
+    if (lv.id === 'moon' && earth.gl && earth.moon) {
+      const m = earth.moon;
+      extra = ` 🌙 오늘은 ${m.phase} (밝기 ${Math.round(m.illum * 100)}%) · 지금 거리 ${Math.round(m.distKm).toLocaleString('ko-KR')}km`;
+    }
+    setText('desc', ui.desc, idx === 0 ? lv.desc + locLine : lv.desc + extra);
     const span = Math.pow(10, s);
     const sc = `화면 폭 ≈ <b>${fmtLength(span)}</b> · 빛으로 ${fmtLightTime(span)}`;
     if (hudCache.scale !== sc) { hudCache.scale = sc; ui.scale.innerHTML = sc; }
@@ -643,6 +672,10 @@ export function mountUniverseExplorer(container, opts = {}) {
 
   // ───────────── 렌더링 ─────────────
   function render(time) {
+    ctx = baseCtx;
+    octx.setTransform(1, 0, 0, 1, 0, 0);
+    octx.clearRect(0, 0, overlay.width, overlay.height);
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.globalAlpha = 1;
     ctx.fillStyle = '#03040a';
@@ -836,7 +869,7 @@ export function mountUniverseExplorer(container, opts = {}) {
 
     // ── 달 ──
     const aMoon = band(s, 6.0, 11.0);
-    if (aMoon > 0.02) {
+    if (aMoon > 0.02 && !earth.gl) {
       circle(0, 0, 3.844e8, aMoon * 0.35, '#8fa2d8');
       const mr = Math.max(1.5, 1.737e6 / mpp);
       ctx.globalAlpha = aMoon; ctx.fillStyle = '#c9c9c9';
@@ -846,12 +879,33 @@ export function mountUniverseExplorer(container, opts = {}) {
 
     // ── 지구 ──
     const er = 6.371e6 / mpp;
-    if (er >= 0.6) {
+    const moonVisible = earth.gl && aMoon > 0.02;
+    if (er >= 0.6 || moonVisible) {
       const X = sx(0), Y = sy(0);
-      if (onScreen(X, Y, er * 1.2)) {
+      if (onScreen(X, Y, er * 1.2) || moonVisible) {
         ctx.globalAlpha = 1;
+        if (earth.gl) {
+          // 3D: 대기광은 바닥 레이어에, 지구·달은 WebGL 레이어에, 라벨은 오버레이에
+          earth.draw(baseCtx, X, Y, er, time, dpr, W, H, false, { moonAlpha: aMoon * 0.35 });
+          ctx = octx;
+          if (er < 1.5) { ctx.globalAlpha = 1; ctx.fillStyle = '#5fa8ff'; ctx.beginPath(); ctx.arc(X, Y, 1.2, 0, Math.PI * 2); ctx.fill(); }
+          if (aMoon > 0.02) {
+            const m = earth.moonScreen(X, Y, er);
+            if (m.r < 1.5) { ctx.globalAlpha = aMoon; ctx.fillStyle = '#c9c9c9'; ctx.beginPath(); ctx.arc(m.x, m.y, 1.5, 0, Math.PI * 2); ctx.fill(); }
+            const la = aMoon * smooth(8.4, 8.8, s);
+            if (la > 0.05 && m.x > -60 && m.x < W + 60 && m.y > -30 && m.y < H + 30) {
+              ctx.globalAlpha = la;
+              ctx.font = '600 11px -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif';
+              ctx.textAlign = 'center';
+              ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.75)';
+              const ty = m.y - Math.max(10, m.r + 6);
+              ctx.strokeText('달', m.x, ty); ctx.fillStyle = '#e8ecff'; ctx.fillText('달', m.x, ty);
+            }
+          }
+        }
         if (er > 5) {
-          earth.draw(ctx, X, Y, er, time, dpr, W, H, Math.abs(targetS - s) > 0.003 || zoomVel !== 0);
+          if (!earth.gl) earth.draw(ctx, X, Y, er, time, dpr, W, H, Math.abs(targetS - s) > 0.003 || zoomVel !== 0);
+          ctx = octx;
           drawCities(X, Y, er);
           // 📍 내 위치 핀
           const p = earth.project(myLoc.lat, myLoc.lon, X, Y, er);
@@ -878,12 +932,14 @@ export function mountUniverseExplorer(container, opts = {}) {
               ctx.fillStyle = '#fff'; ctx.fillText(txt, lx, ly);
             }
           }
-        } else {
+        } else if (!earth.gl) {
           ctx.fillStyle = '#5fa8ff';
           ctx.beginPath(); ctx.arc(X, Y, Math.max(er, 1), 0, Math.PI * 2); ctx.fill();
         }
       }
     }
+    earth.endFrame?.();
+    ctx = octx; // 이후(여기 마커)는 지구 위에
 
     // ── "여기" 마커 ──
     const aHere = smooth(8.0, 8.8, s);
@@ -910,6 +966,10 @@ export function mountUniverseExplorer(container, opts = {}) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     if (zoomVel) setTarget(targetS + zoomVel * dt);
+    if (pointers.size === 0 && (Math.abs(spin.vx) + Math.abs(spin.vy)) > 1e-5 && canSpin()) {
+      earth.rotateBy(spin.vx, spin.vy);
+      spin.vx *= 0.93; spin.vy *= 0.93;
+    }
     s += (targetS - s) * Math.min(1, dt * 7);
     if (Math.abs(targetS - s) < 1e-4) s = targetS;
     checkDiscoveries();
@@ -925,6 +985,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     clearTimeout(toastTimer);
     ro.disconnect();
     window.removeEventListener('keydown', onKey);
+    earth.destroy?.();
     root.remove();
   }
 
