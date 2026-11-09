@@ -456,7 +456,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     </div>
     <button class="mu-close" aria-label="닫기">✕</button>
     <div class="mu-toast"></div>
-    <div class="mu-hint">드래그로 지구 돌리기 · 핀치·휠·슬라이더로 우주 밖까지</div>
+    <div class="mu-hint">드래그로 이동 · 핀치·휠로 가리킨 곳 확대 · 두 번 탭하면 그곳으로</div>
     <div class="mu-bottom">
       <div class="mu-focusbar" hidden>
         <button class="mu-back">← 태양계로</button>
@@ -580,10 +580,52 @@ export function mountUniverseExplorer(container, opts = {}) {
     if (!interacted) { interacted = true; ui.hint.style.opacity = '0'; }
   };
 
+  // ── 자유 카메라: 기본 경로(camAt) + 사용자 이동(pan) ──
+  let pan = [0, 0];
+  let panVel = [0, 0];
+  let anchor = null; // 가리킨 지점으로 확대: { mode:'pan'|'earth', x, y, wx, wy, R }
+  const mppAt = (sv) => Math.pow(10, sv) / Math.min(W, H);
+  function baseCam(sv) {
+    let [x, y] = camAt(sv);
+    if (focus) { const t = smooth(0, 1, focus.blend); x += (focus.pos[0] - x) * t; y += (focus.pos[1] - y) * t; }
+    return [x, y];
+  }
+  function getCam(sv) { const b = baseCam(sv); return [b[0] + pan[0], b[1] + pan[1]]; }
+  function setAnchor(x, y) {
+    const er = earthRadiusPx();
+    if (canSpin()) {
+      const [cxw, cyw] = getCam(s), m = mppAt(s);
+      const ex = W / 2 - cxw / m, ey = H / 2 + cyw / m; // 지구 중심 화면 위치
+      anchor = { mode: 'earth', dx: x - ex, dy: y - ey, R: er };
+    } else {
+      const [cxw, cyw] = getCam(s), m = mppAt(s);
+      anchor = { mode: 'pan', x, y, wx: cxw + (x - W / 2) * m, wy: cyw - (y - H / 2) * m };
+    }
+    panVel = [0, 0];
+  }
+  function applyAnchor() {
+    if (!anchor) return;
+    if (anchor.mode === 'pan') {
+      const m = mppAt(s), b = baseCam(s);
+      pan = [anchor.wx - (anchor.x - W / 2) * m - b[0], anchor.wy + (anchor.y - H / 2) * m - b[1]];
+    } else if (earth.gl) {
+      // 가리킨 지점이 손가락 아래에 머물도록 지구를 돌림
+      const R2 = earthRadiusPx();
+      if (R2 > 1 && anchor.R > 1) {
+        const k = 1 / anchor.R - 1 / R2;
+        earth.rotateBy(-anchor.dx * k, -anchor.dy * k);
+        anchor.R = R2;
+      }
+    }
+    if (Math.abs(targetS - s) < 0.002 && pointers.size < 2) anchor = null;
+  }
+
   // ── 입력: 휠 ──
   const onWheel = (e) => {
     e.preventDefault(); markInteracted();
     const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    const r = root.getBoundingClientRect();
+    setAnchor(e.clientX - r.left, e.clientY - r.top);
     setTarget(targetS + d * 0.0018);
   };
   overlay.addEventListener('wheel', onWheel, { passive: false });
@@ -611,6 +653,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     const reach = ms.length ? Math.max(...ms.map((m) => m[1])) * 1000 : info.radiusKm * 1000 * 12;
     const sView = Math.log10(reach * 2 * 1.35);
     simAnchor = { real: performance.now(), sim: Date.now() };
+    pan = [0, 0]; panVel = [0, 0]; anchor = null;
     focus = { kind: 'planet', name, pos: p.pos, rKm: info.radiusKm, sView, blend: focus ? focus.blend : 0, on: true, returnS: s };
     setTarget(sView);
     if (speedIdx > 2) setSpeedIdx(1);
@@ -639,6 +682,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     const sView = Math.log10(reach * 2 * 1.3);
     simAnchor = { real: performance.now(), sim: Date.now() };
     const returnS = focus && focus.on ? focus.returnS : s;
+    pan = [0, 0]; panVel = [0, 0]; anchor = null;
     focus = { kind: 'star', sys, name: sys.name, pos: ws.pos, sView, blend: focus ? focus.blend : 0, on: true, returnS,
       toEarth: Math.atan2(SUN[1] - ws.pos[1], SUN[0] - ws.pos[0]) };
     setTarget(sView);
@@ -649,6 +693,8 @@ export function mountUniverseExplorer(container, opts = {}) {
   function exitFocus() {
     if (!focus) return;
     focus.on = false;
+    // 돌아갈 때 카메라가 튀지 않도록 지금 위치를 pan 으로 넘김
+    { const cur = getCam(s); pan = [0, 0]; const b = baseCam(s); pan = [cur[0] - b[0], cur[1] - b[1]]; anchor = null; }
     setTarget(focus.returnS || (focus.kind === 'star' ? 17.6 : 12.4));
     ui.focusbar.hidden = true;
   }
@@ -677,19 +723,30 @@ export function mountUniverseExplorer(container, opts = {}) {
     } else if (best && best.sys) enterSystem(best.sys);
     else if (best && best.cat !== undefined) enterCatalog(best.cat);
     else if (best) enterFocus(best.name);
+    else {
+      // 빈 곳 두 번 탭 → 그 지점으로 한 단계 확대
+      const now = performance.now();
+      if (lastTap && now - lastTap.t < 350 && Math.hypot(lastTap.x - x, lastTap.y - y) < 30) {
+        setAnchor(x, y);
+        setTarget(targetS - 0.8);
+        lastTap = null;
+      } else lastTap = { x, y, t: now };
+    }
   }
+  let lastTap = null;
   let tapStart = null;
 
   // 지구가 화면을 크게 차지할 때: 1손가락 드래그 = 지구 회전 (관성 포함)
   let spin = { vx: 0, vy: 0 };
   const earthRadiusPx = () => 6.371e6 / (Math.pow(10, s) / Math.min(W, H));
-  const canSpin = () => earth.gl && !focus && earthRadiusPx() > 40 && s < 9.6;
+  const canSpin = () => earth.gl && !focus && earthRadiusPx() > 40 && s < 9.6 && Math.hypot(pan[0], pan[1]) < mppAt(s) * Math.min(W, H) * 0.4;
   overlay.addEventListener('pointerdown', (e) => {
     overlay.setPointerCapture(e.pointerId);
     spin = { vx: 0, vy: 0 };
     tapStart = pointers.size === 0 ? { x: e.clientX, y: e.clientY, t: performance.now() } : null;
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointers.size === 2) lastPinch = pinchDist();
+    panVel = [0, 0];
+    if (pointers.size === 2) { lastPinch = pinchDist(); anchor = null; }
     markInteracted();
   });
   overlay.addEventListener('pointermove', (e) => {
@@ -702,13 +759,22 @@ export function mountUniverseExplorer(container, opts = {}) {
         earth.rotateBy(dx / r, dy / r);
         spin = { vx: dx / r, vy: dy / r };
       } else {
-        setTarget(targetS - dy * 0.012); // 위로 끌면 멀어짐
+        // 드래그 = 이동 (손가락을 따라 우주가 움직임)
+        const m = mppAt(s);
+        pan = [pan[0] - dx * m, pan[1] + dy * m];
+        panVel = [-dx * m, dy * m];
+        anchor = null;
       }
     }
     p.x = e.clientX; p.y = e.clientY;
     if (pointers.size === 2) {
       const d = pinchDist();
-      if (lastPinch > 0 && d > 0) setTarget(targetS - Math.log10(d / lastPinch) * 2.2);
+      if (lastPinch > 0 && d > 0) {
+        const [a, b] = [...pointers.values()];
+        const r = root.getBoundingClientRect();
+        if (!anchor) setAnchor((a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top);
+        setTarget(targetS - Math.log10(d / lastPinch) * 2.2);
+      }
       lastPinch = d;
     }
   });
@@ -731,7 +797,11 @@ export function mountUniverseExplorer(container, opts = {}) {
     ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => btn.addEventListener(ev, () => { zoomVel = 0; }));
   });
   ui.slider.addEventListener('input', () => { markInteracted(); setTarget(parseFloat(ui.slider.value)); });
-  $('.mu-home').addEventListener('click', () => { setTarget(S_START); spin = { vx: 0, vy: 0 }; earth.setView(myLoc.lat, myLoc.lon); });
+  $('.mu-home').addEventListener('click', () => {
+    setTarget(S_START); spin = { vx: 0, vy: 0 }; earth.setView(myLoc.lat, myLoc.lon);
+    pan = [0, 0]; panVel = [0, 0]; anchor = null;
+    if (focus) exitFocus();
+  });
 
   // ── 키보드 ──
   const onKey = (e) => {
@@ -908,8 +978,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   // 외계 행성계 카탈로그 점 찍기 (+ 탭 대상 등록)
   function drawCatalog(alpha, tappable, tint) {
     const mppNow = Math.pow(10, s) / Math.min(W, H);
-    let [cx0, cy0] = camAt(s);
-    if (focus) { const t = smooth(0, 1, focus.blend); cx0 += (focus.pos[0] - cx0) * t; cy0 += (focus.pos[1] - cy0) * t; }
+    const [cx0, cy0] = getCam(s);
     const hw = W / 2, hh = H / 2;
     ctx.globalAlpha = alpha;
     for (const [col, idx] of catalog.groups) {
@@ -935,11 +1004,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     ctx.fillRect(0, 0, W, H);
 
     const mpp = Math.pow(10, s) / Math.min(W, H);
-    let [camX, camY] = camAt(s);
-    if (focus) {
-      const t = smooth(0, 1, focus.blend);
-      camX += (focus.pos[0] - camX) * t; camY += (focus.pos[1] - camY) * t;
-    }
+    const [camX, camY] = getCam(s);
     lastPlanetScreen.length = 0;
     lastMoonScreen.length = 0;
     const cx = W / 2, cy = H / 2;
@@ -1447,6 +1512,18 @@ export function mountUniverseExplorer(container, opts = {}) {
       spin.vx *= 0.93; spin.vy *= 0.93;
     }
     s += (targetS - s) * Math.min(1, dt * 7);
+    applyAnchor();
+    if (pointers.size === 0 && !anchor && (Math.abs(panVel[0]) + Math.abs(panVel[1])) > 0) {
+      pan = [pan[0] + panVel[0], pan[1] + panVel[1]];
+      panVel = [panVel[0] * 0.9, panVel[1] * 0.9];
+      if (Math.hypot(...panVel) < mppAt(s) * 0.05) panVel = [0, 0];
+    }
+    // 지구 근처로 들어오면(가리킨 확대가 아닐 때) 이동한 것을 서서히 되돌려 지구를 화면 중앙에
+    if (!anchor && pointers.size === 0 && targetS < 9.3 && !focus && (pan[0] || pan[1])) {
+      const k = Math.min(1, dt * 3);
+      pan = [pan[0] * (1 - k), pan[1] * (1 - k)];
+      if (Math.hypot(...pan) < mppAt(s) * 0.5) pan = [0, 0];
+    }
     if (focus) {
       focus.blend += ((focus.on ? 1 : 0) - focus.blend) * Math.min(1, dt * 3);
       if (focus.on && targetS > focus.sView + 2.6) exitFocus(); // 충분히 멀어지면 자동 해제
