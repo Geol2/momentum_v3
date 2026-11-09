@@ -16,6 +16,7 @@ import sdfUrl from './earth-sdf.webp';
 import { createEarthGL, canUseWebGL } from './earth-gl.js';
 import { planetPositions, orbitPoints, earthSeason, PERIOD_DAYS } from './planets.js';
 import { MOONS, PLANET_INFO, moonStates } from './moons.js';
+import { SYSTEMS, exoStates, eqToEcl } from './exoplanets.js';
 import dayUrl from './earth-day.webp';
 import reliefUrl from './earth-relief.webp';
 
@@ -142,10 +143,17 @@ function buildWorld(seed = 20261109) {
   }
 
   // 이웃 별
+  // 실제 하늘 위치(적경·적위)·거리 → 황도면 투영 (태양 기준)
+  const skyPos = (raDeg, decDeg, ly) => {
+    const { lam, beta } = eqToEcl(raDeg, decDeg);
+    const d = ly * LY * Math.cos(beta);
+    return [SUN[0] + d * Math.cos(lam), SUN[1] + d * Math.sin(lam)];
+  };
   const namedStars = [
-    ['프록시마 센타우리', 4.24, 0.9, '#ff9d6e'], ['바너드 별', 5.96, 1.9, '#ff8a5c'],
-    ['시리우스', 8.6, -1.1, '#cfe3ff'], ['베가', 25, 1.9, '#d9e8ff'], ['아크투루스', 36.7, -2.4, '#ffc58a'],
-  ].map(([name, d, a, color]) => ({ name, color, pos: P(d * LY, a, SUN) }));
+    ['바너드 별', 269.452, 4.693, 5.96, '#ff8a5c'], ['시리우스', 101.287, -16.716, 8.6, '#cfe3ff'],
+    ['베가', 279.235, 38.784, 25, '#d9e8ff'], ['아크투루스', 213.915, 19.182, 36.7, '#ffc58a'],
+  ].map(([name, ra, dec, ly, color]) => ({ name, color, pos: skyPos(ra, dec, ly) }));
+  const systems = SYSTEMS.map((sys) => ({ sys, pos: skyPos(sys.ra, sys.dec, sys.distLy) }));
   const stars = new Cloud();
   const starColors = ['rgba(255,244,230,0.9)', 'rgba(200,220,255,0.9)', 'rgba(255,200,150,0.85)', 'rgba(255,170,130,0.8)'];
   for (let i = 0; i < 380; i++) {
@@ -284,7 +292,7 @@ function buildWorld(seed = 20261109) {
   const continents = [];
   for (let i = 0; i < 9; i++) continents.push([gauss() * 0.45, gauss() * 0.45, 0.12 + rnd() * 0.22, 0.08 + rnd() * 0.16, rnd() * Math.PI]);
 
-  return { planets, oort, namedStars, stars, galaxy, lgGalaxies, dwarfs, virgo, laniBoundary, lani, flows, web, bg, continents };
+  return { planets, oort, namedStars, systems, stars, galaxy, lgGalaxies, dwarfs, virgo, laniBoundary, lani, flows, web, bg, continents };
 }
 
 // ───────────────────────── 포맷 ─────────────────────────
@@ -514,7 +522,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     return Math.hypot(a.x - b.x, a.y - b.y);
   };
   // ── 행성 포커스(위성 보기) ──
-  const SPEEDS = [[1, '실시간'], [3600, '1초=1시간'], [86400, '1초=1일']];
+  const SPEEDS = [[1, '실시간'], [3600, '1초=1시간'], [86400, '1초=1일'], [86400 * 365.25, '1초=1년']];
   let speedIdx = 1;
   let simAnchor = { real: performance.now(), sim: Date.now() };
   const simDate = () => new Date(simAnchor.sim + (performance.now() - simAnchor.real) * SPEEDS[speedIdx][0]);
@@ -529,28 +537,47 @@ export function mountUniverseExplorer(container, opts = {}) {
     const reach = ms.length ? Math.max(...ms.map((m) => m[1])) * 1000 : info.radiusKm * 1000 * 12;
     const sView = Math.log10(reach * 2 * 1.35);
     simAnchor = { real: performance.now(), sim: Date.now() };
-    focus = { name, pos: p.pos, rKm: info.radiusKm, sView, blend: focus ? focus.blend : 0, on: true };
+    focus = { kind: 'planet', name, pos: p.pos, rKm: info.radiusKm, sView, blend: focus ? focus.blend : 0, on: true };
     setTarget(sView);
+    if (speedIdx > 2) setSpeedIdx(1);
+    $('.mu-back').textContent = '← 태양계로';
+    ui.focusbar.hidden = false;
+  }
+  function setSpeedIdx(i) {
+    simAnchor = { real: performance.now(), sim: simDate().getTime() };
+    speedIdx = i;
+    ui.speed.textContent = `⏱ ${SPEEDS[speedIdx][1]}`;
+  }
+  // 외계 행성계로 이동
+  function enterSystem(id) {
+    const ws = world.systems.find((q) => q.sys.id === id);
+    if (!ws) return;
+    const { sys } = ws;
+    const reach = (sys.view || Math.max(...sys.planets.map((p) => p.au))) * 1.496e11; // 행성계마다 보기 좋은 반경(AU)
+    const sView = Math.log10(reach * 2 * 1.3);
+    simAnchor = { real: performance.now(), sim: Date.now() };
+    focus = { kind: 'star', sys, name: sys.name, pos: ws.pos, sView, blend: focus ? focus.blend : 0, on: true };
+    setTarget(sView);
+    setSpeedIdx(Math.max(0, SPEEDS.findIndex(([k]) => k === sys.speed)));
+    $('.mu-back').textContent = '← 이웃 별들로';
     ui.focusbar.hidden = false;
   }
   function exitFocus() {
     if (!focus) return;
     focus.on = false;
-    setTarget(12.4);
+    setTarget(focus.kind === 'star' ? 17.6 : 12.4);
     ui.focusbar.hidden = true;
   }
   $('.mu-back').addEventListener('click', exitFocus);
-  ui.speed.addEventListener('click', () => {
-    simAnchor = { real: performance.now(), sim: simDate().getTime() };
-    speedIdx = (speedIdx + 1) % SPEEDS.length;
-    ui.speed.textContent = `⏱ ${SPEEDS[speedIdx][1]}`;
-  });
+  ui.speed.addEventListener('click', () => setSpeedIdx((speedIdx + 1) % SPEEDS.length));
+  const fmtPeriod = (d) => (d < 2 ? `${(d * 24).toFixed(1)}시간` : d < 1000 ? `${d.toFixed(1)}일` : `${Math.round(d / 365.25)}년`);
   function handleTap(x, y) {
     if (focus && focus.on) {
       const hit = lastMoonScreen.find((m) => Math.hypot(m.x - x, m.y - y) < 22);
-      if (hit) {
-        const per = hit.periodDays < 2 ? `${(hit.periodDays * 24).toFixed(1)}시간` : `${hit.periodDays.toFixed(1)}일`;
-        toast(`${hit.name} · ${focus.name}에서 ${fmtKo(hit.distKm)} km · 공전 ${per}${hit.retro ? ' (역행)' : ''}`);
+      if (hit && focus.kind === 'star') {
+        toast(`${hit.name} · 별에서 ${hit.au} AU · 공전 ${fmtPeriod(hit.periodDays)} · 지구 크기의 ${hit.re}배${hit.note ? ' · ' + hit.note : ''}`);
+      } else if (hit) {
+        toast(`${hit.name} · ${focus.name}에서 ${fmtKo(hit.distKm)} km · 공전 ${fmtPeriod(hit.periodDays)}${hit.retro ? ' (역행)' : ''}`);
       }
       return;
     }
@@ -559,7 +586,8 @@ export function mountUniverseExplorer(container, opts = {}) {
       const d = Math.hypot(p.x - x, p.y - y);
       if (d < 30 && (!best || d < best.d)) best = { ...p, d };
     }
-    if (best) enterFocus(best.name);
+    if (best && best.sys) enterSystem(best.sys);
+    else if (best) enterFocus(best.name);
   }
   let tapStart = null;
 
@@ -700,7 +728,16 @@ export function mountUniverseExplorer(container, opts = {}) {
       extra = ` 🌙 오늘은 ${m.phase} (밝기 ${Math.round(m.illum * 100)}%) · 지금 거리 ${Math.round(m.distKm).toLocaleString('ko-KR')}km`;
     }
     if (lv.id === 'solar') extra += ' · 👆 행성을 탭하면 위성이 보여요';
-    if (focus && focus.on) {
+    if (lv.id === 'stars') extra += ' · ✨ 표시된 별을 탭하면 그 행성계로 날아가요';
+    if (focus && focus.on && focus.kind === 'star') {
+      const sys = focus.sys;
+      const sd = simDate();
+      const when = sd.toLocaleString('ko-KR', { year: speedIdx === 3 ? 'numeric' : undefined, month: 'numeric', day: 'numeric', hour: speedIdx === 3 ? undefined : '2-digit', minute: speedIdx === 3 ? undefined : '2-digit', hour12: false });
+      const dist = sys.distLy < 1000 ? `${sys.distLy}광년` : `약 ${fmtKo(sys.distLy)}광년`;
+      setText('step', ui.step, '✨');
+      setText('name', ui.name, `${sys.name} 행성계`);
+      setText('desc', ui.desc, `${dist} · ${sys.star.type}. ${sys.desc} (궤도 거리·주기·크기는 실제, 궤도 위 위치는 근사) · 📅 ${when} (${SPEEDS[speedIdx][1]}) · 행성을 탭하면 정보가 나와요`);
+    } else if (focus && focus.on) {
       const info = PLANET_INFO[focus.name];
       const ms = MOONS[focus.name];
       const exactNote = focus.name === '목성' ? '' : ms ? ' (위성 거리·주기는 실제, 위치는 근사)' : '';
@@ -939,6 +976,26 @@ export function mountUniverseExplorer(container, opts = {}) {
         glow(st.pos[0], st.pos[1], 7, aStars, '255,240,220');
         label(st.name, st.pos[0], st.pos[1], aStars, { dy: -10, color: st.color, size: 11 });
       }
+      // 외계 행성계 (탭하면 이동)
+      const aSys = aStars * (focus ? 1 - focus.blend : 1);
+      const placed = []; // 라벨 겹침 방지(위로 쌓기)
+      for (const { sys, pos } of world.systems) {
+        const X = sx(pos[0]), Y = sy(pos[1]);
+        if (!onScreen(X, Y, 20) || aSys < 0.02) continue;
+        glow(pos[0], pos[1], 9, aSys, sys.star.color);
+        const pulse = 7 + 2 * Math.sin(time * 2.4 + sys.distLy);
+        ctx.globalAlpha = aSys * 0.8; ctx.strokeStyle = '#7ee0c3'; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.arc(X, Y, pulse, 0, Math.PI * 2); ctx.stroke();
+        let dy = -13;
+        while (placed.some((q) => Math.abs(q.x - X) < 110 && Math.abs(q.y - (Y + dy)) < 14)) dy -= 14;
+        placed.push({ x: X, y: Y + dy });
+        if (dy < -13) { // 쌓인 라벨은 가는 선으로 별과 연결
+          ctx.globalAlpha = aSys * 0.5; ctx.strokeStyle = '#7ee0c3'; ctx.lineWidth = 0.8;
+          ctx.beginPath(); ctx.moveTo(X, Y - 8); ctx.lineTo(X, Y + dy + 4); ctx.stroke();
+        }
+        label(`✨ ${sys.name} 행성계`, pos[0], pos[1], aSys, { dy, color: '#9ff0d6', size: 11 });
+        if (aSys > 0.3) lastPlanetScreen.push({ name: sys.name, sys: sys.id, x: X, y: Y });
+      }
     }
 
     // ── 오르트 구름 / 태양권 ──
@@ -985,8 +1042,69 @@ export function mountUniverseExplorer(container, opts = {}) {
       }
     }
 
+    // ── 외계 행성계 포커스: 별 + 생명 가능 지대 + 행성 공전 ──
+    if (focus && focus.kind === 'star' && focus.blend > 0.02) {
+      const fa = focus.blend, sys = focus.sys;
+      const X = sx(focus.pos[0]), Y = sy(focus.pos[1]);
+      const AUpx = 1.495978707e11 / mpp;
+      // 생명 가능 지대
+      const h0 = sys.hz[0] * AUpx, h1 = sys.hz[1] * AUpx;
+      if (h1 > 3) {
+        ctx.globalAlpha = fa * 0.16; ctx.fillStyle = '#4fd1a5';
+        ctx.beginPath(); ctx.arc(X, Y, h1, 0, Math.PI * 2); ctx.arc(X, Y, h0, 0, Math.PI * 2, true); ctx.fill();
+        if (h1 > 40) label('생명 가능 지대', focus.pos[0], focus.pos[1] - ((sys.hz[0] + sys.hz[1]) / 2) * 1.495978707e11, fa * 0.9, { dy: 4, color: '#7ee0c3', size: 10 });
+      }
+      // 비교용: 우리 태양계 궤도
+      const cr = sys.compare.au * AUpx;
+      if (cr > 6 && cr < 4 * Math.max(W, H)) {
+        ctx.globalAlpha = fa * 0.5; ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 1; ctx.setLineDash([4, 5]);
+        ctx.beginPath(); ctx.arc(X, Y, cr, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+        const ly = Y + cr * 0.71, lx = X - cr * 0.71;
+        if (lx > 4 && ly < H - 160) {
+          ctx.globalAlpha = fa * 0.85; ctx.font = '600 10px -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif';
+          ctx.textAlign = 'right'; ctx.fillStyle = '#ffd166'; ctx.fillText(sys.compare.label, lx - 4, ly + 12);
+        }
+      }
+      const planets = exoStates(sys, simDate());
+      for (const p of planets) {
+        const orr = p.au * AUpx;
+        if (orr < 3 || orr > 3e5) continue;
+        ctx.globalAlpha = fa * 0.3; ctx.strokeStyle = '#9fb0e0'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(X, Y, orr, 0, Math.PI * 2); ctx.stroke();
+      }
+      // 별
+      const starR = Math.max(8, (sys.star.radiusSun * 6.957e8) / mpp);
+      glow(focus.pos[0], focus.pos[1], starR * 3.5, fa, sys.star.color);
+      ctx.globalAlpha = fa; ctx.fillStyle = `rgb(${sys.star.color})`;
+      ctx.beginPath(); ctx.arc(X, Y, starR, 0, Math.PI * 2); ctx.fill();
+      label(sys.name, focus.pos[0], focus.pos[1], fa, { dy: -starR - 12, size: 13, color: '#fff2c8' });
+      // 행성
+      ctx.font = '600 11px -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif';
+      ctx.textAlign = 'left';
+      for (const p of planets) {
+        const orr = p.au * AUpx;
+        if (orr < starR + 2) continue;
+        const mx = X + orr * Math.cos(p.angle), my = Y - orr * Math.sin(p.angle);
+        if (mx < -30 || mx > W + 30 || my < -30 || my > H + 30) continue;
+        const pr = Math.max(p.re > 4 ? 4.5 : 3, (p.radiusKm * 1000) / mpp);
+        const ux = -Math.cos(p.angle), uy = Math.sin(p.angle); // 별 쪽
+        ctx.globalAlpha = fa;
+        const g2 = ctx.createRadialGradient(mx + ux * pr * 0.45, my + uy * pr * 0.45, 0, mx, my, pr);
+        g2.addColorStop(0, '#ffffff'); g2.addColorStop(0.3, p.color); g2.addColorStop(1, 'rgba(14,14,26,1)');
+        ctx.fillStyle = g2;
+        ctx.beginPath(); ctx.arc(mx, my, pr, 0, Math.PI * 2); ctx.fill();
+        lastMoonScreen.push({ ...p, x: mx, y: my });
+        if (orr > 16) {
+          ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)';
+          ctx.strokeText(p.short, mx + pr + 4, my + 4);
+          ctx.fillStyle = p.color === '#6fc3a8' ? '#9ff0d6' : '#dfe6ff';
+          ctx.fillText(p.short, mx + pr + 4, my + 4);
+        }
+      }
+    }
+
     // ── 행성 포커스: 행성 + 위성 공전 ──
-    if (focus && focus.blend > 0.02) {
+    if (focus && focus.kind !== 'star' && focus.blend > 0.02) {
       const fa = focus.blend;
       const pl = world.planets.find((q) => q.name === focus.name);
       const X = sx(focus.pos[0]), Y = sy(focus.pos[1]);
@@ -1184,6 +1302,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     zoomTo: (v) => setTarget(v),
     /** 테스트/디버그용: 행성 포커스 */
     focusPlanet: (name) => enterFocus(name),
+    focusSystem: (id) => enterSystem(id),
     get scale() { return s; },
   };
 }
