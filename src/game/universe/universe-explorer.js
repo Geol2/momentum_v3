@@ -14,6 +14,7 @@
 import { createEarthRenderer, solarElevation } from './earth.js';
 import sdfUrl from './earth-sdf.webp';
 import { createEarthGL, canUseWebGL } from './earth-gl.js';
+import { planetPositions, orbitPoints, earthSeason, PERIOD_DAYS } from './planets.js';
 import dayUrl from './earth-day.webp';
 import reliefUrl from './earth-relief.webp';
 
@@ -51,7 +52,10 @@ function mulberry32(a) {
 }
 
 // ───────────────────────── 월드 기준점 (지구 = 원점) ─────────────────────────
-const SUN = [-AU, 0];
+// 오늘 날짜의 실제 행성 배치 (지구 = 원점, 황도면을 위에서 내려다봄: x = 춘분점 방향)
+const TODAY = new Date();
+const PLANET_POS = planetPositions(TODAY);
+const SUN = [-PLANET_POS.지구.pos[0] * AU, -PLANET_POS.지구.pos[1] * AU];
 const MOON = P(3.844e8, 0.6);
 const GC = [-26000 * LY, 0];                // 우리은하 중심
 const ANDROMEDA = P(2.5 * MLY, 2.2);
@@ -123,8 +127,9 @@ function buildWorld(seed = 20261109) {
     ['목성', 5.2, 6.99e7, '#d8b48a'], ['토성', 9.58, 5.82e7, '#e5d29f'],
     ['천왕성', 19.2, 2.54e7, '#9fd8e0'], ['해왕성', 30.05, 2.46e7, '#5b7fe0'],
   ].map(([name, a, r, color]) => {
-    const ang = name === '지구' ? 0 : rnd() * Math.PI * 2;
-    return { name, orbit: a * AU, r, color, pos: P(a * AU, ang, SUN) };
+    const hp = PLANET_POS[name].pos;
+    const orbitPath = orbitPoints(name, TODAY).map(([x, y]) => [SUN[0] + x * AU, SUN[1] + y * AU]);
+    return { name, orbit: a * AU, r, color, pos: [SUN[0] + hp[0] * AU, SUN[1] + hp[1] * AU], orbitPath };
   });
 
   // 오르트 구름
@@ -340,7 +345,7 @@ const CSS = `
 .mu-progress{position:relative;max-width:560px;margin:10px auto 0;height:18px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
 .mu-progress-fill{position:absolute;inset:0 auto 0 0;width:0;background:linear-gradient(90deg,#6a5cff,#ffd166);transition:width .5s}
 .mu-progress span{position:absolute;inset:0;font-size:11px;line-height:18px;text-align:center;color:#fff;font-weight:600}
-.mu-toast{position:absolute;left:50%;top:96px;transform:translate(-50%,-10px);opacity:0;transition:all .35s;
+.mu-toast{position:absolute;left:50%;bottom:calc(150px + env(safe-area-inset-bottom));transform:translate(-50%,10px);opacity:0;transition:all .35s;
   padding:8px 14px;border-radius:99px;background:rgba(255,209,102,.95);color:#1b1500;font-size:13px;font-weight:700;
   white-space:nowrap;pointer-events:none;box-shadow:0 6px 24px rgba(255,209,102,.35)}
 .mu-toast.show{opacity:1;transform:translate(-50%,0)}
@@ -421,6 +426,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   };
 
   const world = buildWorld();
+  const seasonInfo = earthSeason(TODAY);
   // 3D(WebGL2) 지구 — 안 되면 2D 지구로 자동 전환
   let earth = null;
   if (canUseWebGL()) {
@@ -569,6 +575,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   // ── 발견 처리 ──
   let toastTimer = 0;
   function toast(msg) {
+    ui.hint.style.opacity = '0';
     ui.toast.textContent = msg;
     ui.toast.classList.add('show');
     clearTimeout(toastTimer);
@@ -618,6 +625,11 @@ export function mountUniverseExplorer(container, opts = {}) {
     const showCredit = !!earth.detailActive;
     if (hudCache.credit !== showCredit) { hudCache.credit = showCredit; ui.credit.hidden = !showCredit; }
     let extra = '';
+    if (lv.id === 'solar' && seasonInfo) {
+      const si = seasonInfo;
+      const dateTxt = `${TODAY.getMonth() + 1}월 ${TODAY.getDate()}일`;
+      extra = ` 🪐 행성 배치는 오늘(${dateTxt}) 실제 위치 · 🌍 지구는 태양에서 ${fmtKo(si.distKm)} km, 초속 ${si.speedKms.toFixed(1)}km로 공전 중 · 북반구 ${si.season} · ${si.next.label}까지 ${si.next.days}일, 근일점까지 ${si.toPeri}일`;
+    }
     if (lv.id === 'moon' && earth.gl && earth.moon) {
       const m = earth.moon;
       extra = ` 🌙 오늘은 ${m.phase} (밝기 ${Math.round(m.illum * 100)}%) · 지금 거리 ${Math.round(m.distKm).toLocaleString('ko-KR')}km`;
@@ -855,7 +867,16 @@ export function mountUniverseExplorer(container, opts = {}) {
     // ── 태양계 ──
     const aSol = band(s, 10.3, 15.6);
     if (aSol > 0.02) {
-      for (const p of world.planets) circle(SUN[0], SUN[1], p.orbit, aSol * 0.3, '#8fa2d8');
+      // 실제 궤도(타원) — 지구 궤도는 조금 더 밝게
+      for (const p of world.planets) {
+        const op = p.orbit / mpp;
+        if (op < 3 || op > 2e5) continue;
+        ctx.globalAlpha = aSol * (p.name === '지구' ? 0.55 : 0.3);
+        ctx.strokeStyle = p.name === '지구' ? '#7fb6ff' : '#8fa2d8'; ctx.lineWidth = 1;
+        ctx.beginPath();
+        p.orbitPath.forEach(([x, y], i) => (i ? ctx.lineTo(sx(x), sy(y)) : ctx.moveTo(sx(x), sy(y))));
+        ctx.stroke();
+      }
       const sunR = 6.96e8 / mpp;
       glow(SUN[0], SUN[1], Math.max(sunR * 4, 14), aSol, '255,200,90');
       if (sunR > 1) {
@@ -870,7 +891,11 @@ export function mountUniverseExplorer(container, opts = {}) {
         const rPx = Math.max(2, p.r / mpp);
         ctx.globalAlpha = aSol; ctx.fillStyle = p.color;
         ctx.beginPath(); ctx.arc(sx(p.pos[0]), sy(p.pos[1]), rPx, 0, Math.PI * 2); ctx.fill();
-        if (orbitPx > 28) label(p.name, p.pos[0], p.pos[1], aSol, { dy: -Math.max(9, rPx + 6), size: 11, color: '#cfd6f5' });
+        if (orbitPx > 28) {
+          const d = PERIOD_DAYS[p.name];
+          const per = d < 1000 ? `${Math.round(d)}일` : `${(d / 365.25).toFixed(1)}년`;
+          label(orbitPx > 70 ? `${p.name} · 공전 ${per}` : p.name, p.pos[0], p.pos[1], aSol, { dy: -Math.max(9, rPx + 6), size: 11, color: '#cfd6f5' });
+        }
       }
     }
 
