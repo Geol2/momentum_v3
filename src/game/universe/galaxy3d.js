@@ -211,6 +211,7 @@ const CSS3D = `
   font-size:10.5px;letter-spacing:.04em;cursor:pointer;text-shadow:var(--glow);padding:7px 10px;
   clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);box-shadow:inset 0 0 10px rgba(61,255,143,.2)}
 .g3-bar button.on{background:rgba(61,255,143,.28);color:#eafff2}
+.g3-vbar{top:56px;bottom:auto;left:auto;right:8px;flex-direction:column;align-items:flex-end;padding:0;background:none}
 .g3-close{position:absolute;top:10px;right:10px;width:38px;height:38px;padding:0;z-index:4;font-size:11px}
 .g3-info{position:absolute;z-index:4;pointer-events:none;padding:7px 10px 8px;max-width:min(320px,calc(100% - 24px));
   background:rgba(1,18,9,.92);border:1px solid rgba(61,255,143,.8);box-shadow:0 0 10px rgba(61,255,143,.5);
@@ -249,7 +250,7 @@ export function openGalaxy3D(host, opts = {}) {
     <button class="g3-close" aria-label="3D 보기 닫기">✕</button>
     <div class="g3-ring"></div><div class="g3-info"><b></b><span></span><span></span><img alt="" style="display:none;width:100%;max-height:170px;object-fit:cover;margin-top:5px;border:1px solid rgba(61,255,143,.35)"></div>
     <div class="g3-scale"></div>
-    <div class="g3-bar"></div>`;
+    <div class="g3-bar"></div><div class="g3-bar g3-vbar"><button data-v="gal" class="on">은하</button><button data-v="gas" class="on">X선 가스</button><button data-v="dm">암흑물질</button></div>`;
   host.appendChild(root);
   const $ = (q) => root.querySelector(q);
 
@@ -333,7 +334,7 @@ export function openGalaxy3D(host, opts = {}) {
 
   // ── 실제 천체 점 ──
   const picks = []; // { pos:Vector3, title, l2, l3, min, max }
-  const addPick = (pos, title, l2, l3, min = 0, max = Infinity, bh = null) => picks.push({ pos: new THREE.Vector3(...pos), title, l2, l3, min, max, bh });
+  const addPick = (pos, title, l2, l3, min = 0, max = Infinity, bh = null, when = null) => picks.push({ pos: new THREE.Vector3(...pos), title, l2, l3, min, max, bh, when });
   if (sky) {
     const buf = new PointBuf();
     sky.rows.forEach((r, i) => {
@@ -401,11 +402,11 @@ export function openGalaxy3D(host, opts = {}) {
   // ── 라벨 ──
   const labLayer = $('.g3-labels');
   const labels = [];
-  const addLabel = (pos, text, color, min, max, prio = 1, big = false) => {
+  const addLabel = (pos, text, color, min, max, prio = 1, big = false, when = null) => {
     const el = document.createElement('div');
     el.className = 'g3-lab' + (big ? ' big' : ''); el.textContent = text; el.style.color = color;
     labLayer.appendChild(el);
-    labels.push({ el, pos: new THREE.Vector3(...pos), min, max, prio, w: 0 });
+    labels.push({ el, pos: new THREE.Vector3(...pos), min, max, prio, w: 0, when });
   };
   const SUN = gal3(-R0, 0, Z0);
   addLabel(SUN, '태양 · 여기', '#3dff8f', 0, 400000, 10, true);
@@ -496,6 +497,20 @@ export function openGalaxy3D(host, opts = {}) {
     }
     const pts = addPoints(b, { opacity: 1, minPx: 2.0, maxPx: 6 });
     cosmos.add(pts);
+    // 처녀자리 은하단 소속 은하: M87에서 8° 안, 거리 2,500만~8,500만 광년
+    const vb = new PointBuf(), r0 = (187.706 * Math.PI) / 180, d0 = (12.391 * Math.PI) / 180;
+    let nv = 0;
+    for (let i = 0; i < N; i++) {
+      const raD = (ra[i] / 65535) * 360, deD = (dec[i] / 32767) * 90, mly = ds[i] / 30;
+      if (mly < 25 || mly > 85) continue;
+      const a = (raD * Math.PI) / 180, d = (deD * Math.PI) / 180;
+      const cs = Math.sin(d) * Math.sin(d0) + Math.cos(d) * Math.cos(d0) * Math.cos(a - r0);
+      if (cs < Math.cos((8 * Math.PI) / 180)) continue;
+      const p = vcPos(raD, deD, mly), warm = lum[i] > 170, k = 0.6 + Math.min(0.4, lum[i] / 400);
+      vb.add(p[0], p[1], p[2], k, k * (warm ? 0.9 : 0.96), k * (warm ? 0.76 : 1), 140000 * (0.7 + lum[i] / 255)); nv++;
+    }
+    const vm = pointMaterial({ opacity: 1, minPx: 2, maxPx: 9 }); mats.push(vm);
+    virgo.add(vb.build(vm)); vCount = nv; resize();
   }).catch(() => {});
   // 이름 붙은 구조 [이름, 종류(sc 초은하단·cl 은하단·wall 벽·void 보이드), 적경, 적위, 거리(백만 광년), 설명]
   const STRUCT = [
@@ -535,6 +550,100 @@ export function openGalaxy3D(host, opts = {}) {
   }
   addLabel(SUN, '우리은하 · 여기', '#3dff8f', 4e7, 3e10, 10, true);
 
+  // ── 처녀자리 은하단 내부: 실제 소속 은하(2MRS) + 이름난 은하 + X선 가스·암흑물질(관측 기반 모형) ──
+  const VC_D = 54 * MLY;                                   // 은하단 평균 거리(표면밝기 요동법 약 16.5 Mpc)
+  const VC = new THREE.Vector3(...eqTo3(187.706, 12.391, VC_D)); // 중심 = M87
+  // 적색편이 거리는 은하단 안의 빠른 움직임 때문에 시선 방향으로 길게 늘어나 보여서(「신의 손가락」) 깊이를 40%로 줄여 배치
+  const vcPos = (ra, dec, mly) => eqTo3(ra, dec, (54 + (mly - 54) * 0.4) * MLY);
+  const virgo = new THREE.Group(); virgo.visible = false; scene.add(virgo);
+  const vbar = $('.g3-vbar'); vbar.style.display = 'none';
+  let vCount = 0;
+  let virgoOn = false;
+  const inVirgo = () => virgoOn;
+  const VIRGO_GAL = [
+    // [이름, 적경, 적위, 거리(백만 광년), 모양(e 타원·s 나선·l 렌즈형), 설명, 블랙홀 체험 키]
+    ['M87', 187.706, 12.391, 53.5, 'e', '은하단 한가운데 거대 타원은하 · 구상성단 약 1만 2천 개 · 5천 광년 제트 · 블랙홀 65억 배 · 탭하면 블랙홀 체험', 'm87'],
+    ['M49', 187.445, 8.000, 56, 'e', '은하단에서 가장 밝은 은하 · 남쪽 하위 무리(처녀자리 B)의 중심 · 자기만의 뜨거운 가스 덩어리'],
+    ['M86', 186.549, 12.946, 55, 'l', '우리 쪽으로 초속 약 240km로 다가오는 드문 은하 · 은하단 가스를 헤치며 X선 가스 꼬리를 끌고 감'],
+    ['M84', 186.265, 12.887, 54, 'e', '마카리안 사슬의 첫 은하 · 중심 블랙홀에서 전파 제트'],
+    ['눈 은하 NGC 4438·4435', 186.94, 13.01, 54, 's', '두 은하가 스쳐 지나가며 서로 찢긴 한 쌍 · 마카리안 사슬의 일부'],
+    ['M60', 190.917, 11.553, 54, 'e', '나선은하 NGC 4647과 짝(Arp 116) · 블랙홀 약 45억 배'],
+    ['M89', 188.916, 12.556, 50, 'e', '거의 완벽한 공 모양 타원은하'],
+    ['M90', 189.208, 13.163, 55, 's', '우리 쪽으로 다가오는 나선은하 · 은하단 가스에 가스를 빼앗겨 별 탄생이 거의 멈춤'],
+    ['M58', 189.431, 11.818, 60, 's', '은하단에서 가장 밝은 막대나선 중 하나'],
+    ['M88', 187.997, 14.420, 56, 's', '팔이 촘촘하게 감긴 나선은하'],
+    ['M91', 188.860, 14.496, 55, 's', '막대나선은하'],
+    ['M98', 183.451, 14.900, 50, 's', '거의 옆으로 누운 나선 · 우리 쪽으로 다가오는 중'],
+    ['M99', 184.707, 14.417, 55, 's', '한쪽 팔이 길게 늘어진 비대칭 나선 · 지나가던 은하에 끌린 흔적'],
+    ['M100', 185.729, 15.822, 55, 's', '잘 정돈된 큰 나선은하 · 초신성이 여러 번 관측됨'],
+    ['M61', 185.479, 4.474, 52, 's', '초신성이 자주 터지는 나선은하 · 은하단 남쪽 끝'],
+  ];
+  {
+    const b = new PointBuf();
+    for (const [name, ra, dec, mly, t, desc, bh] of VIRGO_GAL) {
+      const p = vcPos(ra, dec, mly);
+      const c = t === 'e' ? [1, 0.84, 0.62] : t === 'l' ? [1, 0.92, 0.8] : [0.7, 0.82, 1];
+      b.add(p[0], p[1], p[2], ...c, name === 'M87' ? 520000 : t === 'e' ? 360000 : 280000);
+      addLabel(p, name, t === 's' ? '#a8c8ff' : '#ffd9a0', 1e6, 4e7, name === 'M87' ? 8 : 6, name === 'M87', inVirgo);
+      addPick(p, name === 'M87' ? 'M87 · 처녀자리 은하단 중심' : name, `처녀자리 은하단 · ${{ e: '타원은하', s: '나선은하', l: '렌즈형 은하' }[t]}`, desc, 1e6, 4e7, bh || null, inVirgo);
+    }
+    const m = pointMaterial({ opacity: 1, minPx: 3, maxPx: 14 }); mats.push(m);
+    virgo.add(b.build(m));
+    // 마카리안 사슬
+    const chain = [[186.265, 12.887], [186.549, 12.946], [186.94, 13.01], [187.06, 13.15], [187.25, 13.24], [187.52, 13.38], [187.56, 13.64]].map(([r, d]) => new THREE.Vector3(...vcPos(r, d, 54.5)));
+    virgo.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(chain), new THREE.LineDashedMaterial({ color: 0xffe45a, transparent: true, opacity: 0.35 })));
+    addLabel(chain[4].toArray(), '마카리안 사슬', '#ffe45a', 1e6, 1.2e7, 4, false, inVirgo);
+    addPick(chain[4].toArray(), '마카리안 사슬', '처녀자리 은하단 · 은하 8개 이상이 활처럼 늘어선 줄', 'M84에서 시작해 M86, 눈 은하로 이어져요 · 실제로 서로 끌어당기는 무리', 1e6, 1.2e7, null, inVirgo);
+  }
+  // X선 가스(수천만 도): ROSAT·XMM 관측처럼 M87 중심 큰 덩어리 + M49·M86 작은 덩어리. 은하 속 별보다 질량이 많아요
+  const gasGrp = new THREE.Group(); virgo.add(gasGrp);
+  const dmGrp = new THREE.Group(); virgo.add(dmGrp);
+  {
+    const R = rng(4486);
+    const dir = () => { const z = R() * 2 - 1, a = R() * Math.PI * 2, q = Math.sqrt(1 - z * z); return [q * Math.cos(a), z, q * Math.sin(a)]; };
+    const gas = new PointBuf();
+    const blob = (c, n, rc, rmax, k, stretch = null) => {
+      for (let i = 0; i < n; i++) {
+        // 베타 모형(β≈0.5): 밀도 ∝ (1+(r/rc)²)^-1.5 → 밝기는 중심에 몰리고 바깥으로 넓게 퍼짐
+        let r; do { r = rc * Math.tan(R() * Math.atan(rmax / rc)); } while (r > rmax);
+        const d = dir(); let x = d[0] * r, y = d[1] * r, z = d[2] * r;
+        if (stretch) { const t = R() * stretch[3]; x += stretch[0] * t; y += stretch[1] * t; z += stretch[2] * t; }
+        const f = Math.exp(-r / (rmax * 0.55)) * k;
+        gas.add(c.x + x, c.y + y, c.z + z, 0.32 * f, 0.55 * f, 1.0 * f, 0.6 * MLY + r * 0.45);
+      }
+    };
+    blob(VC, 3600, 0.08 * MLY, 4.5 * MLY, 0.2);
+    blob(new THREE.Vector3(...vcPos(187.445, 8.0, 56)), 700, 0.04 * MLY, 1.3 * MLY, 0.1);
+    // M86: 다가오며 은하단 가스에 쓸린 꼬리(북서쪽)
+    const m86 = new THREE.Vector3(...vcPos(186.549, 12.946, 55)), tail = new THREE.Vector3(...vcPos(186.2, 13.4, 55)).sub(m86).normalize();
+    blob(m86, 500, 0.03 * MLY, 0.5 * MLY, 0.12, [tail.x, tail.y, tail.z, 0.5 * MLY]);
+    const gm = pointMaterial({ opacity: 0.55, minPx: 2, maxPx: 160 }); mats.push(gm);
+    gasGrp.add(gas.build(gm));
+    // 암흑물질(NFW 헤일로 모형): 은하단 전체 질량(약 태양의 1조 배의 1천 배)의 80% 이상 · 은하 움직임과 X선 가스 온도로 추정
+    const dm = new PointBuf(), rs = 1.3 * MLY, rmax = 7 * MLY;
+    const nfwM = (x) => Math.log(1 + x) - x / (1 + x), Mmax = nfwM(rmax / rs);
+    for (let i = 0; i < 2600; i++) {
+      const u = R() * Mmax; let lo = 0, hi = rmax / rs; // 질량 분포 역함수(이분법)
+      for (let k = 0; k < 30; k++) { const mid = (lo + hi) / 2; if (nfwM(mid) < u) lo = mid; else hi = mid; }
+      const r = lo * rs, d = dir();
+      const f = 0.09;
+      dm.add(VC.x + d[0] * r, VC.y + d[1] * r * 0.8, VC.z + d[2] * r, 0.75 * f, 0.3 * f, 0.9 * f, 0.9 * MLY);
+    }
+    const dmm = pointMaterial({ opacity: 0.6, minPx: 2, maxPx: 200 }); mats.push(dmm);
+    dmGrp.add(dm.build(dmm)); dmGrp.visible = false;
+    // 크기 눈금: 비리얼 반지름(약 550만 광년) 점선 원
+    const ring = []; for (let k = 0; k <= 96; k++) { const a = (k / 96) * Math.PI * 2; ring.push(VC.clone().add(new THREE.Vector3(Math.cos(a) * 5.5 * MLY, 0, Math.sin(a) * 5.5 * MLY))); }
+    const rl = new THREE.Line(new THREE.BufferGeometry().setFromPoints(ring), new THREE.LineDashedMaterial({ color: 0x5ae8ff, transparent: true, opacity: 0.3, dashSize: 0.3 * MLY, gapSize: 0.3 * MLY }));
+    rl.computeLineDistances(); virgo.add(rl);
+    addLabel(ring[24].toArray(), '은하단 경계 (약 550만 광년)', '#5ae8ff', 4e6, 4e7, 2, false, inVirgo);
+  }
+  vbar.querySelectorAll('button').forEach((btn) => btn.addEventListener('click', () => {
+    const on = btn.classList.toggle('on'), k = btn.dataset.v;
+    if (k === 'gas') gasGrp.visible = on;
+    else if (k === 'dm') dmGrp.visible = on;
+    else virgo.children.forEach((c) => { if (c !== gasGrp && c !== dmGrp && c.isPoints) c.visible = on; });
+  }));
+
   // ── 카메라 (궤도 조작) ──
   const target = new THREE.Vector3();
   let dist = 90000, yaw = -0.6, pitch = 0.9;
@@ -560,9 +669,10 @@ export function openGalaxy3D(host, opts = {}) {
     m31: { t: M31, d: 270000, ...vM31, title: '안드로메다 은하', desc: '국부은하군에서 가장 큰 은하. 큰 팽대부와 1만 광년대 먼지 고리. 지금도 초속 약 110km로 다가오는 중.' },
     m33: { t: M33, d: 95000, ...vM33, title: '삼각형자리 은하', desc: '안드로메다의 동반 은하로 추정. 팽대부가 거의 없고 나선팔이 솜털처럼 흩어진 은하.' },
     lg: { t: [M31[0] * 0.4, M31[1] * 0.4, M31[2] * 0.4], d: 4.6e6, pitch: 0.55, title: '국부은하군 3D', desc: '우리은하·안드로메다·삼각형자리 은하와 위성은하 수십 개. 실제 방향과 거리로 배치했어요.' },
+    virgo: { t: VC.toArray(), d: 1.7e7, pitch: 0.35, title: '처녀자리 은하단 내부', desc: '약 5,400만 광년, 가장 가까운 큰 은하단 · 은하 1,300~2,000개(여기엔 거리를 잰 밝은 은하와 이름난 은하). 파란 안개 = X선으로 보이는 수천만 도 가스, 보라 안개 = 암흑물질(모형). 깊이는 줄여서 배치했어요.' },
     cosmos: { t: SUN, d: 1.45e9, pitch: 0.42, yaw: 0.35, frame: 'sg', title: '근처 우주 · 초은하단 지도', desc: '2MASS 적외선 하늘 탐사(2MRS)로 거리를 잰 실제 은하 약 4만 3천 개. 파란 원반은 초은하면(1억~5억 광년), 하늘색=초은하단 · 노랑=은하 벽 · 빨강=보이드. 가운데 빈 띠는 은하수에 가려 못 보는 곳(회피 영역).' },
   };
-  const ORDER = [['mw', '우리은하'], ['side', '옆모습'], ['gc', '은하 중심'], ['sun', '태양 주변'], ['lmc', '대마젤란'], ['m31', '안드로메다'], ['m33', '삼각형자리'], ['lg', '국부은하군'], ['cosmos', '근처 우주'], ['bh', '블랙홀 체험'], ['gaia', 'Gaia 별 985만'], ['rot', '자동회전']];
+  const ORDER = [['mw', '우리은하'], ['side', '옆모습'], ['gc', '은하 중심'], ['sun', '태양 주변'], ['lmc', '대마젤란'], ['m31', '안드로메다'], ['m33', '삼각형자리'], ['lg', '국부은하군'], ['virgo', '처녀자리 은하단'], ['cosmos', '근처 우주'], ['bh', '블랙홀 체험'], ['gaia', 'Gaia 별 985만'], ['rot', '자동회전']];
   const bar = $('.g3-bar');
   for (const [k, name] of ORDER) {
     const b = document.createElement('button'); b.textContent = name; b.dataset.k = k;
@@ -657,7 +767,7 @@ export function openGalaxy3D(host, opts = {}) {
   function pick(pt) {
     let best = null;
     for (const t of picks) {
-      if (dist < t.min || dist > t.max) continue;
+      if (dist < t.min || dist > t.max || (t.when && !t.when())) continue;
       const s = project(t.pos); if (!s) continue;
       const d = Math.hypot(s[0] - pt[0], s[1] - pt[1]);
       if (d < 14 && (!best || d < best.d)) best = { ...t, d, s };
@@ -707,7 +817,9 @@ export function openGalaxy3D(host, opts = {}) {
     const off = new THREE.Vector3(dist * Math.cos(pitch) * Math.sin(yaw), dist * Math.sin(pitch), dist * Math.cos(pitch) * Math.cos(yaw)).applyQuaternion(frameQ);
     camera.position.copy(target).add(off);
     camera.up.set(0, 1, 0).applyQuaternion(frameQ);
-    cosmos.visible = dist > 2e7;
+    virgoOn = dist < 4.5e7 && target.distanceTo(VC) < 2e7;
+    virgo.visible = virgoOn; vbar.style.display = virgoOn ? '' : 'none';
+    cosmos.visible = dist > 2e7 && !virgoOn;
     camera.near = Math.max(0.5, dist * 0.002); camera.far = dist * 60 + 3e7;
     camera.updateProjectionMatrix();
     camera.lookAt(target);
@@ -725,7 +837,7 @@ export function openGalaxy3D(host, opts = {}) {
     let shown = 0;
     for (const L of order) {
       let vis = false;
-      if (dist >= L.min && dist <= L.max && shown < 40) {
+      if (dist >= L.min && dist <= L.max && shown < 40 && (!L.when || L.when())) {
         const s = project(L.pos);
         if (s && s[0] > -40 && s[0] < W + 40 && s[1] > 0 && s[1] < H) {
           if (!L.w) L.w = L.el.offsetWidth || 60;
