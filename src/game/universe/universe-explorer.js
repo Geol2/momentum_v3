@@ -570,6 +570,7 @@ export function mountUniverseExplorer(container, opts = {}) {
       <div class="mu-focusbar" hidden>
         <button class="mu-back">← 태양계로</button>
         <button class="mu-speed">SPD · 1초=1시간</button>
+        <button class="mu-sys3d" hidden>3D로 보기</button>
       </div>
       <div class="mu-credit" hidden>위성 영상: <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless - https://s2maps.eu</a> by <a href="https://eox.at" target="_blank" rel="noopener">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2016 &amp; 2017)</div>
       <div class="mu-scale"></div>
@@ -927,6 +928,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     setTarget(sView);
     if (speedIdx > 2) setSpeedIdx(1);
     $('.mu-back').textContent = '← 태양계로';
+    $('.mu-sys3d').hidden = true;
     ui.focusbar.hidden = false;
   }
   function setSpeedIdx(i) {
@@ -957,6 +959,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     setTarget(sView);
     setSpeedIdx(Math.max(0, SPEEDS.findIndex(([k]) => k === sys.speed)));
     $('.mu-back').textContent = '← 돌아가기';
+    $('.mu-sys3d').hidden = false;
     ui.focusbar.hidden = false;
   }
   function exitFocus() {
@@ -968,6 +971,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     ui.focusbar.hidden = true;
   }
   $('.mu-back').addEventListener('click', exitFocus);
+  $('.mu-sys3d').addEventListener('click', () => openSys3D());
   ui.speed.addEventListener('click', () => setSpeedIdx((speedIdx + 1) % SPEEDS.length));
   const fmtPeriod = (d) => (d < 2 ? `${(d * 24).toFixed(1)}시간` : d < 1000 ? `${d.toFixed(1)}일` : `${Math.round(d / 365.25)}년`);
   function handleTap(x, y) {
@@ -978,7 +982,10 @@ export function mountUniverseExplorer(container, opts = {}) {
     }
     if (focus && focus.on) {
       const hit = body;
-      if (hit && hit.kind === 'exo') {
+      if (hit && hit.kind === 'exo' && focus.kind === 'star') {
+        const pl = focus.sys.planets.find((p) => hit.name === p.name || hit.name.endsWith(' ' + p.name) || hit.short === p.name);
+        openSys3D(pl ? pl.name : null);
+      } else if (hit && hit.kind === 'exo') {
         const size = hit.reKnown ? `지구 크기의 ${hit.re}배` : `크기 추정 지구의 ${hit.re}배`;
         toast(`${hit.name} · 별에서 ${hit.au} AU · 공전 ${fmtPeriod(hit.periodDays)} · ${size}${hit.teq ? ` · 약 ${Math.round(hit.teq - 273)}°C` : ''}${hit.note ? ' · ' + hit.note : ''}${hit.exact ? ' · 📍실제 위치' : ''}`);
       } else if (hit) {
@@ -1033,7 +1040,7 @@ export function mountUniverseExplorer(container, opts = {}) {
       const tTxt = T ? `온도 약 ${Math.round(T - 273)}°C${est ? ' (추정)' : ''}` : '온도 미상';
       const size = t.reKnown && t.re ? (t.re > 6 ? `목성의 ${(t.re / 11.21).toFixed(1)}배 크기` : `지구의 ${t.re.toFixed(1)}배 크기`) : '크기 미상';
       const spin = t.periodDays < 10 ? '자전 = 공전 (조석 고정 추정 · 한쪽만 낮)' : '자전 주기 미상';
-      return [t.name, `공전 ${fmtPeriod(t.periodDays)} · 별에서 ${t.au} AU · ${size}`, `${tTxt} · ${spin}`];
+      return [t.name, `공전 ${fmtPeriod(t.periodDays)} · 별에서 ${t.au} AU · ${size}`, `${tTxt} · ${spin}`, focus && focus.on ? '탭하면 3D로 가까이' : ''];
     }
     if (t.kind === 'moon') {
       const temp = MOON_TEMP[t.name];
@@ -1055,7 +1062,7 @@ export function mountUniverseExplorer(container, opts = {}) {
         `${con} · ${r[5].toFixed(1)}등급${r[10] ? ' · 거리: Gaia DR3' : ''}`];
     }
     if (t.deepStar) return deepInfo(t.deepStar.L.d, t.deepStar.i);
-    if (t.sat !== undefined && satSys) return satInfo(t.sat);
+    if (t.sat !== undefined && satSys) return [...satInfo(t.sat), '탭하면 생김새 보기'];
     if (t.lgal) {
       const B = { 우리은하: ['궁수자리 A* · 태양 질량 430만 배', '탭하면 블랙홀 체험'], 안드로메다: ['M31* · 태양 질량 약 1억 4천만 배', '탭하면 블랙홀 체험'],
         '삼각형자리 은하': ['중심 블랙홀이 없어요! (있어도 태양의 1,500배 이하)', '큰 은하인데 초대질량 블랙홀이 없는 드문 예'], '대마젤란 은하': ['약 60만 배 블랙홀 (2025년 발견)', '튕겨 나온 초고속 별로 찾아냄 · 탭하면 블랙홀 체험'],
@@ -1085,6 +1092,7 @@ export function mountUniverseExplorer(container, opts = {}) {
       if (d < 18 && (!best || d < best.d)) best = { p, d };
     }
     const hit = best ? best.p : pickSat(x, y, 12) || pickSmall(x, y, 10) || pickDeep(x, y, 10);
+    if (hit && hit.sat !== undefined) { soundFor(hit); toast(satInfo(hit.sat).filter(Boolean).join(' · ')); openSat3D(hit.sat); return true; }
     if (hit && hit.dso && hit.dso.kind === 'bh') { openBH(bhTarget(hit.dso.name)); return true; }
     if (hit && hit.deep && hit.deep.kind === 'bh') { openBH(bhTarget(hit.deep.name)); return true; }
     if (hit && hit.lgal) { const k = { 우리은하: 'sgra', 안드로메다: 'm31', '대마젤란 은하': 'lmc' }[hit.lgal.name]; if (k) { openBH(k); return true; } }
@@ -1389,6 +1397,30 @@ export function mountUniverseExplorer(container, opts = {}) {
   });
   // 블랙홀 체험
   let bhView = null;
+  // 가까이 보기(행성계 3D · 인공위성 생김새)
+  let cuView = null;
+  async function openCloseup(fn, opts) {
+    if (cuView || bhView) return;
+    cuView = 'loading';
+    try {
+      const mod = await import('./closeup.js');
+      if (destroyed) return;
+      const paused = !g3;
+      if (paused) cancelAnimationFrame(raf);
+      cuView = mod[fn](root, { ...opts, onClose: () => { cuView = null; if (paused && !destroyed && !g3) { last = performance.now(); raf = requestAnimationFrame(frame); } } });
+    } catch (e) { cuView = null; toast('가까이 보기를 열 수 없어요'); }
+  }
+  function openSys3D(planetName = null) {
+    if (!focus || focus.kind !== 'star') return;
+    const sys = focus.sys;
+    const st = exoStates(sys, simDate(), focus.toEarth || 0);
+    const phases = {}; sys.planets.forEach((p, i) => { phases[p.name] = st[i].angle; });
+    openCloseup('openSystem3D', { sys, focusPlanet: planetName, phases });
+  }
+  function openSat3D(i) {
+    const q = satSys.sats[i];
+    openCloseup('openObject3D', { q: { ...q, alt: satSys.alt[i], vel: satSys.vel[i], desc: q.kind === 'debris' ? satSys.debrisKo(q.group) : `NORAD ${q.id}${q.year ? ` · ${q.year}년 발사` : ''}` } });
+  }
   async function openBH(target) {
     if (bhView) return;
     bhView = 'loading';
@@ -2552,6 +2584,8 @@ export function mountUniverseExplorer(container, opts = {}) {
     /** 테스트/디버그용: 행성 포커스 */
     focusPlanet: (name) => enterFocus(name),
     focusSystem: (id) => enterSystem(id),
+    sys3d: (p) => openSys3D(p),
+    closeup: (fn, o) => openCloseup(fn, o),
     get scale() { return s; },
     get camInfo() { return { s, targetS, cam: getCam(s), pan, LY }; },
     get gaiaInfo() { return { on: gaiaOn, loaded: gaia.loadedCount, loading: gaia.loading, ready: gaia.ready, failed: gaia.failed, layers: starLayers.length }; },
