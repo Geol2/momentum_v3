@@ -5,6 +5,8 @@
 // 위성은하. 나선팔·막대·팽대부는 최신 연구(막대 길이 약 5 kpc · 기울기 약 27° · 나선 기울기 약 12°)를 따른 모형.
 import * as THREE from 'three';
 import { bvRgb } from './deep-stars.js';
+import { eclToEq, eqToEclXYZ } from './gaia-tiles.js';
+import galUrl from './galaxies-2mrs.bin?url';
 
 const R0 = 26670;           // 태양 ~ 은하 중심 거리 (광년, GRAVITY 2019 ~ 8.18 kpc)
 const Z0 = 66;              // 태양의 원반 위 높이
@@ -25,6 +27,17 @@ export function eqTo3(ra, dec, ly) {
   return [gx, gz, -gy];
 }
 const gal3 = (gx, gy, gz) => [gx, gz, -gy];
+/** 태양 중심 적도 직교(광년) → three 좌표 */
+function eqXYZTo3(ex, ey, ez) {
+  const gx = T[0][0] * ex + T[0][1] * ey + T[0][2] * ez, gy = T[1][0] * ex + T[1][1] * ey + T[1][2] * ez, gz = T[2][0] * ex + T[2][1] * ey + T[2][2] * ez;
+  return [gx - R0, gz + Z0, -gy];
+}
+/** three 좌표 → 태양 중심 황도 직교(광년) */
+function threeToEcl(x, y, z) {
+  const gx = x + R0, gy = -z, gz = y - Z0;
+  const ex = T[0][0] * gx + T[1][0] * gy + T[2][0] * gz, ey = T[0][1] * gx + T[1][1] * gy + T[2][1] * gz, ez = T[0][2] * gx + T[1][2] * gy + T[2][2] * gz;
+  return eqToEclXYZ(ex, ey, ez);
+}
 
 function rng(seed) {
   let a = seed | 0;
@@ -224,7 +237,7 @@ const fmtLy = (ly) => {
  * @param {{ sky?:any, exo?:any, dwarfs?:Array, preset?:string, describeStar?:Function, dsoKo?:Object, onClose?:Function }} opts
  */
 export function openGalaxy3D(host, opts = {}) {
-  const { sky, exo, layers = [], subscribe, loadMore, describeDeep, dwarfs = [], preset = 'mw', describeStar, dsoKo = {}, onClose } = opts;
+  const { sky, exo, layers = [], subscribe, gaia, describeDeep, dwarfs = [], preset = 'mw', describeStar, dsoKo = {}, onClose } = opts;
   if (!document.getElementById('g3-style')) {
     const st = document.createElement('style'); st.id = 'g3-style'; st.textContent = CSS3D; document.head.appendChild(st);
   }
@@ -339,11 +352,11 @@ export function openGalaxy3D(host, opts = {}) {
     }
   }
   // 맨눈 밖의 별 (기본 11만 + 불러온 묶음들, 실제 위치)
-  const deepSets = []; // { d, pos }
+  const deepSets = []; // { d, pos, pts }
   function addLayer(d) {
     const N = d.N, pos = new Float32Array(N * 3), colA = new Float32Array(N * 3), size = new Float32Array(N);
     for (let i = 0; i < N; i++) {
-      const p = eqTo3(d.ra[i], d.dec[i], d.ly[i]);
+      const p = d.gaia ? eqXYZTo3(...eclToEq(d.ex[i], d.ey[i], d.ez[i])) : eqTo3(d.ra[i], d.dec[i], d.ly[i]);
       pos[i * 3] = p[0]; pos[i * 3 + 1] = p[1]; pos[i * 3 + 2] = p[2];
       const [r, g, b] = bvRgb(d.bv[i] / 50);
       const k = Math.max(0.1, Math.min(1, Math.pow(10, -0.2 * (d.mag[i] / 10 - 7)))); // 어두운 별은 흐리게(빽빽하면 빛이 쌓임)
@@ -357,10 +370,16 @@ export function openGalaxy3D(host, opts = {}) {
     const m = pointMaterial({ opacity: 0.85, minPx: 1.0, maxPx: 6 }); mats.push(m);
     m.uniforms.uScale.value = mats[0].uniforms.uScale.value;
     const pts = new THREE.Points(geo, m); pts.frustumCulled = false; scene.add(pts);
-    deepSets.push({ d, pos });
+    deepSets.push({ d, pos, pts, m });
+  }
+  function removeLayer(d) {
+    const i = deepSets.findIndex((q) => q.d === d);
+    if (i < 0) return;
+    const q = deepSets[i]; deepSets.splice(i, 1);
+    scene.remove(q.pts); q.pts.geometry.dispose(); q.m.dispose(); mats.splice(mats.indexOf(q.m), 1);
   }
   layers.forEach(addLayer);
-  const unsub = subscribe ? subscribe(addLayer) : null;
+  const unsub = subscribe ? subscribe((d, op) => (op === 'remove' ? removeLayer(d) : addLayer(d))) : null;
   if (exo) {
     const buf = new PointBuf();
     exo.rows.forEach((r) => {
@@ -425,11 +444,93 @@ export function openGalaxy3D(host, opts = {}) {
   }
   for (const d of dwarfs) addLabel(eqTo3(d.ra, d.dec, d.ly), d.name, '#c8d4ff', d.ly < 1e6 ? 150000 : 600000, 1.2e7, 1);
 
+  // ── 근처 우주: 2MRS 은하 약 4만 3천 개(실제 방향·거리) + 초은하 좌표계(초은하단·벽·보이드) ──
+  const MLY = 1e6;
+  const gvec = (lDeg, bDeg) => { const l = (lDeg * Math.PI) / 180, b = (bDeg * Math.PI) / 180; return new THREE.Vector3(Math.cos(b) * Math.cos(l), Math.sin(b), -Math.cos(b) * Math.sin(l)); };
+  const SGZ = gvec(47.37, 6.32);                 // 초은하 북극
+  const SGX = gvec(137.37, 0);                   // 초은하 경도 0°
+  const SGY = new THREE.Vector3().crossVectors(SGZ, SGX).normalize();
+  const sunV = new THREE.Vector3(...SUN);
+  const sgPoint = (sgl, sgb, d) => { const l = (sgl * Math.PI) / 180, b = (sgb * Math.PI) / 180;
+    return sunV.clone().addScaledVector(SGX, d * Math.cos(b) * Math.cos(l)).addScaledVector(SGY, d * Math.cos(b) * Math.sin(l)).addScaledVector(SGZ, d * Math.sin(b)); };
+  const cosmos = new THREE.Group(); scene.add(cosmos);
+  // 기준면 고리(1억·2억·3억·5억 광년) + 경도축
+  const ringMat = new THREE.LineBasicMaterial({ color: 0x2a3cff, transparent: true, opacity: 0.75 });
+  for (const r of [100, 200, 300, 500]) {
+    const pts = []; for (let k = 0; k <= 128; k++) pts.push(sgPoint((k / 128) * 360, 0, r * MLY));
+    cosmos.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), ringMat));
+    addLabel(sgPoint(0, 0, r * MLY).toArray(), `${r < 100 ? r : r / 100 + '억'} 광년`.replace('1억', '1억').replace(/^(\d)억/, '$1억'), '#6f7dff', 6e7, 3e10, 2);
+  }
+  for (const a of [0, 90, 180, 270]) {
+    cosmos.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([sunV, sgPoint(a, 0, 500 * MLY)]), ringMat));
+    addLabel(sgPoint(a, 0, 530 * MLY).toArray(), `${a}°`, '#6f7dff', 2e8, 3e10, 2);
+  }
+  // 은하 점: 비동기
+  fetch(galUrl).then((r) => r.arrayBuffer()).then((buf) => {
+    if (destroyed) return;
+    const N = new DataView(buf).getUint32(0, true);
+    let o = 4;
+    const ra = new Uint16Array(buf, o, N); o += 2 * N; const dec = new Int16Array(buf, o, N); o += 2 * N;
+    const ds = new Uint16Array(buf, o, N); o += 2 * N; const lum = new Uint8Array(buf, o, N);
+    const b = new PointBuf();
+    for (let i = 0; i < N; i++) {
+      const dly = (ds[i] / 30) * MLY;
+      const p = eqTo3((ra[i] / 65535) * 360, (dec[i] / 32767) * 90, dly);
+      const k = 0.55 + Math.min(0.45, lum[i] / 400);
+      const warm = lum[i] > 170;
+      b.add(p[0], p[1], p[2], k, k * (warm ? 0.92 : 0.97), k * (warm ? 0.8 : 1), 900000 * (0.7 + lum[i] / 255));
+    }
+    const pts = addPoints(b, { opacity: 1, minPx: 2.0, maxPx: 6 });
+    cosmos.add(pts);
+  }).catch(() => {});
+  // 이름 붙은 구조 [이름, 종류(sc 초은하단·cl 은하단·wall 벽·void 보이드), 적경, 적위, 거리(백만 광년), 설명]
+  const STRUCT = [
+    ['처녀자리 초은하단 (국부 초은하단)', 'sc', 187.7, 12.4, 54, '우리은하가 속한 초은하단 · 중심은 처녀자리 은하단'],
+    ['라니아케아 (거대 인력체)', 'sc', 243.6, -60.9, 220, '우리가 속한 더 큰 초은하단의 중력 중심 쪽'],
+    ['히드라-센타우루스 초은하단', 'sc', 192.2, -41.3, 170, '센타우루스·히드라 은하단을 품은 초은하단'],
+    ['공작-인디언 초은하단', 'sc', 304.2, -70.9, 190, '라니아케아 안의 초은하단'],
+    ['페르세우스-물고기 초은하단', 'sc', 49.95, 41.5, 240, '은하 사슬이 길게 이어진 초은하단 · 라니아케아 바깥'],
+    ['머리털자리 초은하단', 'sc', 194.95, 28.0, 321, '머리털자리·사자자리 은하단 · CfA2 장성의 중심'],
+    ['헤라클레스 초은하단', 'sc', 241.2, 17.7, 500, '헤라클레스 은하단들의 모임'],
+    ['섀플리 초은하단', 'sc', 202.0, -31.5, 650, '근처 우주에서 가장 무거운 구조'],
+    ['뱀주인자리 초은하단', 'sc', 258.1, -23.4, 390, '은하수 뒤에 가려진 초은하단'],
+    ['사자자리 초은하단', 'sc', 176.2, 19.7, 300, '사자자리 은하단(Abell 1367) 주변'],
+    ['CfA2 장성 (머리털자리 벽)', 'wall', 195, 28, 300, '1989년 발견된 은하의 벽 · 길이 약 5억 광년'],
+    ['조각가자리 벽', 'wall', 5, -35, 300, '남쪽 하늘의 은하 벽'],
+    ['국부 보이드', 'void', 285, 15, 75, '우리 바로 옆의 텅 빈 공간 · 우리를 밀어내는 중'],
+    ['목동자리 보이드', 'void', 218, 46, 700, '지름 약 3억 광년의 거대한 빈 공간'],
+  ];
+  const lineSolid = new THREE.LineBasicMaterial({ color: 0x22b8c8, transparent: true, opacity: 0.7 });
+  const lineDash = new THREE.LineDashedMaterial({ color: 0x22b8c8, transparent: true, opacity: 0.45, dashSize: 4e6, gapSize: 4e6 });
+  for (const [name, kind, ra, dec, mly, desc] of STRUCT) {
+    const p = new THREE.Vector3(...eqTo3(ra, dec, mly * MLY));
+    const rel = p.clone().sub(sunV), h = rel.dot(SGZ);
+    const foot = p.clone().addScaledVector(SGZ, -h);
+    const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints([p, foot]), h >= 0 ? lineSolid : lineDash);
+    if (h < 0) ln.computeLineDistances();
+    cosmos.add(ln);
+    const col = kind === 'void' ? '#ff5a6e' : kind === 'wall' ? '#ffe45a' : '#5ae8ff';
+    addLabel(p.toArray(), name.replace(/ \(.*\)$/, ''), col, 4e7, 3e10, kind === 'sc' ? 4 : 3);
+    addPick(p.toArray(), name, `${mly >= 100 ? (mly / 100).toFixed(1).replace('.0', '') + '억' : mly * 100 + '만'} 광년 · ${{ sc: '초은하단', cl: '은하단', wall: '은하 벽', void: '보이드(빈 공간)' }[kind]}`, desc, 4e7, Infinity);
+    if (kind === 'void') { // 보이드는 붉은 점선 구
+      const r = (name.startsWith('목동') ? 160 : 60) * MLY;
+      const g = new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(r, 1));
+      const m = new THREE.LineDashedMaterial({ color: 0xff5a6e, transparent: true, opacity: 0.16, dashSize: r * 0.05, gapSize: r * 0.05 });
+      const v = new THREE.LineSegments(g, m); v.position.copy(p); v.computeLineDistances(); cosmos.add(v);
+    }
+  }
+  addLabel(SUN, '우리은하 · 여기', '#3dff8f', 4e7, 3e10, 10, true);
+
   // ── 카메라 (궤도 조작) ──
   const target = new THREE.Vector3();
   let dist = 90000, yaw = -0.6, pitch = 0.9;
   let goal = null; // { target, dist, yaw?, pitch? }
   let autoRot = true;
+  // 궤도 기준틀: 평소엔 은하면이 수평, '근처 우주'에선 초은하면이 수평
+  const idQ = new THREE.Quaternion();
+  const sgQ = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(SGX, SGZ, SGX.clone().cross(SGZ)));
+  const frameQ = new THREE.Quaternion();
+  let goalFrame = idQ;
   const view = (n, tilt = 0.45) => { // 원반 법선에서 살짝 기울여 보기
     const v3 = new THREE.Vector3(...n).normalize();
     const pitchN = Math.asin(Math.max(-1, Math.min(1, v3.y))), yawN = Math.atan2(v3.x, v3.z);
@@ -445,22 +546,26 @@ export function openGalaxy3D(host, opts = {}) {
     m31: { t: M31, d: 270000, ...vM31, title: '안드로메다 은하', desc: '국부은하군에서 가장 큰 은하. 큰 팽대부와 1만 광년대 먼지 고리. 지금도 초속 약 110km로 다가오는 중.' },
     m33: { t: M33, d: 95000, ...vM33, title: '삼각형자리 은하', desc: '안드로메다의 동반 은하로 추정. 팽대부가 거의 없고 나선팔이 솜털처럼 흩어진 은하.' },
     lg: { t: [M31[0] * 0.4, M31[1] * 0.4, M31[2] * 0.4], d: 4.6e6, pitch: 0.55, title: '국부은하군 3D', desc: '우리은하·안드로메다·삼각형자리 은하와 위성은하 수십 개. 실제 방향과 거리로 배치했어요.' },
+    cosmos: { t: SUN, d: 1.45e9, pitch: 0.42, yaw: 0.35, frame: 'sg', title: '근처 우주 · 초은하단 지도', desc: '2MASS 적외선 하늘 탐사(2MRS)로 거리를 잰 실제 은하 약 4만 3천 개. 파란 원반은 초은하면(1억~5억 광년), 하늘색=초은하단 · 노랑=은하 벽 · 빨강=보이드. 가운데 빈 띠는 은하수에 가려 못 보는 곳(회피 영역).' },
   };
-  const ORDER = [['mw', '우리은하'], ['side', '옆모습'], ['gc', '은하 중심'], ['sun', '태양 주변'], ['lmc', '대마젤란'], ['m31', '안드로메다'], ['m33', '삼각형자리'], ['lg', '국부은하군'], ['more', '★ 별 +237만'], ['rot', '자동회전']];
+  const ORDER = [['mw', '우리은하'], ['side', '옆모습'], ['gc', '은하 중심'], ['sun', '태양 주변'], ['lmc', '대마젤란'], ['m31', '안드로메다'], ['m33', '삼각형자리'], ['lg', '국부은하군'], ['cosmos', '근처 우주'], ['gaia', 'Gaia 별 985만'], ['rot', '자동회전']];
   const bar = $('.g3-bar');
   for (const [k, name] of ORDER) {
     const b = document.createElement('button'); b.textContent = name; b.dataset.k = k;
-    b.addEventListener('click', () => { if (k === 'more') { loadMore?.(); go('sun'); } else if (k === 'rot') { autoRot = !autoRot; b.classList.toggle('on', autoRot); } else go(k); });
+    b.addEventListener('click', () => { if (k === 'gaia') { gaia?.toggle(); b.classList.toggle('on', !!gaia?.on); if (gaia?.on && dist > 30000) go('sun'); } else if (k === 'rot') { autoRot = !autoRot; b.classList.toggle('on', autoRot); } else go(k); });
     bar.appendChild(b);
   }
   bar.querySelector('[data-k="rot"]').classList.add('on');
+  if (gaia?.on) bar.querySelector('[data-k="gaia"]').classList.add('on');
+  let lastGaiaT = 0;
   function go(k, instant = false) {
     const p = PRESETS[k];
     $('.g3-top h3').textContent = p.title; $('.g3-top p').textContent = p.desc;
-    bar.querySelectorAll('button').forEach((b) => b.dataset.k !== 'rot' && b.classList.toggle('on', b.dataset.k === k));
+    bar.querySelectorAll('button').forEach((b) => b.dataset.k !== 'rot' && b.dataset.k !== 'gaia' && b.classList.toggle('on', b.dataset.k === k));
     goal = { target: new THREE.Vector3(...p.t), dist: p.d, pitch: p.pitch, yaw: p.yaw };
+    goalFrame = p.frame === 'sg' ? sgQ : idQ;
     if (p.yaw !== undefined) autoRot = false, bar.querySelector('[data-k="rot"]')?.classList.remove('on');
-    if (instant) { target.copy(goal.target); dist = goal.dist; pitch = goal.pitch; if (p.yaw !== undefined) yaw = p.yaw; goal = null; }
+    if (instant) { target.copy(goal.target); dist = goal.dist; pitch = goal.pitch; if (p.yaw !== undefined) yaw = p.yaw; frameQ.copy(goalFrame); goal = null; }
   }
   go(PRESETS[preset] ? preset : 'mw', true);
 
@@ -504,7 +609,7 @@ export function openGalaxy3D(host, opts = {}) {
   cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
   cv.addEventListener('pointerleave', () => { hoverPt = null; });
   cv.addEventListener('wheel', (e) => { e.preventDefault(); zoomBy(Math.exp(e.deltaY * 0.0015)); autoRotPause = performance.now(); }, { passive: false });
-  function zoomBy(k) { dist = Math.max(25, Math.min(1.5e7, dist * k)); if (goal) goal.dist = undefined; }
+  function zoomBy(k) { dist = Math.max(25, Math.min(6e9, dist * k)); if (goal) goal.dist = undefined; }
 
   // 화면 투영
   const v = new THREE.Vector3();
@@ -578,10 +683,19 @@ export function openGalaxy3D(host, opts = {}) {
       if (target.distanceTo(goal.target) < dist * 0.002 && (goal.dist === undefined || Math.abs(Math.log(dist / goal.dist)) < 0.01)) goal = null;
     }
     if (autoRot && ptrs.size === 0 && now - autoRotPause > 2500) yaw += dt * 0.05;
-    camera.position.set(target.x + dist * Math.cos(pitch) * Math.sin(yaw), target.y + dist * Math.sin(pitch), target.z + dist * Math.cos(pitch) * Math.cos(yaw));
+    frameQ.slerp(goalFrame, Math.min(1, dt * 2.6));
+    const off = new THREE.Vector3(dist * Math.cos(pitch) * Math.sin(yaw), dist * Math.sin(pitch), dist * Math.cos(pitch) * Math.cos(yaw)).applyQuaternion(frameQ);
+    camera.position.copy(target).add(off);
+    camera.up.set(0, 1, 0).applyQuaternion(frameQ);
+    cosmos.visible = dist > 2e7;
     camera.near = Math.max(0.5, dist * 0.002); camera.far = dist * 60 + 3e7;
     camera.updateProjectionMatrix();
     camera.lookAt(target);
+    if (gaia?.on && now - lastGaiaT > 300 && dist < 40000) { // 보는 곳 주변의 Gaia 칸 요청
+      lastGaiaT = now;
+      const [ex, ey] = threeToEcl(target.x, target.y, target.z);
+      gaia.view(ex - dist, ex + dist, ey - dist, ey + dist, dist * 0.6);
+    }
     bubbleMat.uniforms.uA.value = Math.min(1, Math.max(0, (camera.position.length() - 26000) / 30000));
     renderer.render(scene, camera);
 

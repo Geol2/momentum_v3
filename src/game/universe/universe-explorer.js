@@ -19,7 +19,8 @@ import { MOONS, PLANET_INFO, moonStates } from './moons.js';
 import { SYSTEMS, exoStates, eqToEcl, catalogToSystem, linkFeatured, teffColor } from './exoplanets.js';
 import catalogUrl from './exo-catalog.json?url';
 import skyUrl from './sky-catalog.json?url';
-import { loadDeepStars, loadMegaChunk, MEGA_URLS, MEGA_TOTAL, MEGA_MB, deepSpect, starId, bvRgb } from './deep-stars.js';
+import { loadDeepStars, deepSpect, starId, bvRgb } from './deep-stars.js';
+import { createGaiaTiles, bpColorKo, GAIA_ATTRIB } from './gaia-tiles.js';
 import { plutoHelio, DWARFS, PROBES, probeDistanceAU } from './outer.js';
 import dayUrl from './earth-day.webp';
 import reliefUrl from './earth-relief.webp';
@@ -466,7 +467,7 @@ const CSS = `
   animation:mu3dpulse 2.4s ease-in-out infinite}
 .mu-3d[hidden]{display:none}
 .mu-more{top:102px;animation:none;font-size:11px}
-.mu-more.done{opacity:.55}
+.mu-more.on{background:rgba(61,255,143,.3);color:#eafff2}
 @keyframes mu3dpulse{50%{box-shadow:inset 0 0 14px rgba(61,255,143,.55),0 0 12px rgba(61,255,143,.5)}}
 .mu-bottom{position:absolute;left:0;right:0;bottom:0;padding:0 12px calc(12px + env(safe-area-inset-bottom));z-index:6;
   background:linear-gradient(transparent,rgba(1,6,4,.9) 45%)}
@@ -532,7 +533,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     </div>
     <button class="mu-close" aria-label="닫기">✕</button>
     <button class="mu-3d" hidden aria-label="3D로 은하 보기">3D</button>
-    <button class="mu-3d mu-more" hidden aria-label="별 수백만 개 더 불러오기" title="별 수백만 개 더 불러오기">★+</button>
+    <button class="mu-3d mu-more" hidden aria-label="Gaia 별 약 985만 개 켜기" title="Gaia DR3 별 약 985만 개 (보이는 곳만 받기)">G★</button>
     <div class="mu-toast mu-frame"></div>
     <div class="mu-hint mu-frame">드래그로 이동 · 핀치·휠로 가리킨 곳 확대 · 두 번 탭하면 그곳으로</div>
     <div class="mu-bottom">
@@ -617,59 +618,67 @@ export function mountUniverseExplorer(container, opts = {}) {
     const dso = d.dso.map(([name, kind, ra, dec, ly, desc]) => ({ name, kind, ly, desc, radec: [ra, dec], pos: skyPosM(ra, dec, ly * LY) }));
     sky = { rows: d.stars, con: d.con, conKeys: d.conKeys || Object.keys(d.con), x, y, buckets: [...buckets].map(([k, idx]) => { const [rgb, sz] = k.split('|'); return { rgb, size: +sz, idx }; }), dso };
   }).catch(() => {});
-  // 맨눈 밖의 별: 기본 약 11만 개(이웃 별 단계에서 자동) + 요청하면 수백만 개(묶음별)
-  const starLayers = []; // { d, x:Float32Array, y:Float32Array, col:Uint32Array }
-  let deepReq = false, deepA = 0, megaNext = 0, megaBusy = false;
+  // 맨눈 밖의 별: 기본 약 11만 개(이웃 별 단계에서 자동) + Gaia DR3 약 985만 개(보이는 구역만 받기)
+  const starLayers = []; // { d, x, y (광년, 월드), cb, box? }
+  let deepReq = false, deepA = 0, layerVer = 0, gaiaOn = false;
   const g3Listeners = new Set();
   // 색 팔레트(B-V 32단계) · 밝기(등급 → 빛의 양)
   const BV_PAL = new Float32Array(32 * 3);
   for (let k = 0; k < 32; k++) { const [r, g, b] = bvRgb(-0.4 + (k / 31) * 2.4); BV_PAL[k * 3] = r / 255; BV_PAL[k * 3 + 1] = g / 255; BV_PAL[k * 3 + 2] = b / 255; }
   const FLUX = new Float32Array(256);
   for (let m = 0; m < 256; m++) FLUX[m] = Math.min(2.5, Math.pow(10, -0.4 * (m / 10 - 7.2)));
+  const sunLyX = SUN[0] / LY, sunLyY = SUN[1] / LY;
   function addStarLayer(d) {
     const x = new Float32Array(d.N), y = new Float32Array(d.N), cb = new Uint8Array(d.N);
     for (let i = 0; i < d.N; i++) {
-      const p = skyPosM(d.ra[i], d.dec[i], d.ly[i] * LY);
-      x[i] = p[0] / LY; y[i] = p[1] / LY; // 광년 단위(Float32 정밀도)
+      if (d.gaia) { x[i] = sunLyX + d.ex[i]; y[i] = sunLyY + d.ey[i]; }
+      else { const p = skyPosM(d.ra[i], d.dec[i], d.ly[i] * LY); x[i] = p[0] / LY; y[i] = p[1] / LY; } // 광년 단위(Float32 정밀도)
       cb[i] = Math.max(0, Math.min(31, Math.round(((d.bv[i] / 50 + 0.4) / 2.4) * 31)));
     }
-    const L = { d, x, y, cb };
+    const L = { d, x, y, cb, box: d.box ? [sunLyX + d.box[0], sunLyY + d.box[1], sunLyX + d.box[2], sunLyY + d.box[3]] : null };
     starLayers.push(L);
-    deepCacheKey = '';
-    for (const f of g3Listeners) f(d);
+    layerVer++;
+    for (const f of g3Listeners) f(d, 'add');
     return L;
   }
-  const starCount = () => (sky ? sky.rows.length : 0) + starLayers.reduce((a, L) => a + L.d.N, 0);
+  function removeStarLayer(d) {
+    const i = starLayers.findIndex((L) => L.d === d);
+    if (i >= 0) { starLayers.splice(i, 1); layerVer++; }
+    for (const f of g3Listeners) f(d, 'remove');
+  }
   function requestDeep() {
     if (deepReq) return;
     deepReq = true;
     loadDeepStars().then((d) => { if (!destroyed) addStarLayer(d); }).catch(() => { deepReq = false; });
   }
-  async function loadMega() {
-    if (megaBusy) return;
-    if (megaNext >= MEGA_URLS.length) { toast(`별 ${starCount().toLocaleString('ko-KR')}개 — 지금 쓸 수 있는 목록(AT-HYG v3.2)을 전부 불러왔어요`); return; }
-    megaBusy = true;
-    toast(`별 ${MEGA_TOTAL.toLocaleString('ko-KR')}개 더 불러오는 중… (약 ${MEGA_MB}MB, 밝은 별부터)`);
-    try {
-      while (megaNext < MEGA_URLS.length && !destroyed) {
-        const d = await loadMegaChunk(megaNext);
-        if (destroyed) return;
-        addStarLayer(d); megaNext++;
-        toast(`별 ${starCount().toLocaleString('ko-KR')}개 (${megaNext}/${MEGA_URLS.length})`);
-        await new Promise((r) => setTimeout(r, 30));
-      }
-      btnMore.classList.add('done');
-    } catch (e) { toast('별 목록을 다 못 불러왔어요 — 다시 눌러 이어받기'); }
-    megaBusy = false;
+  const gaia = createGaiaTiles({ onLoad: (d) => { if (!destroyed && gaiaOn) addStarLayer(d); }, onEvict: (d) => removeStarLayer(d) });
+  function toggleGaia() {
+    gaiaOn = !gaiaOn;
+    btnMore.classList.toggle('on', gaiaOn);
+    if (gaiaOn) {
+      if (gaia.failed) { gaiaOn = false; btnMore.classList.remove('on'); toast('Gaia 별 목록을 불러올 수 없어요'); return; }
+      for (const d of gaia.layers()) if (!starLayers.some((L) => L.d === d)) addStarLayer(d);
+      toast(`Gaia DR3 별 ${gaia.total ? gaia.total.toLocaleString('ko-KR') : '약 985만'}개 — 보이는 곳만 받아요. 확대할수록 더 어두운 별까지`);
+    } else {
+      for (const L of starLayers.slice()) if (L.d.gaia) removeStarLayer(L.d);
+      toast('Gaia 별 끔 — 기본 별 약 11만 9천 개만 표시');
+    }
+  }
+  /** 화면 영역(월드 m)에 맞춰 Gaia 칸 요청 */
+  function gaiaView(cxw, cyw, halfW, halfH) {
+    if (!gaiaOn) return;
+    const x = cxw / LY - sunLyX, y = cyw / LY - sunLyY, hw = halfW / LY, hh = halfH / LY;
+    gaia.update(x - hw, x + hw, y - hh, y + hh, Math.max(hw, hh) * 0.75);
   }
   const deepCv = document.createElement('canvas');
   const deepCtx = deepCv.getContext('2d');
   let deepImg = null, deepBuf = null, deepAcc = null, deepCacheKey = '';
   function drawDeep(a, camX, camY, mpp) {
     deepA = a;
+    if (a > 0.02) gaiaView(camX, camY, (W / 2) * mpp, (H / 2) * mpp);
     if (!starLayers.length || a < 0.02) return;
     const Wd = Math.max(1, Math.round(W * dpr)), Hd = Math.max(1, Math.round(H * dpr));
-    const key = `${Wd}|${Hd}|${camX}|${camY}|${mpp}|${starLayers.length}`;
+    const key = `${Wd}|${Hd}|${camX}|${camY}|${mpp}|${layerVer}`;
     if (key !== deepCacheKey) { // 화면이 바뀔 때만 다시 그림 — 빛을 더해 쌓기(빽빽한 곳은 은하수처럼 번짐)
       deepCacheKey = key;
       const Wc = Math.max(1, Math.round(W)), Hc = Math.max(1, Math.round(H));
@@ -678,9 +687,13 @@ export function mountUniverseExplorer(container, opts = {}) {
       deepAcc.fill(0);
       const k = LY / mpp, ox = W / 2, oy = H / 2;
       const cX = camX / LY, cY = camY / LY;
-      for (const { x, y, cb, d } of starLayers) {
-        const mag = d.mag;
+      const vx0 = cX - (W / 2) / k, vx1 = cX + (W / 2) / k, vy0 = cY - (H / 2) / k, vy1 = cY + (H / 2) / k;
+      const gLim = gaiaOn ? gaia.magLimit(vx0 - sunLyX, vx1 - sunLyX, vy0 - sunLyY, vy1 - sunLyY) : 255;
+      for (const { x, y, cb, d, box } of starLayers) {
+        if (box && (box[2] < vx0 || box[0] > vx1 || box[3] < vy0 || box[1] > vy1)) continue; // 화면 밖 칸은 건너뜀
+        const mag = d.mag, lim = d.gaia ? gLim : 255;
         for (let i = 0, n = x.length; i < n; i++) {
+          if (mag[i] > lim) continue;
           const X = (ox + (x[i] - cX) * k) | 0;
           if (X < 0 || X >= Wc) continue;
           const Y = (oy - (y[i] - cY) * k) | 0;
@@ -710,8 +723,10 @@ export function mountUniverseExplorer(container, opts = {}) {
     const [camX, camY] = getCam(s), m = mppAt(s) / LY;
     const cX = camX / LY, cY = camY / LY;
     let best = null, bd = r * r;
+    const rx = r * m;
     for (const L of starLayers) {
-      const { x, y } = L;
+      const { x, y, box } = L;
+      if (box) { const wx = cX + (px - W / 2) * m, wy = cY - (py - H / 2) * m; if (wx < box[0] - rx || wx > box[2] + rx || wy < box[1] - rx || wy > box[3] + rx) continue; }
       for (let i = 0, n = x.length; i < n; i++) {
         const dx = W / 2 + (x[i] - cX) / m - px;
         if (dx > r || dx < -r) continue;
@@ -725,6 +740,10 @@ export function mountUniverseExplorer(container, opts = {}) {
     return hit;
   }
   function deepInfo(d, i) {
+    if (d.gaia) {
+      const m = d.mag[i] / 10;
+      return ['Gaia DR3 별', `${fmtLy(d.ly[i])} · ${bpColorKo(d.bv[i])}`, `G ${m.toFixed(1)}등급 · 망원경으로만 보여요 · 거리는 연주시차 기준`];
+    }
     const con = sky ? sky.con[sky.conKeys[d.con[i]]] || '' : '';
     const m = d.mag[i] / 10;
     return [starId(d, i), `${fmtLy(d.ly[i])} · ${starTypeKo(deepSpect(d.sp[i]))}`, `${con ? con + ' · ' : ''}${m.toFixed(1)}등급 · ${m > 8.5 ? '망원경으로만' : '쌍안경으로'} 보여요`];
@@ -1187,18 +1206,18 @@ export function mountUniverseExplorer(container, opts = {}) {
   let g3 = null;
   const btn3d = $('.mu-3d');
   const btnMore = $('.mu-more');
-  btnMore.addEventListener('click', () => loadMega());
+  btnMore.addEventListener('click', () => toggleGaia());
   btn3d.addEventListener('click', async () => {
     if (g3) return;
     g3 = 'loading';
-    const preset = s < 19.6 ? 'sun' : s < 22.2 ? 'mw' : 'lg';
+    const preset = s < 19.6 ? 'sun' : s < 22.2 ? 'mw' : s < 23.8 ? 'lg' : 'cosmos';
     try {
       const { openGalaxy3D } = await import('./galaxy3d.js');
       if (destroyed) return;
       cancelAnimationFrame(raf); // 2D 화면은 잠시 멈춤
       g3 = openGalaxy3D(root, {
         sky, exo: catalog, layers: starLayers.map((L) => L.d), describeDeep: deepInfo, subscribe: (f) => { g3Listeners.add(f); return () => g3Listeners.delete(f); },
-        loadMore: () => loadMega(), dwarfs: world.lgDwarfs, preset, dsoKo: DSO_KO,
+        gaia: { toggle: () => toggleGaia(), get on() { return gaiaOn; }, view: (x0, x1, y0, y1, cell) => { if (gaiaOn) gaia.update(x0, x1, y0, y1, cell); } }, dwarfs: world.lgDwarfs, preset, dsoKo: DSO_KO,
         describeStar: (i) => hoverLabel({ sky: i }),
         onClose: () => { g3 = null; if (!destroyed) { last = performance.now(); raf = requestAnimationFrame(frame); } },
       });
@@ -1256,7 +1275,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   const setText = (key, el, v) => { if (hudCache[key] !== v) { hudCache[key] = v; el.textContent = v; } };
   function updateHud() {
     btn3d.hidden = s < 16.5;
-    btnMore.hidden = s < 16.5 || s > 21.5;
+    btnMore.hidden = s < 16.5 || s > 21.8;
     let idx = 0;
     for (let i = 0; i < LEVELS.length; i++) if (s >= LEVELS[i].at) idx = i;
     // 지구에서 멀리 벗어나 있으면 지구·달 단계 설명 대신 태양계 단계로
@@ -2127,5 +2146,6 @@ export function mountUniverseExplorer(container, opts = {}) {
     focusPlanet: (name) => enterFocus(name),
     focusSystem: (id) => enterSystem(id),
     get scale() { return s; },
+    get gaiaInfo() { return { on: gaiaOn, loaded: gaia.loadedCount, loading: gaia.loading, ready: gaia.ready, failed: gaia.failed, layers: starLayers.length }; },
   };
 }

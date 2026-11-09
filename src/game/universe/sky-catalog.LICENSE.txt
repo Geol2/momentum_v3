@@ -1,4 +1,4 @@
-sky-catalog.json · stars-deep.bin · stars-mega-*.bin — 우주 탐험 게임용 별·심우주 천체 데이터
+sky-catalog.json · stars-deep.bin — 우주 탐험 게임용 별·심우주 천체 데이터
 
 별 데이터: AT-HYG v3.2 (전체 및 HYGLike subset, 약 249만 개), David Nash / astronexus
   https://codeberg.org/astronexus/athyg  (Gaia DR3, Hipparcos, Tycho-2 기반)
@@ -8,5 +8,15 @@ sky-catalog.json · stars-deep.bin · stars-mega-*.bin — 우주 탐험 게임�
   License: CC BY-SA 4.0
 블랙홀·펄서·은하 등 추가 천체의 거리·설명: 공개 문헌 값을 정리 (Gaia BH1–3, EHT, JWST 등)
 
-이 파일들(sky-catalog.json, stars-deep.bin, stars-mega-1~6.bin)은 위 데이터를 걸러내고 변환한 2차 저작물이며,
+이 파일들(sky-catalog.json, stars-deep.bin)은 위 데이터를 걸러내고 변환한 2차 저작물이며,
 같은 CC BY-SA 4.0 조건으로 배포됩니다. https://creativecommons.org/licenses/by-sa/4.0/
+
+public/gaia/ (Gaia 별 타일, 약 985만 개)
+  Gaia DR3: ESA/Gaia/DPAC — "This work has made use of data from the European Space Agency (ESA) mission Gaia
+  (https://www.cosmos.esa.int/gaia), processed by the Gaia Data Processing and Analysis Consortium (DPAC)."
+  License: CC BY-SA 3.0 IGO. 밝은 별 1,000만 개 추출본: https://github.com/cosmoscout/gaia-stars
+  변환 스크립트: scripts/build_gaia_tiles.py
+
+galaxies-2mrs.bin (근처 우주 은하 약 4만 3천 개)
+  2MASS Redshift Survey (Huchra et al. 2012, ApJS 199, 26) — 거리 값은 NANOGrav Galaxy Catalog (2MRS)
+  https://github.com/nanograv/nanograv_galaxy_catalog_2MRS (GPL-3.0) 에서 가져와 좌표·거리만 압축
