@@ -18,6 +18,7 @@ import { planetPositions, orbitPoints, earthSeason, PERIOD_DAYS } from './planet
 import { MOONS, PLANET_INFO, moonStates } from './moons.js';
 import { SYSTEMS, exoStates, eqToEcl, catalogToSystem, linkFeatured, teffColor } from './exoplanets.js';
 import catalogUrl from './exo-catalog.json?url';
+import skyUrl from './sky-catalog.json?url';
 import { plutoHelio, DWARFS, PROBES, probeDistanceAU } from './outer.js';
 import dayUrl from './earth-day.webp';
 import reliefUrl from './earth-relief.webp';
@@ -67,14 +68,15 @@ function skyPosM(raDeg, decDeg, distM) {
   return [SUN[0] + d * Math.cos(lam), SUN[1] + d * Math.sin(lam)];
 }
 const MOON = P(3.844e8, 0.6);
-const GC = [-26000 * LY, 0];                // 우리은하 중심
-const ANDROMEDA = P(2.5 * MLY, 2.2);
-const M33 = P(2.73 * MLY, 2.75);
-const LMC = P(160e3 * LY, -2.0);
-const SMC = P(200e3 * LY, -2.25);
+// 은하 규모 기준점도 실제 하늘 방향(적경·적위)·거리로 배치 → 별·성운과 같은 좌표계
+const GC = skyPosM(266.417, -29.008, 26670 * LY);      // 우리은하 중심 (궁수자리 A*)
+const ANDROMEDA = skyPosM(10.685, 41.269, 2.5 * MLY);
+const M33 = skyPosM(23.462, 30.660, 2.73 * MLY);
+const LMC = skyPosM(80.894, -69.756, 160e3 * LY);
+const SMC = skyPosM(13.187, -72.829, 200e3 * LY);
 const LG_CENTER = scale2(ANDROMEDA, 0.45);
-const VIRGO = P(54 * MLY, 0.85);
-const GA = P(250 * MLY, 0.35);              // 거대 인력체
+const VIRGO = skyPosM(187.706, 12.391, 54 * MLY);       // 처녀자리 은하단 (M87)
+const GA = skyPosM(243.590, -60.870, 220 * MLY);        // 거대 인력체 (직각자자리 은하단 부근)
 const LANI = scale2(GA, 0.82);              // 라니아케아 중심(대략)
 
 // 카메라 초점 키프레임 [s, 초점]. 같은 점이 연속이면 그 구간은 고정.
@@ -204,17 +206,8 @@ function buildWorld(seed = 20261109) {
   // 이웃 별
   // 실제 하늘 위치(적경·적위)·거리 → 황도면 투영 (태양 기준)
   const skyPos = (raDeg, decDeg, ly) => skyPosM(raDeg, decDeg, ly * LY);
-  const namedStars = [
-    ['바너드 별', 269.452, 4.693, 5.96, '#ff8a5c'], ['시리우스', 101.287, -16.716, 8.6, '#cfe3ff'],
-    ['베가', 279.235, 38.784, 25, '#d9e8ff'], ['아크투루스', 213.915, 19.182, 36.7, '#ffc58a'],
-  ].map(([name, ra, dec, ly, color]) => ({ name, color, ly, pos: skyPos(ra, dec, ly) }));
   const systems = SYSTEMS.map((sys) => ({ sys, pos: skyPos(sys.ra, sys.dec, sys.distLy) }));
-  const stars = new Cloud();
-  const starColors = ['rgba(255,244,230,0.9)', 'rgba(200,220,255,0.9)', 'rgba(255,200,150,0.85)', 'rgba(255,170,130,0.8)'];
-  for (let i = 0; i < 380; i++) {
-    const [x, y] = inDisk(90 * LY);
-    stars.add(starColors[(rnd() * starColors.length) | 0], x + SUN[0], y + SUN[1]);
-  }
+  // (가짜 무작위 별은 없앰 — 실제 별 목록은 sky-catalog.json 에서 불러옴)
 
   // 우리은하 (나선팔)
   const galaxy = new Cloud();
@@ -247,25 +240,77 @@ function buildWorld(seed = 20261109) {
     { name: '대마젤란 은하', pos: LMC, r: 7000 * LY, rot: 0.2, ar: 0.7, color: '220,230,255', small: true },
     { name: '소마젤란 은하', pos: SMC, r: 3500 * LY, rot: 0.8, ar: 0.6, color: '220,230,255', small: true },
   ];
-  const dwarfs = new Cloud();
-  for (let i = 0; i < 45; i++) dwarfs.add('rgba(210,220,255,0.7)', GC[0] + gauss() * 0.35 * MLY, GC[1] + gauss() * 0.35 * MLY);
-  for (let i = 0; i < 35; i++) dwarfs.add('rgba(210,220,255,0.7)', ANDROMEDA[0] + gauss() * 0.4 * MLY, ANDROMEDA[1] + gauss() * 0.4 * MLY);
+  // 국부은하군의 실제 위성은하·왜소은하 [이름, 적경, 적위, 거리(천 광년), 설명]
+  const lgDwarfs = [
+    ['궁수자리 왜소은하', 283.83, -30.55, 70, '우리은하에 잡아먹히는 중인 위성은하'],
+    ['큰곰자리 II 왜소은하', 132.87, 63.13, 98, '아주 희미한 초저광도 왜소은하'],
+    ['목동자리 I 왜소은하', 210.02, 14.50, 197, '별이 매우 적은 오래된 왜소은하'],
+    ['작은곰자리 왜소은하', 227.29, 67.22, 200, '별 생성이 일찍 멈춘 위성은하'],
+    ['용자리 왜소은하', 260.06, 57.92, 260, '암흑물질이 아주 많은 위성은하'],
+    ['조각가자리 왜소은하', 15.04, -33.71, 290, '1937년 처음 발견된 왜소 타원체 은하'],
+    ['육분의자리 왜소은하', 153.26, -1.61, 290, '넓게 퍼진 희미한 위성은하'],
+    ['용골자리 왜소은하', 100.40, -50.97, 330, '별 생성이 여러 번 일어난 위성은하'],
+    ['컵자리 II 왜소은하', 177.31, -18.41, 380, '2016년 발견 · 크지만 아주 희미함'],
+    ['공기펌프자리 2 왜소은하', 143.89, -36.77, 430, '2018년 Gaia로 발견된 유령 같은 은하'],
+    ['화로자리 왜소은하', 39.99, -34.45, 460, '구상성단 6개를 거느린 위성은하'],
+    ['사자자리 II 왜소은하', 168.37, 22.15, 690, '먼 거리의 위성은하'],
+    ['사자자리 I 왜소은하', 152.12, 12.31, 820, '레굴루스 바로 옆에 보이는 은하'],
+    ['M32', 10.674, 40.865, 2490, '안드로메다의 작은 타원은하'],
+    ['M110', 10.092, 41.685, 2690, '안드로메다의 왜소 타원은하'],
+    ['NGC 185', 9.742, 48.337, 2010, '안드로메다의 위성은하'],
+    ['NGC 147', 8.300, 48.509, 2530, '안드로메다의 위성은하'],
+    ['안드로메다 I', 11.416, 38.04, 2400, '안드로메다의 왜소 타원체 은하'],
+    ['안드로메다 II', 19.12, 33.42, 2130, '안드로메다의 왜소 타원체 은하'],
+    ['IC 10', 5.07, 59.30, 2200, '국부은하군 유일의 폭발적 별 생성 은하'],
+    ['IC 1613', 16.20, 2.12, 2380, '먼지가 거의 없는 왜소 불규칙은하'],
+    ['바너드 은하 (NGC 6822)', 296.24, -14.80, 1630, '가까운 왜소 불규칙은하'],
+    ['WLM 은하', 0.49, -15.46, 3040, '국부은하군 가장자리의 외톨이 은하'],
+    ['봉황자리 왜소은하', 27.78, -44.44, 1440, '왜소 불규칙-타원체 전이형 은하'],
+    ['큰부리새자리 왜소은하', 340.46, -64.42, 2870, '고립된 왜소 타원체 은하'],
+    ['사자자리 A', 149.86, 30.75, 2600, '아주 어린 별이 많은 왜소은하'],
+    ['페가수스 왜소 불규칙은하', 352.15, 14.74, 3000, '국부은하군의 왜소 불규칙은하'],
+    ['물병자리 왜소은하', 311.72, -12.85, 3200, '국부은하군 가장자리의 왜소은하'],
+    ['육분의자리 A', 152.75, -4.69, 4310, '국부은하군 바로 바깥의 왜소은하'],
+  ].map(([name, ra, dec, kly, desc]) => ({ name, desc, ly: kly * 1000, pos: skyPosM(ra, dec, kly * 1000 * LY) }));
 
-  // 처녀자리 초은하단
-  const virgo = new Cloud();
-  const galCols = ['rgba(255,235,210,0.8)', 'rgba(200,215,255,0.8)', 'rgba(255,255,255,0.6)'];
-  const gc = () => galCols[(rnd() * galCols.length) | 0];
-  for (let i = 0; i < 750; i++) virgo.add(gc(), VIRGO[0] + gauss() * 5 * MLY, VIRGO[1] + gauss() * 3.5 * MLY);
-  const vCenter = scale2(VIRGO, 0.55);
-  for (let g = 0; g < 11; g++) {
-    const [ox, oy] = inDisk(55 * MLY);
-    for (let i = 0; i < 55; i++) virgo.add(gc(), vCenter[0] + ox + gauss() * 1.8 * MLY, vCenter[1] + oy + gauss() * 1.8 * MLY);
-  }
-  for (let i = 0; i < 500; i++) {
-    const [x, y] = inDisk(62 * MLY);
-    virgo.add('rgba(190,205,255,0.45)', vCenter[0] + x, vCenter[1] + y);
-  }
-  for (let i = 0; i < 24; i++) virgo.add(gc(), gauss() * 0.7 * MLY, gauss() * 0.7 * MLY);
+  // 실제 은하군·은하단·거대 구조 [이름, 종류, 적경, 적위, 거리(백만 광년), 설명]
+  // 종류: grp 은하군, cl 은하단, sc 초은하단, wall 거대 구조, void 보이드, far 가장 먼 천체 (공동 거리)
+  const deepSpace = [
+    ['마페이 은하군', 'grp', 39.15, 59.65, 9.8, '은하수 먼지 뒤에 숨은 가까운 은하군'],
+    ['조각가자리 은하군', 'grp', 11.888, -25.288, 11.4, '조각가자리 은하(NGC 253) 중심의 이웃 은하군'],
+    ['M81 은하군', 'grp', 148.888, 69.065, 11.7, 'M81·M82가 서로 당기는 은하군'],
+    ['센타우루스 A / M83 은하군', 'grp', 201.365, -43.019, 12, '거대 전파은하 센타우루스 A의 은하군'],
+    ['사냥개자리 은하군', 'grp', 192.721, 41.12, 13, 'M94 주변의 느슨한 은하군'],
+    ['M101 은하군', 'grp', 210.802, 54.349, 21, '바람개비 은하(M101) 은하군'],
+    ['사자자리 I 은하군 (M96)', 'grp', 161.69, 11.82, 35, '사자자리 삼중은하와 이웃한 은하군'],
+    ['사자자리 삼중은하', 'grp', 170.06, 12.99, 35, 'M65·M66·NGC 3628'],
+    ['처녀자리 은하단', 'cl', 187.706, 12.391, 54, '은하 1300~2000개 · 중심 M87 블랙홀(2019 첫 사진)'],
+    ['큰곰자리 은하단', 'cl', 178.9, 53.4, 55, '나선은하가 많은 느슨한 은하단'],
+    ['화로자리 은하단', 'cl', 54.62, -35.45, 62, '남쪽 하늘의 가까운 은하단'],
+    ['에리다누스 은하군', 'grp', 55.05, -18.58, 75, '화로자리 은하단과 이어진 은하군'],
+    ['국부 보이드', 'void', 285, 15, 75, '국부은하군 옆의 텅 빈 공간 · 우리를 밀어냄'],
+    ['히드라 은하단', 'cl', 159.18, -27.53, 158, '라니아케아 안의 큰 은하단'],
+    ['센타우루스 은하단', 'cl', 192.2, -41.3, 170, '라니아케아 안의 큰 은하단'],
+    ['공작-인디언 은하군', 'grp', 304.2, -70.86, 190, '거대 인력체 쪽으로 흘러가는 은하군'],
+    ['직각자자리 은하단 (거대 인력체)', 'cl', 243.59, -60.87, 220, '라니아케아 중력의 중심 · 은하수에 가려 있음'],
+    ['페르세우스 은하단', 'cl', 49.95, 41.51, 240, '페르세우스-물고기자리 초은하단의 중심 · X선이 가장 밝음'],
+    ['사자자리 은하단 (Abell 1367)', 'cl', 176.2, 19.7, 300, '머리털자리 초은하단의 일부'],
+    ['머리털자리 은하단', 'cl', 194.95, 27.98, 321, '은하 1000개 이상 · 1933년 암흑물질 첫 단서'],
+    ['IC 1101', 'gal', 227.733, 5.745, 1045, '가장 큰 은하 중 하나 · 별빛 지름 약 400만 광년 (우리은하의 40배)'],
+    ['알키오네우스', 'gal', 122.0, 52.0, 3000, '2022년 발견 · 전파 제트 길이 약 1600만 광년의 거대 전파은하 (위치는 대략)'],
+    ['헤라클레스 은하단', 'cl', 241.15, 17.72, 500, '충돌 중인 은하가 많은 은하단'],
+    ['섀플리 초은하단', 'sc', 201.98, -31.5, 650, '근처 우주에서 가장 무거운 구조'],
+    ['목동자리 보이드', 'void', 218, 46, 700, '지름 약 3억 광년의 거대한 빈 공간'],
+    ['CfA2 장성', 'wall', 195, 28, 300, '1989년 발견된 은하의 장벽 · 길이 약 5억 광년'],
+    ['슬론 장성', 'wall', 195, 1, 1370, '2003년 발견 · 길이 약 14억 광년'],
+    ['거대 호 (Giant Arc)', 'wall', 162.5, 20, 9200, '2021년 발견된 33억 광년 길이의 호'],
+    ['빅 링 (Big Ring)', 'wall', 222, 25, 9200, '2024년 발견된 지름 13억 광년의 고리'],
+    ['헤라클레스-북쪽왕관자리 장성', 'wall', 245, 30, 10000, '알려진 가장 큰 구조 후보 · 약 100억 광년 길이'],
+    ['에렌델', 'far', 24.355, -8.457, 28000, '가장 먼 단일 별(2022, 중력렌즈) · 빛이 129억 년 걸림'],
+    ['GN-z11', 'far', 189.106, 62.242, 32000, '2016년 당시 가장 먼 은하 · 블랙홀 활동 확인(2024)'],
+    ['JADES-GS-z14-0', 'far', 53.083, -27.890, 33800, '2024년 JWST · 빅뱅 2.9억 년 뒤의 은하'],
+    ['MoM-z14', 'far', 150.093, 2.273, 33900, '2025년 JWST · 현재 가장 먼 은하 (빅뱅 2.8억 년 뒤)'],
+  ].map(([name, kind, ra, dec, mly, desc]) => ({ name, kind, desc, mly, pos: skyPosM(ra, dec, mly * MLY) }));
 
   // 라니아케아
   const laniR = (th) => 270 * MLY * (1 + 0.1 * Math.sin(3 * th + 1) + 0.06 * Math.cos(5 * th));
@@ -273,20 +318,6 @@ function buildWorld(seed = 20261109) {
   for (let i = 0; i <= 120; i++) {
     const th = (i / 120) * Math.PI * 2;
     laniBoundary.push(P(laniR(th), th, LANI));
-  }
-  const lani = new Cloud();
-  const inLani = () => {
-    const th = rnd() * Math.PI * 2;
-    return P(laniR(th) * Math.sqrt(rnd()), th, LANI);
-  };
-  for (let i = 0; i < 650; i++) lani.add(gc(), GA[0] + gauss() * 13 * MLY, GA[1] + gauss() * 13 * MLY);
-  for (let c = 0; c < 18; c++) {
-    const [cx, cy] = inLani();
-    for (let i = 0; i < 90; i++) lani.add(gc(), cx + gauss() * 6 * MLY, cy + gauss() * 6 * MLY);
-  }
-  for (let i = 0; i < 1300; i++) {
-    const [x, y] = inLani();
-    lani.add('rgba(190,205,255,0.4)', x, y);
   }
   const flows = [];
   for (let f = 0; f < 46; f++) {
@@ -309,7 +340,6 @@ function buildWorld(seed = 20261109) {
   const nodes = [];
   for (let i = 0; i < 420; i++) nodes.push(inDisk(R_OBS * 0.97));
   nodes.push(LANI);
-  const web = new Cloud();
   const webEdges = [];
   const seen = new Set();
   for (let i = 0; i < nodes.length; i++) {
@@ -325,29 +355,12 @@ function buildWorld(seed = 20261109) {
       webEdges.push([nodes[i], nodes[j]]);
     }
   }
-  const webCols = ['rgba(170,150,255,0.7)', 'rgba(130,190,255,0.6)', 'rgba(230,200,255,0.5)'];
-  for (const [a, b] of webEdges) {
-    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    const n = Math.max(4, Math.round(len / (R_OBS / 220)));
-    const nx = -(b[1] - a[1]) / len, ny = (b[0] - a[0]) / len;
-    for (let k = 0; k < n; k++) {
-      const t = rnd(), off = gauss() * R_OBS * 0.004;
-      web.add(webCols[(rnd() * 3) | 0], a[0] + (b[0] - a[0]) * t + nx * off, a[1] + (b[1] - a[1]) * t + ny * off);
-    }
-  }
-  for (const [x, y] of nodes) {
-    for (let k = 0; k < 14; k++) web.add('rgba(255,220,250,0.8)', x + gauss() * R_OBS * 0.006, y + gauss() * R_OBS * 0.006);
-  }
-
-  // 화면 고정 배경 별
-  const bg = [];
-  for (let i = 0; i < 220; i++) bg.push([rnd(), rnd(), rnd() * 1.3 + 0.3, rnd() * Math.PI * 2]);
 
   // 지구 대륙 (지구 반지름 기준 상대 좌표)
   const continents = [];
   for (let i = 0; i < 9; i++) continents.push([gauss() * 0.45, gauss() * 0.45, 0.12 + rnd() * 0.22, 0.08 + rnd() * 0.16, rnd() * Math.PI]);
 
-  return { planets, asteroids, kuiper, oort, comets, pluto, dwarfPlanets, probes, namedStars, systems, stars, galaxy, lgGalaxies, dwarfs, virgo, laniBoundary, lani, flows, web, bg, continents };
+  return { planets, asteroids, kuiper, oort, comets, pluto, dwarfPlanets, probes, systems, galaxy, lgGalaxies, lgDwarfs, deepSpace, laniBoundary, flows, webEdges, continents };
 }
 
 // ───────────────────────── 포맷 ─────────────────────────
@@ -360,6 +373,31 @@ function fmtKo(n) {
   if (n >= 1e8) return trimNum(n / 1e8) + '억';
   if (n >= 1e4) return trimNum(n / 1e4) + '만';
   return trimNum(n);
+}
+function fmtLy(ly) {
+  return ly < 100 ? `${trimNum(ly)}광년` : `${fmtKo(Math.round(ly))}광년`;
+}
+function fmtMly(mly) { // 백만 광년 단위 → 한국어
+  return mly < 100 ? `${fmtKo(mly * 100)}만 광년` : `${trimNum(Math.round(mly / 10) / 10)}억 광년`;
+}
+const DSO_KO = { neb: '발광 성운', pn: '행성상 성운', snr: '초신성 잔해', oc: '산개성단', gc: '구상성단', bh: '블랙홀', psr: '펄서', mag: '마그네타', ns: '중성자별', bd: '갈색왜성', star: '특이한 별', cloud: '별 구름', planet: '외계 행성' };
+const DEEP_KO = { grp: '은하군', cl: '은하단', sc: '초은하단', wall: '거대 구조', void: '보이드(빈 공간)', far: '가장 먼 천체', gal: '거대 은하' };
+// 분광형 → "적색 초거성" 같은 한국어 설명
+function starTypeKo(sp) {
+  if (!sp) return '별';
+  const u = sp.toUpperCase();
+  if (/^D[ABOQZC]?/.test(u)) return '백색왜성';
+  if (u.startsWith('W')) return '볼프-레이에 별';
+  if (u.startsWith('C') || u.startsWith('N') || u.startsWith('R')) return '탄소별';
+  const sd = u.startsWith('SD');
+  const m = (sd ? u.slice(2) : u).match(/^([OBAFGKMS])/);
+  if (!m) return '별';
+  const col = { O: '청색', B: '청백색', A: '백색', F: '황백색', G: '황색', K: '주황색', M: '적색', S: '적색' }[m[1]];
+  if (sd) return `${col} 준왜성`;
+  const rest = u.slice(1).replace(/^[0-9.\-/]*/, '');
+  const lc = rest.match(/(III|II|IV|VI|V|I(?:AB|A|B)?|0)/);
+  const lum = !lc ? '별' : lc[1] === 'V' ? '주계열성' : lc[1] === 'IV' ? '준거성' : lc[1] === 'III' ? '거성' : lc[1] === 'II' ? '밝은 거성' : lc[1] === 'VI' ? '준왜성' : '초거성';
+  return `${col} ${lum}`;
 }
 function fmtLength(m) {
   if (m < 1e12) return fmtKo(m / 1000) + ' km';
@@ -534,6 +572,27 @@ export function mountUniverseExplorer(container, opts = {}) {
     const nPlanets = rows.reduce((a, r) => a + r[7].length, 0);
     catalog = { rows, x, y, groups, featuredNames, nPlanets };
   }).catch(() => { /* 오프라인 등 — 추천 행성계 5곳만 표시 */ });
+  // 실제 별(AT-HYG v3.2 · Gaia DR3 거리) + 성운·성단·블랙홀·펄서
+  let sky = null;
+  fetch(skyUrl).then((r) => r.json()).then((d) => {
+    if (destroyed) return;
+    const n = d.stars.length;
+    const x = new Float64Array(n), y = new Float64Array(n);
+    const buckets = new Map();
+    d.stars.forEach((r, i) => {
+      const p = skyPosM(r[2], r[3], r[4] * LY);
+      x[i] = p[0]; y[i] = p[1];
+      const bv = r[7] == null ? 0.6 : r[7];
+      const teff = 4600 * (1 / (0.92 * bv + 1.7) + 1 / (0.92 * bv + 0.62));
+      const am = r[6] == null ? 2 : r[6];
+      const size = am <= -5 ? 3.2 : am <= -2 ? 2.6 : am <= 1 ? 2.1 : am <= 4 ? 1.6 : 1.2;
+      const key = `${teffColor(teff)}|${size}`;
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(i);
+    });
+    const dso = d.dso.map(([name, kind, ra, dec, ly, desc]) => ({ name, kind, ly, desc, pos: skyPosM(ra, dec, ly * LY) }));
+    sky = { rows: d.stars, con: d.con, x, y, buckets: [...buckets].map(([k, idx]) => { const [rgb, sz] = k.split('|'); return { rgb, size: +sz, idx }; }), dso };
+  }).catch(() => {});
   const seasonInfo = earthSeason(TODAY);
   // 3D(WebGL2) 지구 — 안 되면 2D 지구로 자동 전환
   let earth = null;
@@ -754,6 +813,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     } else if (best && best.sys) enterSystem(best.sys);
     else if (best && best.cat !== undefined) enterCatalog(best.cat);
     else if (best) enterFocus(best.name);
+    else if (infoTap(x, y)) { /* 정보 표시 */ }
     else {
       // 빈 곳 두 번 탭 → 그 지점으로 한 단계 확대
       const now = performance.now();
@@ -787,9 +847,31 @@ export function mountUniverseExplorer(container, opts = {}) {
     }
     if (t.sys) { const q = SYSTEMS.find((z) => z.id === t.sys); return [q.name, `${q.distLy}광년 · 행성 ${q.planets.length}개 · 탭하면 방문`]; }
     if (t.probe) return [t.probe.name, `태양에서 약 ${Math.round(t.probe.au)} AU`];
-    if (t.star) return [t.star.name, `${t.star.ly}광년`];
+    if (t.sky !== undefined && sky) {
+      const r = sky.rows[t.sky];
+      const con = sky.con[r[9]] || r[9];
+      return [r[0] ? `${r[0]}${r[1] ? ' · ' + r[1] : ''}` : r[1] || '이름 없는 별',
+        `${fmtLy(r[4])} · ${starTypeKo(r[8])}`,
+        `${con} · ${r[5].toFixed(1)}등급${r[10] ? ' · 거리: Gaia DR3' : ''}`];
+    }
+    if (t.dso) return [t.dso.name, `${fmtLy(t.dso.ly)} · ${DSO_KO[t.dso.kind]}`, t.dso.desc];
+    if (t.gal) return [t.gal.name, `${fmtLy(t.gal.ly)} · 국부은하군`, t.gal.desc];
+    if (t.deep) return [t.deep.name, `${fmtMly(t.deep.mly)}${t.deep.kind === 'far' || t.deep.mly > 5000 ? ' (공동 거리)' : ''} · ${DEEP_KO[t.deep.kind]}`, t.deep.desc];
     if (t.name) { const d = PERIOD_DAYS[t.name]; return [t.name, d ? `공전 ${fmtPeriod(d)}${MOONS[t.name] ? ' · 탭하면 위성 보기' : ''}` : '']; }
     return null;
+  }
+  // 정보만 있는 천체(별·성운 등) 탭 → 토스트로 정보
+  function infoTap(x, y) {
+    let best = null;
+    for (const p of lastPlanetScreen) {
+      if (!p.hoverOnly) continue;
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d < 18 && (!best || d < best.d)) best = { p, d };
+    }
+    const lab = best && hoverLabel(best.p);
+    if (!lab) return false;
+    toast(lab.filter(Boolean).join(' · '));
+    return true;
   }
   function pickHover() {
     if (!hoverPt) return null;
@@ -799,7 +881,7 @@ export function mountUniverseExplorer(container, opts = {}) {
       if (d < r && (!best || d < best.d)) best = { t, d };
     };
     for (const t of lastMoonScreen) consider(t, 16);
-    if (!best) for (const t of lastPlanetScreen) consider(t, t.cat !== undefined ? 12 : 20);
+    if (!best) for (const t of lastPlanetScreen) consider(t, t.cat !== undefined || t.sky !== undefined ? 10 : 20);
     return best && best.t;
   }
   function drawHover(time) {
@@ -820,11 +902,23 @@ export function mountUniverseExplorer(container, opts = {}) {
     g.stroke();
     g.shadowBlur = 0;
     const MONO = '"SF Mono",Menlo,Consolas,"Apple SD Gothic Neo","Noto Sans KR",monospace';
-    g.font = `700 12px ${MONO}`;
-    const w1 = g.measureText(lab[0]).width;
-    g.font = `500 10.5px ${MONO}`;
-    const w2 = lab[1] ? g.measureText(lab[1]).width : 0;
-    const bw = Math.max(w1, w2) + 16, bh = lab[1] ? 38 : 24;
+    // 줄바꿈(화면 폭에 맞춤)
+    const maxW = Math.min(360, W - 40);
+    const lines = [{ text: lab[0], font: `700 12px ${MONO}`, color: '#3dff8f' }];
+    lab.slice(1).filter(Boolean).forEach((txt, k) => {
+      const font = `500 10.5px ${MONO}`;
+      g.font = font;
+      let cur = '';
+      for (const word of txt.split(' ')) {
+        const tryS = cur ? cur + ' ' + word : word;
+        if (cur && g.measureText(tryS).width > maxW) { lines.push({ text: cur, font, color: k ? '#7fdcaa' : '#a6ffcb' }); cur = word; } else cur = tryS;
+      }
+      if (cur) lines.push({ text: cur, font, color: k ? '#7fdcaa' : '#a6ffcb' });
+    });
+    let bw = 0;
+    for (const L of lines) { g.font = L.font; bw = Math.max(bw, g.measureText(L.text).width); }
+    bw += 16;
+    const bh = 10 + lines.length * 14;
     let bx = t.x + 16, by = t.y - bh - 8;
     if (bx + bw > W - 6) bx = t.x - bw - 16;
     bx = Math.max(6, Math.min(W - bw - 6, bx)); // 화면 밖으로 안 나가게
@@ -838,9 +932,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     g.strokeStyle = 'rgba(61,255,143,.5)'; g.beginPath(); g.moveTo(t.x, t.y); g.lineTo(bx < t.x ? bx + bw : bx, by + bh / 2); g.stroke();
     g.textAlign = 'left';
     g.shadowColor = 'rgba(61,255,143,.9)'; g.shadowBlur = 6;
-    g.fillStyle = '#3dff8f'; g.font = `700 12px ${MONO}`;
-    g.fillText(lab[0], bx + 8, by + 16);
-    if (lab[1]) { g.fillStyle = '#a6ffcb'; g.font = `500 10.5px ${MONO}`; g.fillText(lab[1], bx + 8, by + 31); }
+    lines.forEach((L, i) => { g.font = L.font; g.fillStyle = L.color; g.fillText(L.text, bx + 8, by + 16 + i * 14); });
     g.shadowBlur = 0;
   }
 
@@ -1149,14 +1241,6 @@ export function mountUniverseExplorer(container, opts = {}) {
     const sy = (y) => cy - (y - camY) / mpp;
     const onScreen = (x, y, m = 40) => x > -m && x < W + m && y > -m && y < H + m;
 
-    // 배경 별 (화면 고정)
-    const bgA = 0.15 + 0.75 * (1 - smooth(17, 21, s));
-    for (const [u, v, r, ph] of world.bg) {
-      ctx.globalAlpha = bgA * (0.55 + 0.45 * Math.sin(time * 1.3 + ph));
-      ctx.fillStyle = '#dfe6ff';
-      ctx.fillRect(u * W, v * H, r, r);
-    }
-
     const label = (text, x, y, a, { dy = -12, color = '#e8ecff', size = 12, align = 'center' } = {}) => {
       if (a < 0.05) return;
       const X = sx(x), Y = sy(y);
@@ -1205,6 +1289,125 @@ export function mountUniverseExplorer(container, opts = {}) {
       }
     };
 
+    // 라벨 겹침 방지 배치
+    const placedLabels = [];
+    const tryLabel = (text, X, Y, a, color, size = 10, dy = -9) => {
+      const w = text.length * size * 0.75 + 6, h = size + 4;
+      const bx = X - w / 2, by = Y + dy - h;
+      if (placedLabels.some((q) => bx < q.x + q.w && bx + w > q.x && by < q.y + q.h && by + h > q.y)) return false;
+      placedLabels.push({ x: bx, y: by, w, h });
+      ctx.globalAlpha = a;
+      ctx.font = `600 ${size}px "SF Mono",Menlo,Consolas,"Apple SD Gothic Neo","Noto Sans KR",monospace`;
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.strokeText(text, X, Y + dy);
+      ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 4; ctx.fillText(text, X, Y + dy); ctx.shadowBlur = 0;
+      return true;
+    };
+    const DSO_COL = { neb: '255,122,182', pn: '122,240,255', snr: '255,176,90', oc: '191,227,255', gc: '255,224,138', bh: '199,140,255', psr: '90,255,255', mag: '255,110,255', ns: '160,255,255', bd: '200,140,100', star: '255,154,106', cloud: '230,230,240', planet: '120,255,200' };
+    const dsoIcon = (d, X, Y, a) => {
+      const c = DSO_COL[d.kind];
+      ctx.globalAlpha = a; ctx.strokeStyle = `rgba(${c},0.95)`; ctx.fillStyle = `rgba(${c},0.95)`; ctx.lineWidth = 1.2;
+      const ring = (r, dash) => { ctx.setLineDash(dash || []); ctx.beginPath(); ctx.arc(X, Y, r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); };
+      switch (d.kind) {
+        case 'neb': case 'cloud': {
+          const g = ctx.createRadialGradient(X, Y, 0, X, Y, 9);
+          g.addColorStop(0, `rgba(${c},0.8)`); g.addColorStop(1, `rgba(${c},0)`);
+          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(X, Y, 9, 0, Math.PI * 2); ctx.fill();
+          if (d.kind === 'neb') ring(6, [2, 2]);
+          break;
+        }
+        case 'pn': ring(4); ctx.fillRect(X - 0.7, Y - 0.7, 1.4, 1.4); break;
+        case 'snr': ring(5.5, [3, 2]); break;
+        case 'oc': for (let k = 0; k < 5; k++) { const an = k * 1.2566 + 0.3; ctx.fillRect(X + Math.cos(an) * 4 - 0.8, Y + Math.sin(an) * 4 - 0.8, 1.6, 1.6); } break;
+        case 'gc': { const g = ctx.createRadialGradient(X, Y, 0, X, Y, 6); g.addColorStop(0, `rgba(${c},1)`); g.addColorStop(1, `rgba(${c},0)`); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(X, Y, 6, 0, Math.PI * 2); ctx.fill(); break; }
+        case 'bh': ctx.lineWidth = 2; ring(5); ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(X, Y, 3.4, 0, Math.PI * 2); ctx.fill(); break;
+        case 'psr': case 'mag': case 'ns': {
+          ctx.fillRect(X - 1.3, Y - 1.3, 2.6, 2.6);
+          if (d.kind !== 'ns') { const an = time * (d.kind === 'psr' ? 4 : 1.5); ctx.beginPath(); ctx.moveTo(X - Math.cos(an) * 8, Y - Math.sin(an) * 8); ctx.lineTo(X + Math.cos(an) * 8, Y + Math.sin(an) * 8); ctx.stroke(); }
+          break;
+        }
+        case 'planet': ring(3.5); ctx.beginPath(); ctx.ellipse(X, Y, 6.5, 2, -0.4, 0, Math.PI * 2); ctx.stroke(); break;
+        default: ctx.fillRect(X - 1.5, Y - 1.5, 3, 3); ctx.beginPath(); ctx.moveTo(X - 6, Y); ctx.lineTo(X + 6, Y); ctx.moveTo(X, Y - 6); ctx.lineTo(X, Y + 6); ctx.stroke();
+      }
+    };
+    // 실제 별 + 성운·성단·블랙홀
+    function drawSky() {
+      if (!sky) return;
+      const fk = focus ? 1 - focus.blend : 1;
+      const aS = band(s, 16.2, 21.0) * fk;
+      if (aS > 0.02) {
+        for (const b of sky.buckets) {
+          ctx.globalAlpha = aS * (b.size >= 2.1 ? 1 : 0.8);
+          ctx.fillStyle = `rgb(${b.rgb})`;
+          const h = b.size / 2;
+          for (const i of b.idx) {
+            const X = cx + (sky.x[i] - camX) / mpp, Y = cy - (sky.y[i] - camY) / mpp;
+            if (X < -4 || X > W + 4 || Y < -4 || Y > H + 4) continue;
+            ctx.fillRect(X - h, Y - h, b.size, b.size);
+            if (aS > 0.3) lastPlanetScreen.push({ sky: i, hoverOnly: true, x: X, y: Y, wx: sky.x[i], wy: sky.y[i] });
+          }
+        }
+        // 고정 라벨(여기 · 추천 행성계) 자리는 비워 둠
+        const keep = (wx, wy, w, dy) => { const X = sx(wx), Y = sy(wy); placedLabels.push({ x: X - w / 2, y: Y + dy - 14, w, h: 16 }); };
+        keep(0, 0, 70, 22); keep(0, 0, 40, -6);
+        for (const { sys, pos } of world.systems) keep(pos[0], pos[1], sys.name.length * 11 + 60, -13);
+        // 밝은 별 반짝임 + 이름(겹치지 않게, 밝은 순)
+        let nLab = 0;
+        for (let i = 0; i < sky.rows.length && nLab < 26; i++) {
+          const r = sky.rows[i];
+          if (!r[0] || r[5] > 3.0) continue;
+          const X = cx + (sky.x[i] - camX) / mpp, Y = cy - (sky.y[i] - camY) / mpp;
+          if (!onScreen(X, Y, 0)) continue;
+          if (r[5] < 1.6) glow(sky.x[i], sky.y[i], 6, aS * 0.8, '255,245,230');
+          if (tryLabel(r[0].replace(/ \(.*\)$/, ''), X, Y, aS * 0.9, '#a6ffcb')) nLab++;
+        }
+      }
+      const aD = band(s, 17.4, 22.4) * fk;
+      if (aD > 0.02) {
+        for (const d of sky.dso) {
+          const X = sx(d.pos[0]), Y = sy(d.pos[1]);
+          if (!onScreen(X, Y, 10)) continue;
+          dsoIcon(d, X, Y, aD);
+          if (aD > 0.3) lastPlanetScreen.push({ dso: d, hoverOnly: true, x: X, y: Y, wx: d.pos[0], wy: d.pos[1] });
+        }
+        for (const d of sky.dso) {
+          const X = sx(d.pos[0]), Y = sy(d.pos[1]);
+          if (onScreen(X, Y, 0)) tryLabel(d.name.replace(/ \(.*\)$/, ''), X, Y, aD * 0.85, `rgb(${DSO_COL[d.kind]})`, 10, -11);
+        }
+      }
+    }
+    // 은하군·은하단·거대 구조·가장 먼 천체 — 각자 어울리는 배율에서만 보임
+    function drawDeepSpace() {
+      const aAll = band(s, 22.6, 28);
+      if (aAll < 0.02) return;
+      const span = Math.max(W, H);
+      for (const d of world.deepSpace) {
+        const R = (d.mly * MLY) / mpp;
+        const a = aAll * smooth(14, 40, R) * (1 - smooth(span * 1.2, span * 3, R));
+        if (a < 0.03) continue;
+        const X = sx(d.pos[0]), Y = sy(d.pos[1]);
+        if (!onScreen(X, Y, 60)) continue;
+        const col = { grp: '200,215,255', cl: '255,230,200', sc: '255,209,102', wall: '183,168,255', void: '120,140,200', far: '255,106,90', gal: '255,190,240' }[d.kind];
+        ctx.globalAlpha = a; ctx.strokeStyle = `rgba(${col},0.9)`; ctx.lineWidth = 1.2;
+        if (d.kind === 'void') {
+          const rv = (d.name.startsWith('목동') ? 165 : 60) * MLY / mpp;
+          ctx.setLineDash([4, 5]); ctx.beginPath(); ctx.arc(X, Y, Math.max(8, rv), 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+        } else if (d.kind === 'wall') {
+          const len = ({ 'CfA2 장성': 500, '슬론 장성': 1370, '거대 호 (Giant Arc)': 3300, '빅 링 (Big Ring)': 1300, '헤라클레스-북쪽왕관자리 장성': 10000 }[d.name] || 1000) * MLY / mpp;
+          ctx.setLineDash([3, 4]); ctx.beginPath();
+          if (d.name.startsWith('빅 링')) ctx.arc(X, Y, Math.max(6, len / 2), 0, Math.PI * 2);
+          else ctx.ellipse(X, Y, Math.max(8, len / 2), Math.max(3, len / 12), 0.6, 0, Math.PI * 2);
+          ctx.stroke(); ctx.setLineDash([]);
+        } else {
+          glow(d.pos[0], d.pos[1], d.kind === 'cl' || d.kind === 'sc' ? 12 : 7, a, col);
+          if (d.kind === 'far') { ctx.beginPath(); ctx.moveTo(X - 9, Y); ctx.lineTo(X - 4, Y); ctx.moveTo(X + 4, Y); ctx.lineTo(X + 9, Y); ctx.moveTo(X, Y - 9); ctx.lineTo(X, Y - 4); ctx.moveTo(X, Y + 4); ctx.lineTo(X, Y + 9); ctx.stroke(); }
+          if (d.kind === 'sc') { ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.arc(X, Y, 16, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
+        }
+        if (a > 0.3) lastPlanetScreen.push({ deep: d, hoverOnly: true, x: X, y: Y, wx: d.pos[0], wy: d.pos[1] });
+        tryLabel(d.name.replace(/ \(.*\)$/, ''), X, Y, a * 0.9, `rgb(${col})`, 10, -13);
+      }
+    }
+
     // ── 관측 가능한 우주의 끝 (우주 배경 복사) ──
     const aObs = band(s, 26.0, 99);
     if (aObs > 0.02) {
@@ -1221,7 +1424,14 @@ export function mountUniverseExplorer(container, opts = {}) {
 
     // ── 코스믹 웹 ──
     const aWeb = band(s, 25.0, 99);
-    drawCloud(world.web, aWeb * 0.9, 1.4);
+    if (aWeb > 0.02) { // 필라멘트 구조(통계적 재현) — 선으로만
+      ctx.globalAlpha = aWeb * 0.22; ctx.strokeStyle = '#8f7bff'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (const [a, b] of world.webEdges) { ctx.moveTo(sx(a[0]), sy(a[1])); ctx.lineTo(sx(b[0]), sy(b[1])); }
+      ctx.stroke();
+      label('코스믹 웹 필라멘트 (모양은 통계적 재현)', 0, -R_OBS * 0.55, aWeb * 0.7 * (1 - smooth(26.8, 27.1, s)), { color: '#b7a8ff', size: 10 });
+    }
+    drawDeepSpace(time);
 
     // ── 라니아케아 ──
     const aLani = band(s, 24.0, 26.4);
@@ -1238,7 +1448,6 @@ export function mountUniverseExplorer(container, opts = {}) {
       ctx.globalAlpha = aLani * 0.6; ctx.strokeStyle = '#ffd166'; ctx.setLineDash([6, 6]); ctx.beginPath();
       world.laniBoundary.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(sx(x), sy(y)) : ctx.lineTo(sx(x), sy(y))));
       ctx.stroke(); ctx.setLineDash([]);
-      drawCloud(world.lani, aLani, 1.6);
       glow(GA[0], GA[1], 18, aLani * 0.8, '150,210,255');
       label('거대 인력체 (Great Attractor)', GA[0], GA[1], aLani * smooth(24.8, 25.0, s) * (1 - smooth(25.6, 25.9, s)), { dy: -16, color: '#9fdcff' });
       label('라니아케아 초은하단', LANI[0], LANI[1] + 285 * MLY, aLani * (1 - smooth(25.6, 25.9, s)), { color: '#ffd166', size: 13 });
@@ -1247,7 +1456,6 @@ export function mountUniverseExplorer(container, opts = {}) {
     // ── 처녀자리 초은하단 ──
     const aVir = band(s, 23.0, 25.6);
     if (aVir > 0.02) {
-      drawCloud(world.virgo, aVir, 1.7);
       glow(VIRGO[0], VIRGO[1], 22, aVir * 0.7, '255,230,200');
       label('처녀자리 은하단', VIRGO[0], VIRGO[1], aVir * (1 - smooth(24.5, 24.9, s)), { dy: -20 });
       label('국부은하군', 0, 0, aVir * smooth(23.8, 24.1, s) * (1 - smooth(24.4, 24.8, s)), { dy: 46, color: '#b7bfdc', size: 11 });
@@ -1256,7 +1464,12 @@ export function mountUniverseExplorer(container, opts = {}) {
     // ── 국부은하군 ──
     const aLG = band(s, 21.4, 24.6);
     if (aLG > 0.02) {
-      drawCloud(world.dwarfs, aLG, 2);
+      for (const d of world.lgDwarfs) {
+        const X = sx(d.pos[0]), Y = sy(d.pos[1]);
+        if (!onScreen(X, Y, 10)) continue;
+        glow(d.pos[0], d.pos[1], 4, aLG * 0.9, '200,215,255');
+        if (aLG > 0.3) lastPlanetScreen.push({ gal: d, hoverOnly: true, x: X, y: Y, wx: d.pos[0], wy: d.pos[1] });
+      }
       for (const g of world.lgGalaxies) {
         const rPx = g.r / mpp;
         const X = sx(g.pos[0]), Y = sy(g.pos[1]);
@@ -1285,7 +1498,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     const aMW = band(s, 19.2, 23.0);
     if (aMW > 0.02) {
       glow(GC[0], GC[1], (55000 * LY) / mpp, aMW * 0.35, '200,190,255');
-      drawCloud(world.galaxy, aMW, 1.3);
+      drawCloud(world.galaxy, aMW * 0.55, 1.1);
       if (catalog) {
         const aC = aMW * (1 - smooth(21.6, 22.2, s)) * (focus ? 1 - focus.blend : 1);
         drawCatalog(aC, aC > 0.15, '120,255,210');
@@ -1293,18 +1506,15 @@ export function mountUniverseExplorer(container, opts = {}) {
       }
       glow(GC[0], GC[1], (6000 * LY) / mpp, aMW * 0.7, '255,220,160');
       label('은하 중심 (궁수자리 A*)', GC[0], GC[1], aMW * (1 - smooth(21.8, 22.3, s)), { dy: -14, color: '#ffe0a8', size: 11 });
+      glow(SUN[0], SUN[1], 4, aMW * smooth(20.4, 20.8, s), '255,240,200');
+      label('태양 · 오리온 팔', SUN[0], SUN[1], aMW * smooth(20.4, 20.8, s) * (1 - smooth(21.8, 22.3, s)), { dy: -9, color: '#ffe8a8', size: 10 });
       label('우리은하', GC[0], GC[1] + 60000 * LY, aMW * (1 - smooth(21.8, 22.3, s)), { dy: 0, size: 14 });
     }
 
     // ── 이웃 별들 ──
     const aStars = band(s, 16.2, 20.2);
+    drawSky(time);
     if (aStars > 0.02) {
-      drawCloud(world.stars, aStars, 2);
-      for (const st of world.namedStars) {
-        glow(st.pos[0], st.pos[1], 7, aStars, '255,240,220');
-        label(st.name, st.pos[0], st.pos[1], aStars, { dy: -10, color: st.color, size: 11 });
-        if (aStars > 0.3) lastPlanetScreen.push({ star: st, hoverOnly: true, x: sx(st.pos[0]), y: sy(st.pos[1]), wx: st.pos[0], wy: st.pos[1] });
-      }
       // 외계 행성계 (탭하면 이동)
       const aSys = aStars * (focus ? 1 - focus.blend : 1);
       if (catalog && aSys > 0.02) drawCatalog(aSys, aSys > 0.15);
