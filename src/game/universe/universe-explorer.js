@@ -207,7 +207,7 @@ function buildWorld(seed = 20261109) {
   const namedStars = [
     ['바너드 별', 269.452, 4.693, 5.96, '#ff8a5c'], ['시리우스', 101.287, -16.716, 8.6, '#cfe3ff'],
     ['베가', 279.235, 38.784, 25, '#d9e8ff'], ['아크투루스', 213.915, 19.182, 36.7, '#ffc58a'],
-  ].map(([name, ra, dec, ly, color]) => ({ name, color, pos: skyPos(ra, dec, ly) }));
+  ].map(([name, ra, dec, ly, color]) => ({ name, color, ly, pos: skyPos(ra, dec, ly) }));
   const systems = SYSTEMS.map((sys) => ({ sys, pos: skyPos(sys.ra, sys.dec, sys.distLy) }));
   const stars = new Cloud();
   const starColors = ['rgba(255,244,230,0.9)', 'rgba(200,220,255,0.9)', 'rgba(255,200,150,0.85)', 'rgba(255,170,130,0.8)'];
@@ -382,56 +382,72 @@ function fmtDuration(ms) {
 // ───────────────────────── 스타일 ─────────────────────────
 const STYLE_ID = 'mu-universe-style';
 const CSS = `
-.mu-root{position:absolute;inset:0;overflow:hidden;background:#03040a;color:#e8ecff;
-  font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+.mu-root{--g:#3dff8f;--g2:rgba(61,255,143,.55);--g3:rgba(61,255,143,.18);--gd:#a6ffcb;
+  --glow:0 0 4px rgba(61,255,143,.9),0 0 12px rgba(61,255,143,.45);
+  position:absolute;inset:0;overflow:hidden;background:#010604;color:var(--gd);
+  font-family:"SF Mono",Menlo,Consolas,"D2Coding","Apple SD Gothic Neo","Noto Sans KR",monospace;
   user-select:none;-webkit-user-select:none;touch-action:none}
+.mu-root::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:5;
+  background:repeating-linear-gradient(0deg,rgba(61,255,143,.035) 0 1px,transparent 1px 3px),
+  radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,.55) 100%)}
 .mu-canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
-.mu-overlay{cursor:grab;touch-action:none}
+.mu-overlay{cursor:crosshair;touch-action:none}
 .mu-overlay:active{cursor:grabbing}
-.mu-top{position:absolute;top:0;left:0;right:0;padding:16px 56px 0 16px;pointer-events:none}
-.mu-title{font-size:20px;font-weight:700;letter-spacing:-0.3px;text-shadow:0 2px 8px #000}
-.mu-step{display:inline-block;font-size:11px;font-weight:600;padding:2px 7px;margin-right:6px;border-radius:99px;
-  background:rgba(255,209,102,.15);color:#ffd166;vertical-align:3px}
-.mu-desc{margin-top:6px;font-size:13px;line-height:1.5;color:#b7bfdc;max-width:520px;text-shadow:0 1px 6px #000}
-.mu-close{position:absolute;top:12px;right:12px;width:36px;height:36px;border-radius:50%;border:1px solid rgba(255,255,255,.15);
-  background:rgba(10,14,30,.6);color:#e8ecff;font-size:16px;cursor:pointer;backdrop-filter:blur(6px)}
-.mu-bottom{position:absolute;left:0;right:0;bottom:0;padding:0 16px calc(14px + env(safe-area-inset-bottom));
-  background:linear-gradient(transparent,rgba(3,4,10,.85) 40%)}
+.mu-frame{position:relative;background:
+  linear-gradient(var(--g),var(--g)) left top/14px 2px no-repeat,linear-gradient(var(--g),var(--g)) left top/2px 14px no-repeat,
+  linear-gradient(var(--g),var(--g)) right top/14px 2px no-repeat,linear-gradient(var(--g),var(--g)) right top/2px 14px no-repeat,
+  linear-gradient(var(--g),var(--g)) left bottom/14px 2px no-repeat,linear-gradient(var(--g),var(--g)) left bottom/2px 14px no-repeat,
+  linear-gradient(var(--g),var(--g)) right bottom/14px 2px no-repeat,linear-gradient(var(--g),var(--g)) right bottom/2px 14px no-repeat,
+  rgba(1,18,9,.62);
+  border:1px solid var(--g3);box-shadow:inset 0 0 22px rgba(61,255,143,.08),0 0 14px rgba(61,255,143,.12);backdrop-filter:blur(3px)}
+.mu-top{position:absolute;top:10px;left:10px;right:58px;padding:10px 12px 11px;pointer-events:none;z-index:6;max-width:560px}
+.mu-title{font-size:17px;font-weight:700;letter-spacing:.06em;color:var(--g);text-shadow:var(--glow)}
+.mu-step{display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;margin-right:8px;letter-spacing:.12em;
+  border:1px solid var(--g2);color:var(--g);vertical-align:3px;text-shadow:var(--glow)}
+.mu-desc{margin-top:6px;font-size:11.5px;line-height:1.55;color:var(--gd);opacity:.92;text-shadow:0 0 6px rgba(61,255,143,.35)}
+.mu-close{position:absolute;top:10px;right:10px;width:38px;height:38px;z-index:6;border:1px solid var(--g2);
+  background:rgba(1,18,9,.7);color:var(--g);font-weight:700;font-size:15px;cursor:pointer;text-shadow:var(--glow);
+  clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);box-shadow:inset 0 0 10px rgba(61,255,143,.25)}
+.mu-bottom{position:absolute;left:0;right:0;bottom:0;padding:0 12px calc(12px + env(safe-area-inset-bottom));z-index:6;
+  background:linear-gradient(transparent,rgba(1,6,4,.9) 45%)}
 .mu-focusbar{display:flex;justify-content:center;gap:8px;margin-bottom:8px}
 .mu-focusbar[hidden]{display:none}
-.mu-focusbar button{padding:7px 12px;border-radius:99px;border:1px solid rgba(255,255,255,.18);background:rgba(20,26,50,.8);color:#e8ecff;font-size:12px;cursor:pointer}
-.mu-credit{font-size:9.5px;line-height:1.35;color:#7e88b3;text-align:center;margin:0 auto 6px;max-width:560px}
-.mu-credit a{color:#9aa4c7}
-.mu-scale{font-size:12px;color:#9aa4c7;margin-bottom:8px;text-align:center;font-variant-numeric:tabular-nums}
-.mu-scale b{color:#e8ecff;font-weight:600}
+.mu-focusbar button,.mu-controls button,.mu-card button{border:1px solid var(--g2);background:rgba(1,22,11,.75);color:var(--g);
+  font-family:inherit;font-weight:700;font-size:12px;letter-spacing:.06em;cursor:pointer;text-shadow:var(--glow);touch-action:none;
+  clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);box-shadow:inset 0 0 10px rgba(61,255,143,.2)}
+.mu-focusbar button{padding:8px 14px}
+.mu-focusbar button:active,.mu-controls button:active,.mu-card button:active{background:rgba(61,255,143,.25)}
+.mu-credit{font-size:9px;line-height:1.35;color:rgba(166,255,203,.55);text-align:center;margin:0 auto 6px;max-width:560px}
+.mu-credit a{color:rgba(166,255,203,.8)}
+.mu-scale{font-size:11px;color:var(--gd);opacity:.85;margin-bottom:8px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.04em}
+.mu-scale b{color:var(--g);font-weight:700;text-shadow:var(--glow)}
 .mu-controls{display:flex;align-items:center;gap:8px;max-width:560px;margin:0 auto}
-.mu-controls button{flex:none;width:40px;height:40px;border-radius:12px;border:1px solid rgba(255,255,255,.14);
-  background:rgba(20,26,50,.7);color:#e8ecff;font-size:18px;cursor:pointer;touch-action:none}
-.mu-controls button:active{background:rgba(60,70,120,.8)}
-.mu-slider{flex:1;accent-color:#ffd166;height:28px}
-.mu-progress{position:relative;max-width:560px;margin:10px auto 0;height:18px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
-.mu-progress-fill{position:absolute;inset:0 auto 0 0;width:0;background:linear-gradient(90deg,#6a5cff,#ffd166);transition:width .5s}
-.mu-progress span{position:absolute;inset:0;font-size:11px;line-height:18px;text-align:center;color:#fff;font-weight:600}
-.mu-toast{position:absolute;left:50%;bottom:calc(150px + env(safe-area-inset-bottom));transform:translate(-50%,10px);opacity:0;transition:all .35s;
-  padding:8px 14px;border-radius:99px;background:rgba(255,209,102,.95);color:#1b1500;font-size:13px;font-weight:700;
-  white-space:nowrap;pointer-events:none;box-shadow:0 6px 24px rgba(255,209,102,.35)}
+.mu-controls button{flex:none;width:42px;height:40px;font-size:18px}
+.mu-slider{flex:1;accent-color:#3dff8f;height:28px;filter:drop-shadow(0 0 4px rgba(61,255,143,.6))}
+.mu-progress{position:relative;max-width:560px;margin:10px auto 0;height:16px;border:1px solid var(--g2);background:rgba(1,18,9,.7);overflow:hidden}
+.mu-progress-fill{position:absolute;top:2px;bottom:2px;left:2px;width:0;transition:width .5s;
+  background:repeating-linear-gradient(90deg,var(--g) 0 9px,transparent 9px 12px);box-shadow:0 0 10px rgba(61,255,143,.6)}
+.mu-progress span{position:absolute;inset:0;font-size:10px;line-height:14px;text-align:center;color:#eafff2;font-weight:700;letter-spacing:.12em;
+  text-shadow:0 0 3px #000,0 0 6px #000}
+.mu-toast{position:absolute;left:50%;bottom:calc(150px + env(safe-area-inset-bottom));transform:translate(-50%,10px);opacity:0;transition:all .3s;z-index:7;
+  padding:9px 16px;font-size:12px;font-weight:700;color:var(--g);letter-spacing:.03em;text-shadow:var(--glow);
+  width:max-content;max-width:calc(100% - 32px);white-space:normal;text-align:center;pointer-events:none}
+.mu-toast::before{content:'> ';opacity:.8}
 .mu-toast.show{opacity:1;transform:translate(-50%,0)}
-.mu-hint{position:absolute;left:50%;bottom:150px;transform:translateX(-50%);font-size:13px;color:#cfd6f5;
-  background:rgba(10,14,30,.6);padding:8px 14px;border-radius:99px;pointer-events:none;transition:opacity .6s;white-space:nowrap}
-.mu-modal{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(2,3,8,.6);backdrop-filter:blur(4px)}
+.mu-hint{position:absolute;left:50%;bottom:150px;transform:translateX(-50%);font-size:11.5px;color:var(--g);z-index:6;
+  padding:8px 14px;pointer-events:none;transition:opacity .6s;width:max-content;max-width:calc(100% - 24px);text-align:center;text-shadow:var(--glow)}
+.mu-modal{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,6,3,.7);z-index:8}
 .mu-modal[hidden]{display:none}
-.mu-card{width:min(360px,calc(100% - 32px));padding:22px 20px;border-radius:20px;background:linear-gradient(160deg,#151a36,#0b0e1f);
-  border:1px solid rgba(255,209,102,.3);box-shadow:0 20px 60px rgba(0,0,0,.6);text-align:center}
-.mu-card h2{margin:0 0 4px;font-size:20px}
-.mu-card p{margin:0 0 14px;font-size:13px;color:#9aa4c7}
-.mu-addr{text-align:left;font-size:13px;line-height:1.9;padding:10px 14px;border-radius:12px;background:rgba(255,255,255,.04);margin-bottom:16px}
-.mu-addr div{display:flex;gap:8px}
-.mu-addr div::before{content:'›';color:#ffd166}
-.mu-addr .me{color:#ffd166;font-weight:700}
-.mu-card button{margin:0 4px;padding:9px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.15);
-  background:rgba(255,255,255,.06);color:#e8ecff;font-size:13px;cursor:pointer}
-.mu-card button.primary{background:#ffd166;color:#1b1500;border-color:#ffd166;font-weight:700}
-.mu-card .mu-reset{display:block;margin:12px auto 0;background:none;border:0;color:#6c7499;font-size:11px;text-decoration:underline;cursor:pointer}
+.mu-card{width:min(360px,calc(100% - 32px));padding:22px 20px;text-align:center}
+.mu-card h2{margin:0 0 4px;font-size:16px;color:var(--g);letter-spacing:.08em;text-shadow:var(--glow)}
+.mu-card p{margin:0 0 14px;font-size:12px;color:var(--gd)}
+.mu-addr{text-align:left;font-size:12px;line-height:1.9;padding:10px 14px;border:1px solid var(--g3);background:rgba(61,255,143,.04);margin-bottom:16px}
+.mu-addr div{display:flex;gap:8px;color:var(--gd)}
+.mu-addr div::before{content:'>';color:var(--g)}
+.mu-addr .me{color:var(--g);font-weight:700;text-shadow:var(--glow)}
+.mu-card button{margin:0 4px;padding:10px 14px}
+.mu-card button.primary{background:var(--g);color:#012;text-shadow:none}
+.mu-card .mu-reset{display:block;margin:12px auto 0;background:none;border:0;clip-path:none;box-shadow:none;color:rgba(166,255,203,.5);font-size:10px;text-decoration:underline;cursor:pointer}
 `;
 
 // ───────────────────────── 메인 ─────────────────────────
@@ -450,17 +466,17 @@ export function mountUniverseExplorer(container, opts = {}) {
   root.innerHTML = `
     <canvas class="mu-canvas"></canvas>
     <canvas class="mu-canvas mu-overlay"></canvas>
-    <div class="mu-top">
+    <div class="mu-top mu-frame">
       <div class="mu-title"><span class="mu-step"></span><span class="mu-name"></span></div>
       <div class="mu-desc"></div>
     </div>
     <button class="mu-close" aria-label="닫기">✕</button>
-    <div class="mu-toast"></div>
-    <div class="mu-hint">드래그로 이동 · 핀치·휠로 가리킨 곳 확대 · 두 번 탭하면 그곳으로</div>
+    <div class="mu-toast mu-frame"></div>
+    <div class="mu-hint mu-frame">드래그로 이동 · 핀치·휠로 가리킨 곳 확대 · 두 번 탭하면 그곳으로</div>
     <div class="mu-bottom">
       <div class="mu-focusbar" hidden>
         <button class="mu-back">← 태양계로</button>
-        <button class="mu-speed">⏱ 1초=1시간</button>
+        <button class="mu-speed">SPD · 1초=1시간</button>
       </div>
       <div class="mu-credit" hidden>위성 영상: <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless - https://s2maps.eu</a> by <a href="https://eox.at" target="_blank" rel="noopener">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2016 &amp; 2017)</div>
       <div class="mu-scale"></div>
@@ -468,13 +484,13 @@ export function mountUniverseExplorer(container, opts = {}) {
         <button data-zoom="-1" aria-label="가까이">＋</button>
         <input class="mu-slider" type="range" min="${S_MIN}" max="${S_MAX}" step="0.01" aria-label="배율">
         <button data-zoom="1" aria-label="멀리">－</button>
-        <button class="mu-home" aria-label="지구로 귀환">🏠</button>
+        <button class="mu-home" aria-label="지구로 귀환">⌂</button>
       </div>
       <div class="mu-progress"><div class="mu-progress-fill"></div><span></span></div>
     </div>
     <div class="mu-modal" hidden>
-      <div class="mu-card">
-        <h2>🌌 우리 우주 주소 완성!</h2>
+      <div class="mu-card mu-frame">
+        <h2>// 우리 우주 주소 완성</h2>
         <p class="mu-time"></p>
         <div class="mu-addr"></div>
         <button class="primary mu-go-home">지구로 귀환</button>
@@ -499,6 +515,8 @@ export function mountUniverseExplorer(container, opts = {}) {
   const world = buildWorld();
   // 전체 외계 행성계 카탈로그(비동기)
   let catalog = null; // { rows, x, y, groups: Map(color → idx[]) }
+  const sysCache = new Map(); // 카탈로그 행성계 모델 캐시
+  let nearCtx = null; // 자동 상세 보기 중인(화면 중앙 근처) 행성/행성계
   fetch(catalogUrl).then((r) => r.json()).then((rows) => {
     if (destroyed) return;
     const byName = new Map(rows.map((r) => [r[0], r]));
@@ -537,7 +555,7 @@ export function mountUniverseExplorer(container, opts = {}) {
           if (destroyed) return;
           myLoc = { lat: pos.coords.latitude, lon: pos.coords.longitude, label: '내 위치', approx: false };
           earth.setView(myLoc.lat, myLoc.lon);
-          toast('📍 현재 위치를 찾았어요');
+          toast('위치 신호 수신 완료');
         },
         () => { /* 거부·실패 → 서울 기본값 유지 */ },
         { enableHighAccuracy: false, timeout: 8000, maximumAge: 30 * 60 * 1000 },
@@ -599,7 +617,14 @@ export function mountUniverseExplorer(container, opts = {}) {
       anchor = { mode: 'earth', dx: x - ex, dy: y - ey, R: er };
     } else {
       const [cxw, cyw] = getCam(s), m = mppAt(s);
-      anchor = { mode: 'pan', x, y, wx: cxw + (x - W / 2) * m, wy: cyw - (y - H / 2) * m };
+      // 자석: 손가락 근처(40px)에 천체가 있으면 그 천체를 붙잡고 확대 → 확대해도 화면에 남음
+      let mag = null;
+      for (const t of lastPlanetScreen) {
+        if (t.wx === undefined) continue;
+        const d = Math.hypot(t.x - x, t.y - y);
+        if (d < 40 && (!mag || d < mag.d)) mag = { d, t };
+      }
+      anchor = mag ? { mode: 'pan', x: mag.t.x, y: mag.t.y, wx: mag.t.wx, wy: mag.t.wy } : { mode: 'pan', x, y, wx: cxw + (x - W / 2) * m, wy: cyw - (y - H / 2) * m };
     }
     panVel = [0, 0];
   }
@@ -663,7 +688,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   function setSpeedIdx(i) {
     simAnchor = { real: performance.now(), sim: simDate().getTime() };
     speedIdx = i;
-    ui.speed.textContent = `⏱ ${SPEEDS[speedIdx][1]}`;
+    ui.speed.textContent = `SPD · ${SPEEDS[speedIdx][1]}`;
   }
   // 외계 행성계로 이동
   function enterSystem(id) {
@@ -702,9 +727,14 @@ export function mountUniverseExplorer(container, opts = {}) {
   ui.speed.addEventListener('click', () => setSpeedIdx((speedIdx + 1) % SPEEDS.length));
   const fmtPeriod = (d) => (d < 2 ? `${(d * 24).toFixed(1)}시간` : d < 1000 ? `${d.toFixed(1)}일` : `${Math.round(d / 365.25)}년`);
   function handleTap(x, y) {
+    const body = lastMoonScreen.find((m) => Math.hypot(m.x - x, m.y - y) < 22);
+    if (body && !(focus && focus.on)) {
+      toast(bodyInfo(body));
+      return;
+    }
     if (focus && focus.on) {
-      const hit = lastMoonScreen.find((m) => Math.hypot(m.x - x, m.y - y) < 22);
-      if (hit && focus.kind === 'star') {
+      const hit = body;
+      if (hit && hit.kind === 'exo') {
         const size = hit.reKnown ? `지구 크기의 ${hit.re}배` : `크기 추정 지구의 ${hit.re}배`;
         toast(`${hit.name} · 별에서 ${hit.au} AU · 공전 ${fmtPeriod(hit.periodDays)} · ${size}${hit.teq ? ` · 약 ${Math.round(hit.teq - 273)}°C` : ''}${hit.note ? ' · ' + hit.note : ''}${hit.exact ? ' · 📍실제 위치' : ''}`);
       } else if (hit) {
@@ -714,12 +744,13 @@ export function mountUniverseExplorer(container, opts = {}) {
     }
     let best = null;
     for (const p of lastPlanetScreen) {
+      if (p.hoverOnly) continue;
       const d = Math.hypot(p.x - x, p.y - y);
       if (d < (p.cat !== undefined ? 16 : 30) && (!best || d < best.d - (p.sys ? 6 : 0))) best = { ...p, d };
     }
     if (best && best.probe) {
       const pr = best.probe;
-      toast(`🛰️ ${pr.name} · 태양에서 약 ${Math.round(pr.au)} AU · 빛으로 ${(pr.au * 1.496e11 / 2.998e8 / 3600).toFixed(1)}시간 · ${pr.desc}`);
+      toast(`${pr.name} · 태양에서 약 ${Math.round(pr.au)} AU · 빛으로 ${(pr.au * 1.496e11 / 2.998e8 / 3600).toFixed(1)}시간 · ${pr.desc}`);
     } else if (best && best.sys) enterSystem(best.sys);
     else if (best && best.cat !== undefined) enterCatalog(best.cat);
     else if (best) enterFocus(best.name);
@@ -735,13 +766,98 @@ export function mountUniverseExplorer(container, opts = {}) {
   }
   let lastTap = null;
   let tapStart = null;
+  function bodyInfo(hit) {
+    if (hit.kind === 'exo') {
+      const size = hit.reKnown ? `지구 크기의 ${hit.re}배` : `크기 추정 지구의 ${hit.re}배`;
+      return `${hit.name} · 별에서 ${hit.au} AU · 공전 ${fmtPeriod(hit.periodDays)} · ${size}${hit.teq ? ` · 약 ${Math.round(hit.teq - 273)}°C` : ''}${hit.note ? ' · ' + hit.note : ''}${hit.exact ? ' · 📍실제 위치' : ''}`;
+    }
+    return `${hit.name} · ${hit.parent}에서 ${fmtKo(hit.distKm)} km · 공전 ${fmtPeriod(hit.periodDays)}${hit.retro ? ' (역행)' : ''}`;
+  }
+
+  // ── 호버(마우스) / 꾹 누르기(터치): 강조 테두리 + 이름 ──
+  let hoverPt = null;
+  let holdTimer = 0;
+  function hoverLabel(t) {
+    if (t.kind === 'exo') return [t.name, `공전 ${fmtPeriod(t.periodDays)} · 별에서 ${t.au} AU`];
+    if (t.kind === 'moon') return [t.name, `${t.parent}의 위성 · 공전 ${fmtPeriod(t.periodDays)}`];
+    if (t.cat !== undefined && catalog) {
+      const r = catalog.rows[t.cat];
+      const dist = r[3] < 1000 ? `${r[3]}광년` : `${fmtKo(Math.round(r[3]))}광년`;
+      return [r[0], `${dist} · 행성 ${r[7].length}개 · 탭하면 방문`];
+    }
+    if (t.sys) { const q = SYSTEMS.find((z) => z.id === t.sys); return [q.name, `${q.distLy}광년 · 행성 ${q.planets.length}개 · 탭하면 방문`]; }
+    if (t.probe) return [t.probe.name, `태양에서 약 ${Math.round(t.probe.au)} AU`];
+    if (t.star) return [t.star.name, `${t.star.ly}광년`];
+    if (t.name) { const d = PERIOD_DAYS[t.name]; return [t.name, d ? `공전 ${fmtPeriod(d)}${MOONS[t.name] ? ' · 탭하면 위성 보기' : ''}` : '']; }
+    return null;
+  }
+  function pickHover() {
+    if (!hoverPt) return null;
+    let best = null;
+    const consider = (t, r) => {
+      const d = Math.hypot(t.x - hoverPt.x, t.y - hoverPt.y);
+      if (d < r && (!best || d < best.d)) best = { t, d };
+    };
+    for (const t of lastMoonScreen) consider(t, 16);
+    if (!best) for (const t of lastPlanetScreen) consider(t, t.cat !== undefined ? 12 : 20);
+    return best && best.t;
+  }
+  function drawHover(time) {
+    const t = pickHover();
+    overlay.style.cursor = t ? 'pointer' : '';
+    if (!t) return;
+    const lab = hoverLabel(t);
+    if (!lab) return;
+    const g = octx;
+    const r = 10 + 1.5 * Math.sin(time * 5);
+    g.globalAlpha = 1;
+    // 네온 조준 링 + 십자선
+    g.strokeStyle = '#3dff8f'; g.lineWidth = 1.6;
+    g.shadowColor = 'rgba(61,255,143,.9)'; g.shadowBlur = 10;
+    g.beginPath(); g.arc(t.x, t.y, r, 0, Math.PI * 2); g.stroke();
+    g.beginPath();
+    for (const [ax, ay] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { g.moveTo(t.x + ax * (r + 3), t.y + ay * (r + 3)); g.lineTo(t.x + ax * (r + 8), t.y + ay * (r + 8)); }
+    g.stroke();
+    g.shadowBlur = 0;
+    const MONO = '"SF Mono",Menlo,Consolas,"Apple SD Gothic Neo","Noto Sans KR",monospace';
+    g.font = `700 12px ${MONO}`;
+    const w1 = g.measureText(lab[0]).width;
+    g.font = `500 10.5px ${MONO}`;
+    const w2 = lab[1] ? g.measureText(lab[1]).width : 0;
+    const bw = Math.max(w1, w2) + 16, bh = lab[1] ? 38 : 24;
+    let bx = t.x + 16, by = t.y - bh - 8;
+    if (bx + bw > W - 6) bx = t.x - bw - 16;
+    bx = Math.max(6, Math.min(W - bw - 6, bx)); // 화면 밖으로 안 나가게
+    if (by < 6) by = t.y + 14;
+    // 각진 네온 패널 + 연결선
+    const ch = 6;
+    g.beginPath();
+    g.moveTo(bx + ch, by); g.lineTo(bx + bw, by); g.lineTo(bx + bw, by + bh - ch); g.lineTo(bx + bw - ch, by + bh); g.lineTo(bx, by + bh); g.lineTo(bx, by + ch); g.closePath();
+    g.fillStyle = 'rgba(1,18,9,.9)'; g.fill();
+    g.strokeStyle = 'rgba(61,255,143,.8)'; g.lineWidth = 1; g.shadowColor = 'rgba(61,255,143,.7)'; g.shadowBlur = 8; g.stroke(); g.shadowBlur = 0;
+    g.strokeStyle = 'rgba(61,255,143,.5)'; g.beginPath(); g.moveTo(t.x, t.y); g.lineTo(bx < t.x ? bx + bw : bx, by + bh / 2); g.stroke();
+    g.textAlign = 'left';
+    g.shadowColor = 'rgba(61,255,143,.9)'; g.shadowBlur = 6;
+    g.fillStyle = '#3dff8f'; g.font = `700 12px ${MONO}`;
+    g.fillText(lab[0], bx + 8, by + 16);
+    if (lab[1]) { g.fillStyle = '#a6ffcb'; g.font = `500 10.5px ${MONO}`; g.fillText(lab[1], bx + 8, by + 31); }
+    g.shadowBlur = 0;
+  }
 
   // 지구가 화면을 크게 차지할 때: 1손가락 드래그 = 지구 회전 (관성 포함)
   let spin = { vx: 0, vy: 0 };
   const earthRadiusPx = () => 6.371e6 / (Math.pow(10, s) / Math.min(W, H));
   const canSpin = () => earth.gl && !focus && earthRadiusPx() > 40 && s < 9.6 && Math.hypot(pan[0], pan[1]) < mppAt(s) * Math.min(W, H) * 0.4;
+  overlay.addEventListener('pointerleave', () => { if (pointers.size === 0) hoverPt = null; });
   overlay.addEventListener('pointerdown', (e) => {
     overlay.setPointerCapture(e.pointerId);
+    if (e.pointerType !== 'mouse') {
+      // 꾹 누르기(0.35초) → 이름 보기
+      const r0 = root.getBoundingClientRect();
+      const pt = { x: e.clientX - r0.left, y: e.clientY - r0.top };
+      clearTimeout(holdTimer);
+      holdTimer = setTimeout(() => { if (pointers.size === 1) hoverPt = pt; }, 350);
+    }
     spin = { vx: 0, vy: 0 };
     tapStart = pointers.size === 0 ? { x: e.clientX, y: e.clientY, t: performance.now() } : null;
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -750,8 +866,13 @@ export function mountUniverseExplorer(container, opts = {}) {
     markInteracted();
   });
   overlay.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'mouse' && pointers.size === 0) {
+      const r0 = root.getBoundingClientRect();
+      hoverPt = { x: e.clientX - r0.left, y: e.clientY - r0.top };
+    }
     const p = pointers.get(e.pointerId);
     if (!p) return;
+    if (e.pointerType !== 'mouse' && tapStart && Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y) > 8) { clearTimeout(holdTimer); hoverPt = null; }
     if (pointers.size === 1) {
       const dx = e.clientX - p.x, dy = e.clientY - p.y;
       if (canSpin()) {
@@ -780,6 +901,8 @@ export function mountUniverseExplorer(container, opts = {}) {
   });
   const endPointer = (e) => { pointers.delete(e.pointerId); lastPinch = pointers.size === 2 ? pinchDist() : 0; };
   overlay.addEventListener('pointerup', (e) => {
+    clearTimeout(holdTimer);
+    if (e.pointerType !== 'mouse' && hoverPt) { hoverPt = null; tapStart = null; endPointer(e); return; } // 꾹 누르기 후엔 탭 동작 안 함
     const wasSingle = pointers.size === 1;
     endPointer(e);
     if (wasSingle && tapStart && Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y) < 8 && performance.now() - tapStart.t < 450) {
@@ -836,13 +959,15 @@ export function mountUniverseExplorer(container, opts = {}) {
     toastTimer = setTimeout(() => ui.toast.classList.remove('show'), 2200);
   }
   function checkDiscoveries() {
+    // 정해진 경로(내 위치 중심) 근처에서만 단계 발견 — 다른 천체로 날아가 확대한 경우 제외
+    if (focus || nearCtx || Math.hypot(pan[0], pan[1]) > mppAt(s) * Math.min(W, H) * 0.6) return;
     let newly = null;
     for (const lv of LEVELS) {
       if (s >= lv.at && !found.has(lv.id)) { found.add(lv.id); newly = lv; }
     }
     if (!newly) return;
     store.found = [...found]; save();
-    toast(`✨ 새 발견: ${newly.name} (${found.size}/${LEVELS.length})`);
+    toast(`새 구역 발견 · ${newly.name} [${found.size}/${LEVELS.length}]`);
     if (found.size === LEVELS.length && !completedThisSession) {
       completedThisSession = true;
       const ms = performance.now() - sessionStart;
@@ -852,7 +977,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     }
   }
   function showComplete(ms, isBest) {
-    ui.time.textContent = `탐험 시간 ${fmtDuration(ms)}${isBest ? ' · 🏆 최고 기록!' : ` · 최고 ${fmtDuration(store.bestMs)}`}`;
+    ui.time.textContent = `탐험 시간 ${fmtDuration(ms)}${isBest ? ' · 최고 기록 갱신' : ` · 최고 ${fmtDuration(store.bestMs)}`}`;
     const addr = LEVELS.filter((l) => l.addr).map((l) => l.addr).reverse();
     ui.addr.innerHTML = addr.map((a) => `<div>${a}</div>`).join('') + '<div class="me">나 (여기)</div>';
     ui.modal.hidden = false;
@@ -864,15 +989,17 @@ export function mountUniverseExplorer(container, opts = {}) {
   function updateHud() {
     let idx = 0;
     for (let i = 0; i < LEVELS.length; i++) if (s >= LEVELS[i].at) idx = i;
+    // 지구에서 멀리 벗어나 있으면 지구·달 단계 설명 대신 태양계 단계로
+    if (idx < 2 && !focus && Math.hypot(pan[0], pan[1]) > mppAt(s) * Math.min(W, H) * 0.6) idx = 2;
     const lv = LEVELS[idx];
     const fmtCoord = (v, pos, neg) => `${Math.abs(v).toFixed(2)}°${v >= 0 ? pos : neg}`;
     let locLine = '';
     if (idx === 0) {
       const now = new Date();
       const elev = solarElevation(myLoc.lat, myLoc.lon, now);
-      const phase = elev > 0 ? '☀️ 낮' : elev > -6 ? '🌆 해질녘·새벽' : elev > -18 ? '🌒 어스름' : '🌙 밤';
+      const phase = elev > 0 ? '낮' : elev > -6 ? '해질녘·새벽' : elev > -18 ? '어스름' : '밤';
       const hhmm = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
-      locLine = ` 📍 ${myLoc.label}${myLoc.approx ? '(기본값)' : ''} ${fmtCoord(myLoc.lat, 'N', 'S')}, ${fmtCoord(myLoc.lon, 'E', 'W')} · ${hhmm} ${phase} (태양 고도 ${elev.toFixed(0)}°)`;
+      locLine = ` · ${myLoc.label}${myLoc.approx ? '(기본값)' : ''} ${fmtCoord(myLoc.lat, 'N', 'S')}, ${fmtCoord(myLoc.lon, 'E', 'W')} · ${hhmm} ${phase} (태양 고도 ${elev.toFixed(0)}°)`;
     }
     const showCredit = !!earth.detailActive;
     if (hudCache.credit !== showCredit) { hudCache.credit = showCredit; ui.credit.hidden = !showCredit; }
@@ -880,44 +1007,54 @@ export function mountUniverseExplorer(container, opts = {}) {
     if (lv.id === 'solar' && seasonInfo) {
       const si = seasonInfo;
       const dateTxt = `${TODAY.getMonth() + 1}월 ${TODAY.getDate()}일`;
-      extra = ` 🪐 행성 배치는 오늘(${dateTxt}) 실제 위치 · 🌍 지구는 태양에서 ${fmtKo(si.distKm)} km, 초속 ${si.speedKms.toFixed(1)}km로 공전 중 · 북반구 ${si.season} · ${si.next.label}까지 ${si.next.days}일, 근일점까지 ${si.toPeri}일`;
+      extra = ` · 행성 배치는 오늘(${dateTxt}) 실제 위치 · 지구는 태양에서 ${fmtKo(si.distKm)} km, 초속 ${si.speedKms.toFixed(1)}km로 공전 중 · 북반구 ${si.season} · ${si.next.label}까지 ${si.next.days}일, 근일점까지 ${si.toPeri}일`;
     }
     if (lv.id === 'moon' && earth.gl && earth.moon) {
       const m = earth.moon;
-      extra = ` 🌙 오늘은 ${m.phase} (밝기 ${Math.round(m.illum * 100)}%) · 지금 거리 ${Math.round(m.distKm).toLocaleString('ko-KR')}km`;
+      extra = ` · 오늘은 ${m.phase} (밝기 ${Math.round(m.illum * 100)}%) · 지금 거리 ${Math.round(m.distKm).toLocaleString('ko-KR')}km`;
     }
-    if (lv.id === 'solar') extra += ' · 👆 행성을 탭하면 위성이 보여요';
-    if (lv.id === 'stars') extra += catalog ? ` · ✨ 확인된 외계 행성계 ${catalog.rows.length.toLocaleString('ko-KR')}곳(행성 ${catalog.nPlanets.toLocaleString('ko-KR')}개)이 점으로 찍혀 있어요 — 아무 별이나 탭해 방문 (데이터: Open Exoplanet Catalogue)` : ' · ✨ 표시된 별을 탭하면 그 행성계로 날아가요';
+    if (lv.id === 'solar') extra += ' · 행성을 탭하면 위성이 보여요';
+    if (lv.id === 'stars') extra += catalog ? ` · 확인된 외계 행성계 ${catalog.rows.length.toLocaleString('ko-KR')}곳(행성 ${catalog.nPlanets.toLocaleString('ko-KR')}개)이 점으로 찍혀 있어요 — 아무 별이나 탭해 방문 (데이터: Open Exoplanet Catalogue)` : ' · 표시된 별을 탭하면 그 행성계로 날아가요';
     if (lv.id === 'helio') {
       const v1 = world.probes[0];
-      extra += ` · 🛰️ 보이저 1호는 지금 약 ${Math.round(v1.au)} AU (빛으로 ${(v1.au * 1.496e11 / 2.998e8 / 3600).toFixed(1)}시간) — 이미 태양권 밖 성간 공간이에요`;
+      extra += ` · 보이저 1호는 지금 약 ${Math.round(v1.au)} AU (빛으로 ${(v1.au * 1.496e11 / 2.998e8 / 3600).toFixed(1)}시간) — 이미 태양권 밖 성간 공간이에요`;
     }
     if (lv.id === 'oort') {
       const v1 = world.probes[0];
       const yrs = Math.round((2000 - v1.au) / 3.58);
       extra += ` · 혜성의 고향. 보이저 1호도 안쪽 경계(약 2천 AU)까지 ${yrs}년, 바깥 끝(약 10만 AU)까지는 약 3만 년이 걸려요`;
     }
-    if (focus && focus.on && focus.kind === 'star') {
-      const sys = focus.sys;
+    const hud = focus && focus.on ? focus : nearCtx;
+    if (!(focus && focus.on)) {
+      // 가까이 다가가 보는 중: 배속 버튼만 보이기
+      const want = !!nearCtx;
+      if (hudCache.nearBar !== want) {
+        hudCache.nearBar = want;
+        ui.focusbar.hidden = !want;
+        $('.mu-back').style.display = want ? 'none' : '';
+      }
+    } else if (hudCache.nearBar) { hudCache.nearBar = false; $('.mu-back').style.display = ''; }
+    if (hud && hud.kind === 'star') {
+      const sys = hud.sys;
       const sd = simDate();
       const when = sd.toLocaleString('ko-KR', { year: speedIdx === 3 ? 'numeric' : undefined, month: 'numeric', day: 'numeric', hour: speedIdx === 3 ? undefined : '2-digit', minute: speedIdx === 3 ? undefined : '2-digit', hour12: false });
       const dist = sys.distLy < 1000 ? `${sys.distLy}광년` : `약 ${fmtKo(sys.distLy)}광년`;
-      setText('step', ui.step, '✨');
+      setText('step', ui.step, 'SYS');
       setText('name', ui.name, `${sys.name} 행성계`);
       const nEx = sys.planets.filter((q) => q.t0).length;
       const posNote = nEx === sys.planets.length ? '행성 위치는 통과 관측 기반 실제 위치' : nEx ? `${nEx}개 행성은 실제 위치, 나머지는 근사` : '궤도 위 위치는 근사';
-      setText('desc', ui.desc, `${dist} · ${sys.star.type}. ${sys.desc} (궤도 거리·주기는 실제, ${posNote}) · 📅 ${when} (${SPEEDS[speedIdx][1]}) · 행성을 탭하면 정보가 나와요`);
-    } else if (focus && focus.on) {
-      const info = PLANET_INFO[focus.name];
-      const ms = MOONS[focus.name];
-      const exactNote = focus.name === '목성' ? '' : ms ? ' (위성 거리·주기는 실제, 위치는 근사)' : '';
+      setText('desc', ui.desc, `${dist} · ${sys.star.type}. ${sys.desc} (궤도 거리·주기는 실제, ${posNote}) · T ${when} (${SPEEDS[speedIdx][1]}) · 행성을 탭하면 정보가 나와요`);
+    } else if (hud) {
+      const info = PLANET_INFO[hud.name];
+      const ms = MOONS[hud.name];
+      const exactNote = hud.name === '목성' ? '' : ms ? ' (위성 거리·주기는 실제, 위치는 근사)' : '';
       const sd = simDate();
       const when = sd.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
-      setText('step', ui.step, '🪐');
-      setText('name', ui.name, ms ? `${focus.name}과 위성들` : focus.name);
-      setText('desc', ui.desc, `${info.moons}${exactNote} · 📅 ${when} (${SPEEDS[speedIdx][1]})${ms ? ' · 위성을 탭하면 정보가 나와요' : ''}`);
+      setText('step', ui.step, 'ORB');
+      setText('name', ui.name, ms ? `${hud.name}과 위성들` : hud.name);
+      setText('desc', ui.desc, `${info.moons}${exactNote} · T ${when} (${SPEEDS[speedIdx][1]})${ms ? ' · 위성을 탭하면 정보가 나와요' : ''}`);
     } else {
-      setText('step', ui.step, `${idx + 1}/${LEVELS.length}`);
+      setText('step', ui.step, `${String(idx + 1).padStart(2, '0')}/${LEVELS.length}`);
       setText('name', ui.name, lv.name);
       setText('desc', ui.desc, idx === 0 ? lv.desc + locLine : lv.desc + extra);
     }
@@ -987,7 +1124,7 @@ export function mountUniverseExplorer(container, opts = {}) {
         const X = hw + (catalog.x[i] - cx0) / mppNow, Y = hh - (catalog.y[i] - cy0) / mppNow;
         if (X < -2 || X > W + 2 || Y < -2 || Y > H + 2) continue;
         ctx.fillRect(X - 0.9, Y - 0.9, 1.8, 1.8);
-        if (tappable) lastPlanetScreen.push({ cat: i, x: X, y: Y });
+        if (tappable) lastPlanetScreen.push({ cat: i, x: X, y: Y, wx: catalog.x[i], wy: catalog.y[i] });
       }
     }
   }
@@ -1025,12 +1162,15 @@ export function mountUniverseExplorer(container, opts = {}) {
       const X = sx(x), Y = sy(y);
       if (!onScreen(X, Y, 80)) return;
       ctx.globalAlpha = a;
-      ctx.font = `600 ${size}px -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif`;
+      ctx.font = `600 ${size}px "SF Mono",Menlo,Consolas,"Apple SD Gothic Neo","Noto Sans KR",monospace`;
       ctx.textAlign = align;
-      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.75)';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.8)';
       ctx.strokeText(text, X, Y + dy);
-      ctx.fillStyle = color;
+      // 기본 라벨은 야광 초록, 지정 색 라벨도 은은한 발광
+      ctx.fillStyle = color === '#e8ecff' ? '#a6ffcb' : color;
+      ctx.shadowColor = color === '#e8ecff' ? 'rgba(61,255,143,.8)' : color; ctx.shadowBlur = 5;
       ctx.fillText(text, X, Y + dy);
+      ctx.shadowBlur = 0;
     };
     const circle = (x, y, rWorld, a, stroke, dash = null, lw = 1) => {
       const R = rWorld / mpp;
@@ -1148,7 +1288,7 @@ export function mountUniverseExplorer(container, opts = {}) {
       drawCloud(world.galaxy, aMW, 1.3);
       if (catalog) {
         const aC = aMW * (1 - smooth(21.6, 22.2, s)) * (focus ? 1 - focus.blend : 1);
-        drawCatalog(aC, aC > 0.3 && s < 21.2, '120,255,210');
+        drawCatalog(aC, aC > 0.15, '120,255,210');
         label(`외계 행성계 ${catalog.rows.length.toLocaleString('ko-KR')}곳 — 지금까지 찾은 범위`, SUN[0], SUN[1] - 9000 * LY, aC * smooth(20.0, 20.5, s), { color: '#7ee0c3', size: 11 });
       }
       glow(GC[0], GC[1], (6000 * LY) / mpp, aMW * 0.7, '255,220,160');
@@ -1163,10 +1303,11 @@ export function mountUniverseExplorer(container, opts = {}) {
       for (const st of world.namedStars) {
         glow(st.pos[0], st.pos[1], 7, aStars, '255,240,220');
         label(st.name, st.pos[0], st.pos[1], aStars, { dy: -10, color: st.color, size: 11 });
+        if (aStars > 0.3) lastPlanetScreen.push({ star: st, hoverOnly: true, x: sx(st.pos[0]), y: sy(st.pos[1]), wx: st.pos[0], wy: st.pos[1] });
       }
       // 외계 행성계 (탭하면 이동)
       const aSys = aStars * (focus ? 1 - focus.blend : 1);
-      if (catalog && aSys > 0.02) drawCatalog(aSys, aSys > 0.3);
+      if (catalog && aSys > 0.02) drawCatalog(aSys, aSys > 0.15);
       const placed = []; // 라벨 겹침 방지(위로 쌓기)
       for (const { sys, pos } of world.systems) {
         const X = sx(pos[0]), Y = sy(pos[1]);
@@ -1182,8 +1323,8 @@ export function mountUniverseExplorer(container, opts = {}) {
           ctx.globalAlpha = aSys * 0.5; ctx.strokeStyle = '#7ee0c3'; ctx.lineWidth = 0.8;
           ctx.beginPath(); ctx.moveTo(X, Y - 8); ctx.lineTo(X, Y + dy + 4); ctx.stroke();
         }
-        label(`✨ ${sys.name} 행성계`, pos[0], pos[1], aSys, { dy, color: '#9ff0d6', size: 11 });
-        if (aSys > 0.3) lastPlanetScreen.push({ name: sys.name, sys: sys.id, x: X, y: Y });
+        label(`◆ ${sys.name} 행성계`, pos[0], pos[1], aSys, { dy, color: '#9ff0d6', size: 11 });
+        if (aSys > 0.3) lastPlanetScreen.push({ name: sys.name, sys: sys.id, x: X, y: Y, wx: pos[0], wy: pos[1] });
       }
     }
 
@@ -1237,8 +1378,8 @@ export function mountUniverseExplorer(container, opts = {}) {
         ctx.beginPath(); ctx.moveTo(sx(SUN[0]), sy(SUN[1])); ctx.lineTo(X, Y); ctx.stroke(); ctx.setLineDash([]);
         ctx.globalAlpha = aPrb; ctx.fillStyle = pr.alive ? '#ffd166' : '#bbbbbb';
         ctx.beginPath(); ctx.moveTo(X, Y - 4); ctx.lineTo(X + 4, Y); ctx.lineTo(X, Y + 4); ctx.lineTo(X - 4, Y); ctx.closePath(); ctx.fill();
-        label(`🛰️ ${pr.name} · ${Math.round(pr.au)} AU${pr.alive ? '' : ' (교신 종료)'}`, pr.pos[0], pr.pos[1], aPrb * smooth(13.6, 13.9, s) * (1 - smooth(14.1, 14.4, s)), { dy: -9, color: pr.alive ? '#ffe08a' : '#c8c8c8', size: 10 });
-        if (aPrb > 0.3) lastPlanetScreen.push({ name: pr.name, probe: pr, x: X, y: Y });
+        label(`▲ ${pr.name} · ${Math.round(pr.au)} AU${pr.alive ? '' : ' (교신 종료)'}`, pr.pos[0], pr.pos[1], aPrb * smooth(13.6, 13.9, s) * (1 - smooth(14.1, 14.4, s)), { dy: -9, color: pr.alive ? '#ffe08a' : '#c8c8c8', size: 10 });
+        if (aPrb > 0.3) lastPlanetScreen.push({ name: pr.name, probe: pr, x: X, y: Y, wx: pr.pos[0], wy: pr.pos[1] });
       }
     }
     const aHelio = band(s, 12.8, 16.4) * (focus ? 1 - focus.blend : 1);
@@ -1270,7 +1411,7 @@ export function mountUniverseExplorer(container, opts = {}) {
         const orbitPx = p.orbit / mpp;
         if (orbitPx < 6) continue;
         const rPx = Math.max(2, p.r / mpp);
-        if (aSol > 0.25) lastPlanetScreen.push({ name: p.name, x: sx(p.pos[0]), y: sy(p.pos[1]) });
+        if (aSol > 0.25) lastPlanetScreen.push({ name: p.name, x: sx(p.pos[0]), y: sy(p.pos[1]), wx: p.pos[0], wy: p.pos[1] });
         ctx.globalAlpha = aSol; ctx.fillStyle = p.color;
         ctx.beginPath(); ctx.arc(sx(p.pos[0]), sy(p.pos[1]), rPx, 0, Math.PI * 2); ctx.fill();
         if (orbitPx > 28) {
@@ -1281,17 +1422,16 @@ export function mountUniverseExplorer(container, opts = {}) {
       }
     }
 
-    // ── 외계 행성계 포커스: 별 + 생명 가능 지대 + 행성 공전 ──
-    if (focus && focus.kind === 'star' && focus.blend > 0.02) {
-      const fa = focus.blend, sys = focus.sys;
-      const X = sx(focus.pos[0]), Y = sy(focus.pos[1]);
+    // ── 행성계 상세: 탭해서 들어갔을 때(포커스) + 가까이 다가갔을 때(자동) ──
+    const drawStarSystem = (sys, pos, fa, toEarth, starTarget) => {
+      const X = sx(pos[0]), Y = sy(pos[1]);
       const AUpx = 1.495978707e11 / mpp;
       // 생명 가능 지대
       const h0 = sys.hz[0] * AUpx, h1 = sys.hz[1] * AUpx;
       if (h1 > 3) {
         ctx.globalAlpha = fa * 0.16; ctx.fillStyle = '#4fd1a5';
         ctx.beginPath(); ctx.arc(X, Y, h1, 0, Math.PI * 2); ctx.arc(X, Y, h0, 0, Math.PI * 2, true); ctx.fill();
-        if (h1 > 40) label('생명 가능 지대', focus.pos[0], focus.pos[1] - ((sys.hz[0] + sys.hz[1]) / 2) * 1.495978707e11, fa * 0.9, { dy: 4, color: '#7ee0c3', size: 10 });
+        if (h1 > 40) label('생명 가능 지대', pos[0], pos[1] - ((sys.hz[0] + sys.hz[1]) / 2) * 1.495978707e11, fa * 0.9, { dy: 4, color: '#7ee0c3', size: 10 });
       }
       // 비교용: 우리 태양계 궤도
       const cr = sys.compare.au * AUpx;
@@ -1304,7 +1444,7 @@ export function mountUniverseExplorer(container, opts = {}) {
           ctx.textAlign = 'right'; ctx.fillStyle = '#ffd166'; ctx.fillText(sys.compare.label, lx - 4, ly + 12);
         }
       }
-      const planets = exoStates(sys, simDate(), focus.toEarth);
+      const planets = exoStates(sys, simDate(), toEarth);
       for (const p of planets) {
         const orr = p.au * AUpx;
         if (orr < 3 || orr > 3e5) continue;
@@ -1313,10 +1453,11 @@ export function mountUniverseExplorer(container, opts = {}) {
       }
       // 별
       const starR = Math.max(8, (sys.star.radiusSun * 6.957e8) / mpp);
-      glow(focus.pos[0], focus.pos[1], starR * 3.5, fa, sys.star.color);
+      glow(pos[0], pos[1], starR * 3.5, fa, sys.star.color);
       ctx.globalAlpha = fa; ctx.fillStyle = `rgb(${sys.star.color})`;
       ctx.beginPath(); ctx.arc(X, Y, starR, 0, Math.PI * 2); ctx.fill();
-      label(sys.name, focus.pos[0], focus.pos[1], fa, { dy: -starR - 12, size: 13, color: '#fff2c8' });
+      label(sys.name, pos[0], pos[1], fa, { dy: -starR - 12, size: 13, color: '#fff2c8' });
+      if (starTarget) lastPlanetScreen.push({ ...starTarget, x: X, y: Y, wx: pos[0], wy: pos[1] });
       // 행성
       ctx.font = '600 11px -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif';
       ctx.textAlign = 'left';
@@ -1332,7 +1473,7 @@ export function mountUniverseExplorer(container, opts = {}) {
         g2.addColorStop(0, '#ffffff'); g2.addColorStop(0.3, p.color); g2.addColorStop(1, 'rgba(14,14,26,1)');
         ctx.fillStyle = g2;
         ctx.beginPath(); ctx.arc(mx, my, pr, 0, Math.PI * 2); ctx.fill();
-        lastMoonScreen.push({ ...p, x: mx, y: my });
+        lastMoonScreen.push({ ...p, kind: 'exo', parent: sys.name, x: mx, y: my });
         if (orr > 16) {
           ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)';
           ctx.strokeText(p.short, mx + pr + 4, my + 4);
@@ -1340,19 +1481,16 @@ export function mountUniverseExplorer(container, opts = {}) {
           ctx.fillText(p.short, mx + pr + 4, my + 4);
         }
       }
-    }
-
-    // ── 행성 포커스: 행성 + 위성 공전 ──
-    if (focus && focus.kind !== 'star' && focus.blend > 0.02) {
-      const fa = focus.blend;
-      const pl = world.planets.find((q) => q.name === focus.name);
-      const X = sx(focus.pos[0]), Y = sy(focus.pos[1]);
-      const pr = Math.max(7, (focus.rKm * 1000) / mpp);
+    };
+    const drawPlanetSystem = (name, pos, fa) => {
+      const pl = world.planets.find((q) => q.name === name);
+      const X = sx(pos[0]), Y = sy(pos[1]);
+      const pr = Math.max(7, (PLANET_INFO[name].radiusKm * 1000) / mpp);
       // 태양 방향(화면)
-      const sd0 = [SUN[0] - focus.pos[0], SUN[1] - focus.pos[1]];
+      const sd0 = [SUN[0] - pos[0], SUN[1] - pos[1]];
       const sl = Math.hypot(...sd0) || 1;
       const ux = sd0[0] / sl, uy = -sd0[1] / sl;
-      const moons = moonStates(focus.name, simDate());
+      const moons = moonStates(name, simDate());
       // 위성 궤도
       for (const m of moons) {
         const orr = (m.distKm * 1000) / mpp;
@@ -1361,7 +1499,7 @@ export function mountUniverseExplorer(container, opts = {}) {
         ctx.beginPath(); ctx.arc(X, Y, orr, 0, Math.PI * 2); ctx.stroke();
       }
       // 토성 고리(뒤쪽 절반)
-      const ring = PLANET_INFO[focus.name].rings;
+      const ring = PLANET_INFO[name].rings;
       const drawRing = (a0, a1) => {
         ctx.globalAlpha = fa * 0.75;
         for (const [k, col, w] of [[1.55, 'rgba(210,190,150,0.8)', 0.35], [1.95, 'rgba(230,215,180,0.9)', 0.4], [2.2, 'rgba(190,175,140,0.6)', 0.12]]) {
@@ -1376,14 +1514,15 @@ export function mountUniverseExplorer(container, opts = {}) {
       g.addColorStop(0, '#ffffff'); g.addColorStop(0.18, pl.color); g.addColorStop(1, 'rgba(10,12,24,1)');
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(X, Y, pr, 0, Math.PI * 2); ctx.fill();
-      if (focus.name === '목성' && pr > 10) {
+      if (name === '목성' && pr > 10) {
         ctx.save(); ctx.beginPath(); ctx.arc(X, Y, pr, 0, Math.PI * 2); ctx.clip();
         ctx.globalAlpha = fa * 0.35; ctx.fillStyle = '#8a5a3a';
         for (const [yy, hh] of [[-0.45, 0.1], [-0.18, 0.12], [0.12, 0.1], [0.38, 0.08]]) ctx.fillRect(X - pr, Y + yy * pr, pr * 2, hh * pr);
         ctx.restore();
       }
       if (ring) drawRing(0, Math.PI);
-      label(pl.name, focus.pos[0], focus.pos[1], fa, { dy: -(ring ? pr * 1.2 : pr) - 10, size: 13, color: '#ffe8b0' });
+      label(pl.name, pos[0], pos[1], fa, { dy: -(ring ? pr * 1.2 : pr) - 10, size: 13, color: '#ffe8b0' });
+      if (fa > 0.3) lastPlanetScreen.push({ name, x: X, y: Y, wx: pos[0], wy: pos[1] });
       // 위성
       ctx.font = '600 11px -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif';
       ctx.textAlign = 'left';
@@ -1398,7 +1537,7 @@ export function mountUniverseExplorer(container, opts = {}) {
         mg.addColorStop(0, '#ffffff'); mg.addColorStop(0.3, m.color); mg.addColorStop(1, 'rgba(20,20,30,1)');
         ctx.fillStyle = mg;
         ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.fill();
-        lastMoonScreen.push({ ...m, x: mx, y: my });
+        lastMoonScreen.push({ ...m, kind: 'moon', parent: name, x: mx, y: my });
         if (orr > 22) {
           ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)';
           ctx.strokeText(m.name, mx + mr + 4, my + 4);
@@ -1406,6 +1545,47 @@ export function mountUniverseExplorer(container, opts = {}) {
           ctx.fillText(m.name, mx + mr + 4, my + 4);
         }
       }
+    };
+    if (focus && focus.kind === 'star' && focus.blend > 0.02) drawStarSystem(focus.sys, focus.pos, focus.blend, focus.toEarth, null);
+    if (focus && focus.kind !== 'star' && focus.blend > 0.02) drawPlanetSystem(focus.name, focus.pos, focus.blend);
+    {
+      const autoA = 1 - (focus ? focus.blend : 0);
+      let nearBest = null;
+      const centerR = Math.min(W, H) * 0.35;
+      // 행성에 다가가면: 행성 본체·고리·위성
+      const aPl = (1 - smooth(10.4, 11.3, s)) * autoA;
+      if (aPl > 0.02) {
+        for (const p of world.planets) {
+          if (p.name === '지구') continue;
+          if (!onScreen(sx(p.pos[0]), sy(p.pos[1]), 250)) continue;
+          drawPlanetSystem(p.name, p.pos, aPl);
+          const d = Math.hypot(sx(p.pos[0]) - W / 2, sy(p.pos[1]) - H / 2);
+          if (aPl > 0.5 && d < centerR && (!nearBest || d < nearBest.d)) nearBest = { kind: 'planet', name: p.name, d };
+        }
+      }
+      // (행성 근처 판정은 아래 별 판정 뒤에 확정)
+      // 별에 다가가면: 그 별의 행성계 (화면 근처 최대 6곳)
+      const aEx = (1 - smooth(15.5, 16.6, s)) * autoA;
+      if (aEx > 0.02) {
+        const cand = [];
+        const near = (wx, wy) => { const X = sx(wx), Y = sy(wy); return onScreen(X, Y, 300) ? Math.hypot(X - W / 2, Y - H / 2) : -1; };
+        for (const ws of world.systems) { const d = near(ws.pos[0], ws.pos[1]); if (d >= 0) cand.push({ d, sys: ws.sys, pos: ws.pos, target: { sys: ws.sys.id } }); }
+        if (catalog) {
+          for (let i = 0; i < catalog.rows.length; i++) {
+            const d = near(catalog.x[i], catalog.y[i]);
+            if (d < 0 || catalog.featuredNames.has(catalog.rows[i][0])) continue;
+            cand.push({ d, i, pos: [catalog.x[i], catalog.y[i]], target: { cat: i } });
+          }
+        }
+        cand.sort((a, b) => a.d - b.d);
+        for (const cd of cand.slice(0, 6)) {
+          let sys = cd.sys;
+          if (!sys) { sys = sysCache.get(cd.i); if (!sys) { sys = catalogToSystem(catalog.rows[cd.i]); sysCache.set(cd.i, sys); } }
+          drawStarSystem(sys, cd.pos, aEx, Math.atan2(SUN[1] - cd.pos[1], SUN[0] - cd.pos[0]), cd.target);
+          if (aEx > 0.5 && cd.d < centerR && (!nearBest || cd.d < nearBest.d)) nearBest = { kind: 'star', sys, d: cd.d };
+        }
+      }
+      nearCtx = nearBest;
     }
 
     // ── 달 ──
@@ -1465,7 +1645,7 @@ export function mountUniverseExplorer(container, opts = {}) {
               const lx = p.x, ly = p.y - 26;
               ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1;
               ctx.beginPath(); ctx.moveTo(p.x, p.y - 4); ctx.lineTo(lx, ly + 6); ctx.stroke();
-              const txt = `📍 ${myLoc.label}`;
+              const txt = `◉ ${myLoc.label}`;
               ctx.font = '700 13px -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif';
               ctx.textAlign = 'center';
               ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.8)';
@@ -1489,16 +1669,17 @@ export function mountUniverseExplorer(container, opts = {}) {
       if (onScreen(X, Y, 20)) {
         const pulse = 9 + 3 * Math.sin(time * 3);
         ctx.globalAlpha = aHere;
-        ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 1.6;
+        ctx.strokeStyle = '#3dff8f'; ctx.lineWidth = 1.6;
         ctx.beginPath(); ctx.arc(X, Y, pulse, 0, Math.PI * 2); ctx.stroke();
         ctx.globalAlpha = aHere * 0.35;
         ctx.beginPath(); ctx.arc(X, Y, pulse + 7, 0, Math.PI * 2); ctx.stroke();
-        ctx.globalAlpha = aHere; ctx.fillStyle = '#ffd166';
+        ctx.globalAlpha = aHere; ctx.fillStyle = '#3dff8f';
         ctx.beginPath(); ctx.arc(X, Y, 2.2, 0, Math.PI * 2); ctx.fill();
         const txt = s > 26.6 ? '여기 = 관측 가능한 우주의 중심' : '여기';
-        label(txt, 0, 0, aHere, { dy: 30, color: '#ffd166', size: 12 });
+        label(txt, 0, 0, aHere, { dy: 30, color: '#3dff8f', size: 12 });
       }
     }
+    drawHover(time);
     ctx.globalAlpha = 1;
   }
 
