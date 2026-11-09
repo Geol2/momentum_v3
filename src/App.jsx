@@ -16,6 +16,7 @@ import Login from './components/Login.jsx'
 import MeetingRecorder from './components/MeetingRecorder.jsx'
 import PdfTranslator from './components/PdfTranslator.jsx'
 import HiddenGame from './game/HiddenGame.jsx'
+import UniverseGame from './game/universe/UniverseGame.jsx'
 import { useAuth } from './lib/useAuth.js'
 import { useIsMobile } from './lib/useIsMobile.js'
 import { todosApi, notesApi, diariesApi, settingsApi, tracksApi, habitsApi } from './lib/api.js'
@@ -512,6 +513,9 @@ export default function App() {
 
       {/* 우측 하단 구석을 3초 안에 5번 클릭하면 숨겨진 3D RPG가 열린다 🌙 */}
       <HiddenGame />
+
+      {/* 시계를 1.5초 안에 7번 클릭하거나 ↑↑↓↓←→←→BA 를 누르면 숨겨진 우주 탐험이 열린다 🌌 */}
+      <UniverseGame />
     </>
   )
 }

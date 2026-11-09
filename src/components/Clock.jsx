@@ -37,6 +37,7 @@ export default function Clock({ now, use24h, showSeconds }) {
 
   return (
     <div
+      data-universe-trigger
       style={{
         fontFamily: 'Outfit, sans-serif',
         fontSize: 'clamp(44px, 12vw, 170px)',
