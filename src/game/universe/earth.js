@@ -257,6 +257,11 @@ export function createEarthRenderer() {
   let proj = null
   let canvas = null, cctx = null, img = null
   let lastRot = -1
+  let rotOffset = 0
+  const rotAt = (time) => {
+    const r = (time / ROT_PERIOD + rotOffset) % 1
+    return r < 0 ? r + 1 : r
+  }
 
   function ensure(D) {
     if (!tex) tex = buildTextures()
@@ -312,7 +317,7 @@ export function createEarthRenderer() {
     draw(ctx, X, Y, R, time, dpr = 1) {
       const D = Math.max(16, Math.min(MAX_D, Math.round(R * 2 * dpr)))
       ensure(D)
-      const rot = (time / ROT_PERIOD) % 1
+      const rot = rotAt(time)
       // 1px도 안 움직였으면 다시 그리지 않음
       if (lastRot < 0 || Math.abs(rot - lastRot) * Math.PI * D > 0.35) {
         paint(rot)
@@ -326,6 +331,24 @@ export function createEarthRenderer() {
       ctx.beginPath(); ctx.arc(X, Y, R * 1.12, 0, Math.PI * 2); ctx.fill()
       ctx.imageSmoothingEnabled = true
       ctx.drawImage(canvas, X - R, Y - R, R * 2, R * 2)
+    },
+    /** 주어진 경도(도)가 time 시점에 화면 정면(약간 오른쪽)에 오도록 자전각을 맞춘다 */
+    face(lonDeg, time, viewLonDeg = 26) {
+      // 텍스처 경도 = 화면 경도 + rot·360 이므로 rot = (경도 − 화면경도)/360
+      rotOffset = (lonDeg - viewLonDeg) / 360 - time / ROT_PERIOD
+      lastRot = -1
+    },
+    /** 위도·경도(도)를 화면 좌표로. z<0 이면 지구 뒤편 */
+    project(latDeg, lonDeg, X, Y, R, time) {
+      const lat = (latDeg * Math.PI) / 180
+      const lv = (lonDeg * Math.PI) / 180 - rotAt(time) * Math.PI * 2
+      const ex = Math.cos(lat) * Math.sin(lv)
+      const ey = Math.sin(lat)
+      const z = Math.cos(lat) * Math.cos(lv)
+      const ct = Math.cos(TILT), st = Math.sin(TILT)
+      const x = ex * ct - ey * st
+      const y = ex * st + ey * ct
+      return { x: X + x * R, y: Y - y * R, z }
     },
     /** 무거운 텍스처를 미리 만들어 두기(선택) */
     warmup() { if (!tex) tex = buildTextures() },

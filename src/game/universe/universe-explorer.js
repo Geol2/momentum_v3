@@ -356,7 +356,7 @@ const CSS = `
 
 // ───────────────────────── 메인 ─────────────────────────
 export function mountUniverseExplorer(container, opts = {}) {
-  const { onClose, storageKey = 'momentum.universe.v1' } = opts;
+  const { onClose, storageKey = 'momentum.universe.v1', location: fixedLocation, geolocate = true } = opts;
 
   if (!document.getElementById(STYLE_ID)) {
     const st = document.createElement('style');
@@ -409,6 +409,27 @@ export function mountUniverseExplorer(container, opts = {}) {
 
   const world = buildWorld();
   const earth = createEarthRenderer();
+
+  // ── 내 위치 ──
+  let destroyed = false;
+  // 기본값은 서울. 브라우저 위치 권한이 허용되면 실제 위치로 바꾼다.
+  const DEFAULT_LOC = { lat: 37.5665, lon: 126.978, label: '서울', approx: true };
+  let myLoc = fixedLocation ? { approx: false, label: '내 위치', ...fixedLocation } : DEFAULT_LOC;
+  earth.face(myLoc.lon, performance.now() / 1000);
+  if (!fixedLocation && geolocate && navigator.geolocation) {
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (destroyed) return;
+          myLoc = { lat: pos.coords.latitude, lon: pos.coords.longitude, label: '내 위치', approx: false };
+          earth.face(myLoc.lon, performance.now() / 1000);
+          toast('📍 현재 위치를 찾았어요');
+        },
+        () => { /* 거부·실패 → 서울 기본값 유지 */ },
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 30 * 60 * 1000 },
+      );
+    } catch { /* 샌드박스 등에서 차단 */ }
+  }
 
   // ── 저장 상태 ──
   const load = () => {
@@ -490,7 +511,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => btn.addEventListener(ev, () => { zoomVel = 0; }));
   });
   ui.slider.addEventListener('input', () => { markInteracted(); setTarget(parseFloat(ui.slider.value)); });
-  $('.mu-home').addEventListener('click', () => setTarget(S_START));
+  $('.mu-home').addEventListener('click', () => { setTarget(S_START); earth.face(myLoc.lon, performance.now() / 1000); });
 
   // ── 키보드 ──
   const onKey = (e) => {
@@ -555,7 +576,9 @@ export function mountUniverseExplorer(container, opts = {}) {
     const lv = LEVELS[idx];
     setText('step', ui.step, `${idx + 1}/${LEVELS.length}`);
     setText('name', ui.name, lv.name);
-    setText('desc', ui.desc, lv.desc);
+    const fmtCoord = (v, pos, neg) => `${Math.abs(v).toFixed(2)}°${v >= 0 ? pos : neg}`;
+    const locLine = ` 📍 ${myLoc.label}${myLoc.approx ? '(기본값)' : ''} ${fmtCoord(myLoc.lat, 'N', 'S')}, ${fmtCoord(myLoc.lon, 'E', 'W')}`;
+    setText('desc', ui.desc, idx === 0 ? lv.desc + locLine : lv.desc);
     const span = Math.pow(10, s);
     const sc = `화면 폭 ≈ <b>${fmtLength(span)}</b> · 빛으로 ${fmtLightTime(span)}`;
     if (hudCache.scale !== sc) { hudCache.scale = sc; ui.scale.innerHTML = sc; }
@@ -776,6 +799,31 @@ export function mountUniverseExplorer(container, opts = {}) {
         ctx.globalAlpha = 1;
         if (er > 5) {
           earth.draw(ctx, X, Y, er, time, dpr);
+          // 📍 내 위치 핀
+          const p = earth.project(myLoc.lat, myLoc.lon, X, Y, er, time);
+          const pa = smooth(-0.02, 0.18, p.z);
+          if (pa > 0.02 && er > 14) {
+            const pulse = 1 + 0.5 * ((time * 1.2) % 1);
+            ctx.globalAlpha = pa * (1.5 - pulse);
+            ctx.strokeStyle = '#ff5d73'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(p.x, p.y, 7 * pulse, 0, Math.PI * 2); ctx.stroke();
+            ctx.globalAlpha = pa;
+            ctx.fillStyle = '#ff5d73';
+            ctx.beginPath(); ctx.arc(p.x, p.y, 3.6, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2; ctx.stroke();
+            if (er > 40) {
+              // 핀에서 위로 짧은 선 + 라벨
+              const lx = p.x, ly = p.y - 26;
+              ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1;
+              ctx.beginPath(); ctx.moveTo(p.x, p.y - 4); ctx.lineTo(lx, ly + 6); ctx.stroke();
+              const txt = `📍 ${myLoc.label}`;
+              ctx.font = '700 13px -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif';
+              ctx.textAlign = 'center';
+              ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.8)';
+              ctx.strokeText(txt, lx, ly);
+              ctx.fillStyle = '#fff'; ctx.fillText(txt, lx, ly);
+            }
+          }
         } else {
           ctx.fillStyle = '#5fa8ff';
           ctx.beginPath(); ctx.arc(X, Y, Math.max(er, 1), 0, Math.PI * 2); ctx.fill();
@@ -818,6 +866,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   raf = requestAnimationFrame(frame);
 
   function destroy() {
+    destroyed = true;
     cancelAnimationFrame(raf);
     clearTimeout(toastTimer);
     ro.disconnect();
