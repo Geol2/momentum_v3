@@ -109,6 +109,7 @@ void main() {
   vec3 col = mix(oc, lc, landA);
 
   // ── 확대 시 고해상도 위성 타일(Sentinel-2 cloudless) ──
+  float urbanW = 0.0, urban = 0.0;
   if (uDetailA > 0.001) {
     float lonD = u * 360.0 - 180.0;
     if (lonD < uDetailBox.x) lonD += 360.0;
@@ -117,7 +118,14 @@ void main() {
     vec4 det = texture(uDetail, clamp(duv, 0.0, 1.0));
     float inside = step(0.0, duv.x) * step(duv.x, 1.0) * step(0.0, duv.y) * step(duv.y, 1.0);
     float edge = smoothstep(0.0, 0.03, min(min(duv.x, 1.0 - duv.x), min(duv.y, 1.0 - duv.y)));
-    col = mix(col, det.rgb * 1.12, det.a * inside * edge * uDetailA);
+    float wD = det.a * inside * edge * uDetailA;
+    col = mix(col, det.rgb * 1.12, wD);
+    // 시가지 추정: 채도 낮고 밝은 회색 지역 = 도시
+    float mx = max(det.r, max(det.g, det.b)), mn = min(det.r, min(det.g, det.b));
+    float sat = (mx - mn) / max(mx, 1e-3);
+    float lum = dot(det.rgb, vec3(0.3, 0.55, 0.15));
+    urban = (1.0 - smoothstep(0.1, 0.28, sat)) * smoothstep(0.2, 0.42, lum);
+    urbanW = wD;
   }
 
   // ── 조명 (실제 태양 방향) ──
@@ -141,6 +149,10 @@ void main() {
   li = min(li * litBoost, 1.0) * landA * nightK * (1.0 - ca * 0.6);
   float nlit = n2 * 0.7 + vnoise(P * fD * 7.3) * 0.3;
   li *= 1.0 - lightDetail + lightDetail * (0.25 + smoothstep(0.42, 0.7, nlit) * 1.35);
+  // 위성 타일이 있으면 실제 시가지 위치에 불빛 (대도시 근처일수록 밝게)
+  float metro = seamless(uCity, u, u2, v).r;
+  float liUrban = urban * clamp(0.35 + metro * 2.5, 0.0, 1.0) * (0.75 + 0.5 * vnoise(P * fD * 9.0)) * landA * nightK;
+  li = mix(li, liUrban, urbanW);
   col += li * vec3(1.1, 0.82, 0.4);
 
   float cl = 0.96 * (0.05 + dl * 1.05);
@@ -285,7 +297,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, before } = {}) 
   // ── 고해상도 위성 타일 (EOX Sentinel-2 cloudless 2016, CC BY 4.0, EPSG:4326 WMTS) ──
   // 레벨 z: 타일 1장 = 180/2^z 도, 256px. 레벨 13 ≈ 10m/px
   const TILE_URL = (z, r, cl) => `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless/default/WGS84/${z}/${r}/${cl}.jpg`
-  const MAX_Z = 13, MAX_TILES = 80
+  const MAX_Z = 13, MAX_TILES = 96
   const tileCache = new Map() // url → Image(로드 완료)
   const pending = new Map() // url → Image(로딩 중)
   let inflight = 0
@@ -376,10 +388,13 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, before } = {}) 
     z = Math.max(3, Math.min(MAX_Z, z))
     for (; z >= 3; z--) {
       const sp = 180 / 2 ** z
-      const c0 = Math.floor((box.lonMin + 180) / sp) - 1, c1 = Math.floor((box.lonMax + 180) / sp) + 1
-      const r0 = Math.max(0, Math.floor((90 - box.latMax) / sp) - 1), r1 = Math.min(2 ** z - 1, Math.floor((90 - box.latMin) / sp) + 1)
-      const nc = c1 - c0 + 1, nr = r1 - r0 + 1
-      if (nc * nr <= MAX_TILES && nc <= 12 && nr <= 12) return { z, c0, r0, nc, nr, sp }
+      // 여유 타일(pad) 1장 → 안 되면 0장으로 시도한 뒤에야 레벨을 낮춘다
+      for (const pad of [1, 0]) {
+        const c0 = Math.floor((box.lonMin + 180) / sp) - pad, c1 = Math.floor((box.lonMax + 180) / sp) + pad
+        const r0 = Math.max(0, Math.floor((90 - box.latMax) / sp) - pad), r1 = Math.min(2 ** z - 1, Math.floor((90 - box.latMin) / sp) + pad)
+        const nc = c1 - c0 + 1, nr = r1 - r0 + 1
+        if (nc * nr <= MAX_TILES && nc <= 12 && nr <= 12) return { z, c0, r0, nc, nr, sp }
+      }
     }
     return null
   }
