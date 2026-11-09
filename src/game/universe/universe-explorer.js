@@ -481,7 +481,15 @@ const CSS = `
 .mu-sky{top:194px;animation:none;font-size:10px;letter-spacing:.02em}
 .mu-trip{top:240px;animation:none;font-size:10px;letter-spacing:0}
 .mu-today{top:286px;animation:none;font-size:10px;letter-spacing:0}
-@media (max-height:520px){.mu-trip{top:56px;right:56px}.mu-today{top:102px;right:56px}}
+.mu-find{top:332px;animation:none;font-size:10px;letter-spacing:0}
+@media (max-height:520px){.mu-trip{top:56px;right:56px}.mu-today{top:102px;right:56px}.mu-find{top:148px;right:56px}}
+.mu-findbox{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:min(340px,calc(100% - 120px));z-index:9;padding:8px}
+.mu-findbox[hidden]{display:none}
+.mu-findbox input{width:100%;box-sizing:border-box;background:rgba(0,0,0,.5);border:1px solid var(--g2);color:#eafff2;font:inherit;font-size:12px;padding:7px 8px;outline:none}
+.mu-findlist{max-height:260px;overflow:auto;margin-top:6px}
+.mu-findlist button{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid rgba(61,255,143,.12);color:var(--g);font:inherit;font-size:11px;padding:6px 4px;cursor:pointer}
+.mu-findlist button span{color:var(--gd);font-size:10px;margin-left:6px}
+.mu-findlist .none{color:var(--gd);font-size:10.5px;padding:6px 4px}
 .mu-photo{position:absolute;z-index:7;width:180px;padding:4px 4px 3px;pointer-events:none;background:rgba(1,18,9,.92)}
 .mu-photo[hidden]{display:none}
 .mu-photo img{display:block;width:100%;max-height:180px;object-fit:cover;border:1px solid rgba(61,255,143,.35)}
@@ -559,6 +567,8 @@ export function mountUniverseExplorer(container, opts = {}) {
     <button class="mu-3d" hidden aria-label="3D로 은하 보기">3D</button>
     <button class="mu-3d mu-trip" hidden aria-label="탐사선 여행" title="보이저·뉴호라이즌스가 실제로 날아간 길">TRIP</button>
     <button class="mu-3d mu-today" aria-label="오늘의 우주" title="오늘의 천문 사진 · 우주 뉴스 · 오늘 밤 하늘">NEWS</button>
+    <button class="mu-3d mu-find" aria-label="천체 찾기" title="이름으로 천체 찾기">찾기</button>
+    <div class="mu-findbox mu-frame" hidden><input type="search" placeholder="천체 이름 (예: 트라피스트, 시리우스, M87)" autocomplete="off"><div class="mu-findlist"></div></div>
     <button class="mu-3d mu-sky" hidden aria-label="밤하늘 모드" title="내 위치에서 지금 올려다본 하늘">SKY</button>
     <div class="mu-photo mu-frame" hidden><img alt=""><span></span></div>
     <button class="mu-warp" hidden>▶▶ 광속 이동</button>
@@ -1349,13 +1359,75 @@ export function mountUniverseExplorer(container, opts = {}) {
     const { warpTo } = await import('./warp.js');
     warping = warpTo(root, { name: tg.name, ly: tg.ly, onArrive: () => {
       warping = null;
-      if (focus) { exitFocus(); focus = null; }
-      s = targetS = tg.s;
-      const b = baseCam(s); pan = [tg.wx - b[0], tg.wy - b[1]]; panVel = [0, 0]; anchor = null;
-      arrival = { wx: tg.wx, wy: tg.wy, name: tg.name.replace(/ \(.*\)$/, ''), t0: performance.now() };
+      arriveAt(tg);
       toast(`${tg.name} 도착 · 지구에서 ${fmtLy(tg.ly)} — 실제 광속이면 ${tg.ly < 1 ? Math.round(tg.ly * 365) + '일' : fmtLy(tg.ly).replace('광년', '년')} 걸려요`);
     } });
   });
+  function arriveAt(tg) {
+    if (focus) { exitFocus(); focus = null; }
+    s = targetS = tg.s;
+    const b = baseCam(s); pan = [tg.wx - b[0], tg.wy - b[1]]; panVel = [0, 0]; anchor = null;
+    arrival = { wx: tg.wx, wy: tg.wy, name: tg.name.replace(/ \(.*\)$/, ''), t0: performance.now() };
+  }
+  // ── 이름으로 찾기 ──
+  const findBox = $('.mu-findbox'), findIn = findBox.querySelector('input'), findList = findBox.querySelector('.mu-findlist');
+  const norm = (t) => String(t || '').toLowerCase().replace(/[\s\-·()_.,']/g, '');
+  const bigrams = (t) => { const a = []; for (let i = 0; i < t.length - 1; i++) a.push(t.slice(i, i + 2)); return a; };
+  let findIdx = null;
+  function buildFindIndex() {
+    const idx = [], seen = new Set();
+    const add = (names, label, sub, go, w = 0) => {
+      const keys = names.filter(Boolean).map(norm).filter(Boolean);
+      if (!keys.length || seen.has(label + sub)) return; seen.add(label + sub);
+      idx.push({ keys, label, sub, go, w });
+    };
+    for (const n of Object.keys(PLANET_INFO)) add([n], n, '태양계 행성', () => enterFocus(n), 5);
+    for (const ws of world.systems) add([ws.sys.name, ws.sys.catalog, ws.sys.id], ws.sys.name, `외계 행성계 · ${ws.sys.distLy}광년 · 행성 ${ws.sys.planets.length}개`, () => enterSystem(ws.sys.id), 4);
+    const featCat = new Set(world.systems.map((ws) => ws.sys.catalog));
+    if (catalog) catalog.rows.forEach((r, i) => !featCat.has(r[0]) && add([r[0]], r[0], `외계 행성계 · ${r[3] < 1000 ? r[3] : fmtKo(Math.round(r[3]))}광년 · 행성 ${r[7].length}개`, () => enterCatalog(i), 1));
+    for (const g of world.lgGalaxies) add([g.name], g.name, '국부은하군 은하', () => arriveAt({ name: g.name, ly: 0, wx: g.pos[0], wy: g.pos[1], s: 21.4 }), 3);
+    for (const d of world.lgDwarfs || []) if (d.pos) add([d.name], d.name, '왜소은하', () => arriveAt({ name: d.name, ly: d.ly || 0, wx: d.pos[0], wy: d.pos[1], s: 21.4 }), 1);
+    for (const d of world.deepSpace) add([d.name], d.name, `${DEEP_KO[d.kind] || '천체'} · ${fmtLy(d.mly * 1e6)}`, () => arriveAt({ name: d.name, ly: d.mly * 1e6, wx: d.pos[0], wy: d.pos[1], s: Math.log10(d.mly * MLY) - 0.2 }), 2);
+    if (sky) {
+      for (const d of sky.dso) add([d.name, DSO_KO?.[d.kind]], d.name, `${DSO_KO?.[d.kind] || '천체'} · ${fmtLy(d.ly)}`, () => arriveAt({ name: d.name, ly: d.ly, wx: d.pos[0], wy: d.pos[1], s: d.ly > 20000 ? 19.6 : 18.2 }), 2);
+      sky.rows.forEach((r, i) => { if (r[0] || r[1]) add([r[0], r[1]], (r[0] || r[1]).replace(/ \(.*\)$/, ''), `별 · ${fmtLy(r[4])}`, () => arriveAt({ name: r[0] || r[1], ly: r[4], wx: sky.x[i], wy: sky.y[i], s: 17.0 }), r[5] < 2 ? 2 : 0); });
+    }
+    return idx;
+  }
+  function findSearch(q) {
+    const k = norm(q); if (!k) return [];
+    const kb = bigrams(k);
+    const out = [];
+    for (const e of findIdx) {
+      let best = 0;
+      for (const key of e.keys) {
+        let sc = 0;
+        if (key === k) sc = 100; else if (key.startsWith(k)) sc = 80; else if (key.includes(k)) sc = 60;
+        else if (kb.length) { const b = bigrams(key); const hit = kb.filter((x) => b.includes(x)).length; const dice = (2 * hit) / (kb.length + b.length); if (dice >= 0.4) sc = dice * 50; }
+        best = Math.max(best, sc);
+      }
+      if (best) out.push([best + e.w, e]);
+    }
+    return out.sort((a, b) => b[0] - a[0]).slice(0, 10).map((x) => x[1]);
+  }
+  function renderFind() {
+    const res = findSearch(findIn.value);
+    findList.innerHTML = '';
+    if (findIn.value.trim() && !res.length) { findList.innerHTML = '<div class="none">찾는 천체가 없어요</div>'; return; }
+    for (const e of res) {
+      const b = document.createElement('button'); b.textContent = e.label;
+      const sp = document.createElement('span'); sp.textContent = e.sub; b.appendChild(sp);
+      b.onclick = () => { findBox.hidden = true; findIn.blur(); e.go(); toast(`${e.label} · ${e.sub}`); };
+      findList.appendChild(b);
+    }
+  }
+  $('.mu-find').addEventListener('click', () => {
+    findBox.hidden = !findBox.hidden;
+    if (!findBox.hidden) { findIdx = buildFindIndex(); findIn.value = ''; renderFind(); setTimeout(() => findIn.focus(), 30); }
+  });
+  findIn.addEventListener('input', renderFind);
+  findIn.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') findList.querySelector('button')?.click(); if (e.key === 'Escape') findBox.hidden = true; });
+  for (const ev of ['pointerdown', 'wheel', 'touchstart']) findBox.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
   // 탐사선 여행
   const btnTrip = $('.mu-trip');
   let tripView = null;
@@ -2585,6 +2657,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     focusPlanet: (name) => enterFocus(name),
     focusSystem: (id) => enterSystem(id),
     sys3d: (p) => openSys3D(p),
+    find: (q) => { findIdx = buildFindIndex(); return findSearch(q).map((e) => e.label + ' | ' + e.sub); },
     closeup: (fn, o) => openCloseup(fn, o),
     get scale() { return s; },
     get camInfo() { return { s, targetS, cam: getCam(s), pan, LY }; },
