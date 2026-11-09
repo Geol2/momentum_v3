@@ -294,12 +294,17 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, before } = {}) 
   let gen = 0
   let wantKey = '', wantSince = 0, want = null
   let texDirty = false, lastUpload = 0, detailDrawn = false
-  const detailTex = new THREE.CanvasTexture(canvases[0])
-  detailTex.flipY = false
-  detailTex.colorSpace = THREE.NoColorSpace
-  detailTex.generateMipmaps = false
-  detailTex.minFilter = THREE.LinearFilter
-  detailTex.magFilter = THREE.LinearFilter
+  const makeDetailTex = (cv) => {
+    const t = new THREE.CanvasTexture(cv)
+    t.userData.size = `${cv.width}x${cv.height}` // 생성 시점 크기(같은 캔버스를 키워도 감지)
+    t.flipY = false
+    t.colorSpace = THREE.NoColorSpace
+    t.generateMipmaps = false
+    t.minFilter = THREE.LinearFilter
+    t.magFilter = THREE.LinearFilter
+    return t
+  }
+  let detailTex = makeDetailTex(canvases[0])
   uniforms.uDetail.value = detailTex
 
   function cacheTile(url, img) {
@@ -397,7 +402,14 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, before } = {}) 
       g.drawImage(prev.canvas, (a0 + off - box[0]) * sx, (box[3] - b1) * sy, (a1 - a0) * sx, (b1 - b0) * sy)
     }
     cur = { ...p, box, canvas, gen }
-    detailTex.image = canvas
+    // GPU 텍스처는 크기가 고정되므로, 모자이크 크기가 바뀌면 새로 만든다
+    if (detailTex.userData.size !== `${canvas.width}x${canvas.height}`) {
+      detailTex.dispose()
+      detailTex = makeDetailTex(canvas)
+      uniforms.uDetail.value = detailTex
+    } else {
+      detailTex.image = canvas
+    }
     detailTex.needsUpdate = true
     uniforms.uDetailBox.value.set(...box)
     // 화면 중앙 가까운 타일부터
