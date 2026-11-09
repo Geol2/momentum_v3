@@ -49,14 +49,14 @@ export function tonight(loc) {
 
 const CSS = `
 .td-wrap{position:absolute;inset:0;z-index:26;display:flex;align-items:center;justify-content:center;background:rgba(0,6,3,.7)}
-.td-card{width:min(440px,calc(100% - 24px));max-height:calc(100% - 40px);overflow:auto;padding:14px 14px 12px}
-.td-card h2{margin:0 0 8px;font-size:15px;color:var(--g);letter-spacing:.08em;text-shadow:var(--glow)}
-.td-card h4{margin:12px 0 5px;font-size:12px;color:var(--g);letter-spacing:.06em}
+.td-card{width:min(380px,calc(100% - 24px));max-height:calc(100% - 40px);overflow:auto;padding:10px 11px 9px}
+.td-card h2{margin:0 0 8px;font-size:12px;color:var(--g);letter-spacing:.08em;text-shadow:var(--glow)}
+.td-card h4{margin:12px 0 5px;font-size:11px;color:var(--g);letter-spacing:.06em}
 .td-card img{display:block;width:100%;max-height:240px;object-fit:cover;border:1px solid rgba(61,255,143,.35)}
-.td-card .cap{font-size:12px;color:#eafff2;margin-top:6px;font-weight:700}
-.td-card .txt{font-size:11px;color:var(--gd);line-height:1.55;margin-top:4px;max-height:5.2em;overflow:hidden}
+.td-card .cap{font-size:11px;color:#eafff2;margin-top:6px;font-weight:700}
+.td-card .txt{font-size:10.5px;color:var(--gd);line-height:1.45;margin-top:4px;max-height:5.2em;overflow:hidden}
 .td-card a{color:#a6ffcb}
-.td-card ul{margin:0;padding-left:16px;font-size:11.5px;line-height:1.55;color:var(--gd)}
+.td-card ul{margin:0;padding-left:16px;font-size:10.5px;line-height:1.45;color:var(--gd)}
 .td-card li{margin:3px 0}
 .td-card .sm{font-size:10px;opacity:.7}
 .td-card button{margin-top:12px;width:100%;border:1px solid var(--g2);background:rgba(61,255,143,.2);color:#eafff2;font-family:inherit;font-weight:700;padding:9px;cursor:pointer}

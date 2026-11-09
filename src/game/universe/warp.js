@@ -27,14 +27,14 @@ const fmtLy = (ly) => (ly < 100 ? `${ly.toFixed(1)}광년` : ly < 1e4 ? `${Math.
 const CSS = `
 .wp-root{position:absolute;inset:0;z-index:28;background:#000;overflow:hidden}
 .wp-root canvas{position:absolute;inset:0;width:100%;height:100%}
-.wp-hud{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100% - 28px));padding:16px 18px;z-index:2;text-align:left;pointer-events:none}
-.wp-hud h3{margin:0 0 2px;color:var(--g);font-size:13px;letter-spacing:.14em;text-shadow:var(--glow)}
-.wp-hud .to{color:#eafff2;font-size:18px;font-weight:800;text-shadow:var(--glow);margin-bottom:10px}
-.wp-hud .row{display:flex;justify-content:space-between;font-size:12px;color:var(--gd);margin:3px 0;font-variant-numeric:tabular-nums}
+.wp-hud{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(380px,calc(100% - 28px));padding:11px 13px;z-index:2;text-align:left;pointer-events:none}
+.wp-hud h3{margin:0 0 2px;color:var(--g);font-size:11px;letter-spacing:.14em;text-shadow:var(--glow)}
+.wp-hud .to{color:#eafff2;font-size:12px;font-weight:800;text-shadow:var(--glow);margin-bottom:10px}
+.wp-hud .row{display:flex;justify-content:space-between;font-size:11px;color:var(--gd);margin:3px 0;font-variant-numeric:tabular-nums}
 .wp-hud .row b{color:var(--g)}
 .wp-hud .bar{height:6px;border:1px solid var(--g2);margin:10px 0 8px}.wp-hud .bar i{display:block;height:100%;width:0;background:var(--g);box-shadow:0 0 10px var(--g)}
-.wp-hud .note{font-size:11.5px;line-height:1.55;color:#cfffe2;margin-top:8px}
-.wp-skip{position:absolute;right:12px;bottom:calc(14px + env(safe-area-inset-bottom));z-index:3;border:1px solid var(--g2);background:rgba(1,22,11,.78);color:var(--g);font-family:inherit;font-weight:700;font-size:12px;padding:8px 12px;cursor:pointer}
+.wp-hud .note{font-size:10.5px;line-height:1.45;color:#cfffe2;margin-top:8px}
+.wp-skip{position:absolute;right:12px;bottom:calc(14px + env(safe-area-inset-bottom));z-index:3;border:1px solid var(--g2);background:rgba(1,22,11,.78);color:var(--g);font-family:inherit;font-weight:700;font-size:11px;padding:8px 12px;cursor:pointer}
 `;
 
 /**

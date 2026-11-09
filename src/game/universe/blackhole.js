@@ -92,13 +92,13 @@ export const BH_TARGETS = {
 const CSS = `
 .bh-root{position:absolute;inset:0;z-index:30;background:#000;touch-action:none;overflow:hidden}
 .bh-root canvas{position:absolute;inset:0;width:100%;height:100%;cursor:grab}
-.bh-info{position:absolute;top:10px;left:10px;right:58px;max-width:520px;padding:10px 12px;z-index:2;pointer-events:none}
-.bh-info h3{margin:0;color:var(--g);font-size:16px;letter-spacing:.05em;text-shadow:var(--glow)}
-.bh-info .sub{color:var(--gd);font-size:11px;margin-top:2px}
-.bh-info ul{margin:6px 0 0;padding-left:16px;color:var(--gd);font-size:11.5px;line-height:1.55}
+.bh-info{position:absolute;top:10px;left:10px;right:58px;max-width:400px;padding:7px 10px;z-index:2;pointer-events:none}
+.bh-info h3{margin:0;color:var(--g);font-size:12px;letter-spacing:.05em;text-shadow:var(--glow)}
+.bh-info .sub{color:var(--gd);font-size:10.5px;margin-top:2px}
+.bh-info ul{margin:6px 0 0;padding-left:16px;color:var(--gd);font-size:10.5px;line-height:1.45}
 .bh-bar{position:absolute;left:0;right:0;bottom:0;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;padding:8px 10px calc(10px + env(safe-area-inset-bottom));z-index:2;
   background:linear-gradient(transparent,rgba(1,6,4,.92) 40%)}
-.bh-bar button,.bh-close{border:1px solid var(--g2);background:rgba(1,22,11,.78);color:var(--g);font-family:inherit;font-weight:700;font-size:11.5px;cursor:pointer;
+.bh-bar button,.bh-close{border:1px solid var(--g2);background:rgba(1,22,11,.78);color:var(--g);font-family:inherit;font-weight:700;font-size:10.5px;cursor:pointer;
   text-shadow:var(--glow);padding:7px 10px;clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)}
 .bh-bar button.on{background:rgba(61,255,143,.28);color:#eafff2}
 .bh-close{position:absolute;top:10px;right:10px;width:38px;height:38px;padding:0;z-index:3}

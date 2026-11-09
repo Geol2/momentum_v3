@@ -201,27 +201,27 @@ const CSS3D = `
 .g3-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
 .g3-lab{position:absolute;left:0;top:0;white-space:nowrap;font-size:10.5px;font-weight:700;letter-spacing:.03em;
   transform:translate(-50%,-140%);text-shadow:0 0 3px #000,0 0 6px currentColor;opacity:0;transition:opacity .25s}
-.g3-lab.big{font-size:12.5px}
-.g3-top{position:absolute;top:10px;left:10px;right:58px;max-width:600px;padding:10px 12px 11px;z-index:3;pointer-events:none}
-.g3-top h3{margin:0;font-size:16px;color:var(--g);letter-spacing:.06em;text-shadow:var(--glow)}
-.g3-top p{margin:6px 0 0;font-size:11.5px;line-height:1.55;color:var(--gd)}
+.g3-lab.big{font-size:11px}
+.g3-top{position:absolute;top:10px;left:10px;right:58px;max-width:400px;padding:7px 10px 8px;z-index:3;pointer-events:none}
+.g3-top h3{margin:0;font-size:12px;color:var(--g);letter-spacing:.06em;text-shadow:var(--glow)}
+.g3-top p{margin:6px 0 0;font-size:10.5px;line-height:1.45;color:var(--gd)}
 .g3-bar{position:absolute;left:0;right:0;bottom:0;z-index:3;padding:8px 10px calc(10px + env(safe-area-inset-bottom));
   display:flex;flex-wrap:wrap;gap:6px;justify-content:center;background:linear-gradient(transparent,rgba(1,6,4,.92) 40%)}
 .g3-bar button,.g3-close{border:1px solid var(--g2);background:rgba(1,22,11,.78);color:var(--g);font-family:inherit;font-weight:700;
-  font-size:11.5px;letter-spacing:.04em;cursor:pointer;text-shadow:var(--glow);padding:7px 10px;
+  font-size:10.5px;letter-spacing:.04em;cursor:pointer;text-shadow:var(--glow);padding:7px 10px;
   clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);box-shadow:inset 0 0 10px rgba(61,255,143,.2)}
 .g3-bar button.on{background:rgba(61,255,143,.28);color:#eafff2}
-.g3-close{position:absolute;top:10px;right:10px;width:38px;height:38px;padding:0;z-index:4;font-size:13px}
+.g3-close{position:absolute;top:10px;right:10px;width:38px;height:38px;padding:0;z-index:4;font-size:11px}
 .g3-info{position:absolute;z-index:4;pointer-events:none;padding:7px 10px 8px;max-width:min(320px,calc(100% - 24px));
   background:rgba(1,18,9,.92);border:1px solid rgba(61,255,143,.8);box-shadow:0 0 10px rgba(61,255,143,.5);
   clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);display:none}
-.g3-info b{display:block;color:var(--g);font-size:12px;text-shadow:var(--glow)}
+.g3-info b{display:block;color:var(--g);font-size:11px;text-shadow:var(--glow)}
 .g3-info span{display:block;color:var(--gd);font-size:10.5px;line-height:1.45;margin-top:2px}
 .g3-ring{position:absolute;z-index:3;width:22px;height:22px;margin:-11px 0 0 -11px;border:1.6px solid var(--g);border-radius:50%;
   box-shadow:0 0 10px rgba(61,255,143,.9);pointer-events:none;display:none}
 .g3-scale{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(92px + env(safe-area-inset-bottom));z-index:3;font-size:10.5px;color:var(--gd);
   text-shadow:0 0 4px #000;pointer-events:none;white-space:nowrap}
-@media (max-width:520px){.g3-bar button{font-size:10.5px;padding:6px 8px}.g3-scale{bottom:calc(118px + env(safe-area-inset-bottom))}}
+@media (max-width:400px){.g3-bar button{font-size:10.5px;padding:6px 8px}.g3-scale{bottom:calc(118px + env(safe-area-inset-bottom))}}
 `;
 
 const fmtLy = (ly) => {

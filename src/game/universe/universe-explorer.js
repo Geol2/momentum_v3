@@ -463,31 +463,31 @@ const CSS = `
   linear-gradient(var(--g),var(--g)) right bottom/14px 2px no-repeat,linear-gradient(var(--g),var(--g)) right bottom/2px 14px no-repeat,
   rgba(1,18,9,.62);
   border:1px solid var(--g3);box-shadow:inset 0 0 22px rgba(61,255,143,.08),0 0 14px rgba(61,255,143,.12);backdrop-filter:blur(3px)}
-.mu-top{position:absolute;top:10px;left:10px;right:58px;padding:10px 12px 11px;pointer-events:none;z-index:6;max-width:560px}
-.mu-title{font-size:17px;font-weight:700;letter-spacing:.06em;color:var(--g);text-shadow:var(--glow)}
+.mu-top{position:absolute;top:10px;left:10px;right:58px;padding:7px 10px 8px;pointer-events:none;z-index:6;max-width:400px}
+.mu-title{font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--g);text-shadow:var(--glow)}
 .mu-step{display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;margin-right:8px;letter-spacing:.12em;
   border:1px solid var(--g2);color:var(--g);vertical-align:3px;text-shadow:var(--glow)}
-.mu-desc{margin-top:6px;font-size:11.5px;line-height:1.55;color:var(--gd);opacity:.92;text-shadow:0 0 6px rgba(61,255,143,.35)}
+.mu-desc{margin-top:6px;font-size:10.5px;line-height:1.45;color:var(--gd);opacity:.92;text-shadow:0 0 6px rgba(61,255,143,.35)}
 .mu-close{position:absolute;top:10px;right:10px;width:38px;height:38px;z-index:6;border:1px solid var(--g2);
-  background:rgba(1,18,9,.7);color:var(--g);font-weight:700;font-size:15px;cursor:pointer;text-shadow:var(--glow);
+  background:rgba(1,18,9,.7);color:var(--g);font-weight:700;font-size:12px;cursor:pointer;text-shadow:var(--glow);
   clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);box-shadow:inset 0 0 10px rgba(61,255,143,.25)}
 .mu-3d{position:absolute;top:56px;right:10px;width:38px;height:38px;z-index:6;border:1px solid var(--g2);padding:0;
-  background:rgba(1,18,9,.7);color:var(--g);font-family:inherit;font-weight:800;font-size:12px;cursor:pointer;text-shadow:var(--glow);
+  background:rgba(1,18,9,.7);color:var(--g);font-family:inherit;font-weight:800;font-size:11px;cursor:pointer;text-shadow:var(--glow);
   clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);box-shadow:inset 0 0 10px rgba(61,255,143,.25);
   animation:mu3dpulse 2.4s ease-in-out infinite}
 .mu-3d[hidden]{display:none}
-.mu-more{top:148px;animation:none;font-size:11px}
-.mu-snd{top:102px;animation:none;font-size:15px;opacity:.6}
+.mu-more{top:148px;animation:none;font-size:10.5px}
+.mu-snd{top:102px;animation:none;font-size:12px;opacity:.6}
 .mu-sky{top:194px;animation:none;font-size:10px;letter-spacing:.02em}
-.mu-trip{top:240px;animation:none;font-size:9.5px;letter-spacing:0}
-.mu-today{top:286px;animation:none;font-size:9.5px;letter-spacing:0}
+.mu-trip{top:240px;animation:none;font-size:10px;letter-spacing:0}
+.mu-today{top:286px;animation:none;font-size:10px;letter-spacing:0}
 @media (max-height:520px){.mu-trip{top:56px;right:56px}.mu-today{top:102px;right:56px}}
 .mu-photo{position:absolute;z-index:7;width:180px;padding:4px 4px 3px;pointer-events:none;background:rgba(1,18,9,.92)}
 .mu-photo[hidden]{display:none}
 .mu-photo img{display:block;width:100%;max-height:180px;object-fit:cover;border:1px solid rgba(61,255,143,.35)}
-.mu-photo span{display:block;font-size:9px;color:rgba(166,255,203,.7);margin-top:2px;text-align:right}
+.mu-photo span{display:block;font-size:10px;color:rgba(166,255,203,.7);margin-top:2px;text-align:right}
 .mu-warp{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(196px + env(safe-area-inset-bottom));z-index:8;border:1px solid var(--g);background:rgba(61,255,143,.22);
-  color:#eafff2;font-family:inherit;font-weight:800;font-size:13px;letter-spacing:.08em;padding:9px 16px;cursor:pointer;text-shadow:var(--glow);
+  color:#eafff2;font-family:inherit;font-weight:800;font-size:11px;letter-spacing:.08em;padding:9px 16px;cursor:pointer;text-shadow:var(--glow);
   clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);animation:mu3dpulse 1.6s ease-in-out infinite}
 .mu-warp[hidden]{display:none}
 .mu-snd.on{opacity:1;background:rgba(61,255,143,.3);color:#eafff2}
@@ -498,35 +498,35 @@ const CSS = `
 .mu-focusbar{display:flex;justify-content:center;gap:8px;margin-bottom:8px}
 .mu-focusbar[hidden]{display:none}
 .mu-focusbar button,.mu-controls button,.mu-card button{border:1px solid var(--g2);background:rgba(1,22,11,.75);color:var(--g);
-  font-family:inherit;font-weight:700;font-size:12px;letter-spacing:.06em;cursor:pointer;text-shadow:var(--glow);touch-action:none;
+  font-family:inherit;font-weight:700;font-size:11px;letter-spacing:.06em;cursor:pointer;text-shadow:var(--glow);touch-action:none;
   clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);box-shadow:inset 0 0 10px rgba(61,255,143,.2)}
 .mu-focusbar button{padding:8px 14px}
 .mu-focusbar button:active,.mu-controls button:active,.mu-card button:active{background:rgba(61,255,143,.25)}
-.mu-credit{font-size:9px;line-height:1.35;color:rgba(166,255,203,.55);text-align:center;margin:0 auto 6px;max-width:560px}
+.mu-credit{font-size:10px;line-height:1.35;color:rgba(166,255,203,.55);text-align:center;margin:0 auto 6px;max-width:400px}
 .mu-credit a{color:rgba(166,255,203,.8)}
-.mu-scale{font-size:11px;color:var(--gd);opacity:.85;margin-bottom:8px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.04em}
+.mu-scale{font-size:10.5px;color:var(--gd);opacity:.85;margin-bottom:8px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.04em}
 .mu-scale b{color:var(--g);font-weight:700;text-shadow:var(--glow)}
-.mu-controls{display:flex;align-items:center;gap:8px;max-width:560px;margin:0 auto}
-.mu-controls button{flex:none;width:42px;height:40px;font-size:18px}
+.mu-controls{display:flex;align-items:center;gap:8px;max-width:400px;margin:0 auto}
+.mu-controls button{flex:none;width:42px;height:40px;font-size:12px}
 .mu-slider{flex:1;accent-color:#3dff8f;height:28px;filter:drop-shadow(0 0 4px rgba(61,255,143,.6))}
-.mu-progress{position:relative;max-width:560px;margin:10px auto 0;height:16px;border:1px solid var(--g2);background:rgba(1,18,9,.7);overflow:hidden}
+.mu-progress{position:relative;max-width:400px;margin:10px auto 0;height:16px;border:1px solid var(--g2);background:rgba(1,18,9,.7);overflow:hidden}
 .mu-progress-fill{position:absolute;top:2px;bottom:2px;left:2px;width:0;transition:width .5s;
   background:repeating-linear-gradient(90deg,var(--g) 0 9px,transparent 9px 12px);box-shadow:0 0 10px rgba(61,255,143,.6)}
 .mu-progress span{position:absolute;inset:0;font-size:10px;line-height:14px;text-align:center;color:#eafff2;font-weight:700;letter-spacing:.12em;
   text-shadow:0 0 3px #000,0 0 6px #000}
 .mu-toast{position:absolute;left:50%;bottom:calc(150px + env(safe-area-inset-bottom));transform:translate(-50%,10px);opacity:0;transition:all .3s;z-index:25;
-  padding:9px 16px;font-size:12px;font-weight:700;color:var(--g);letter-spacing:.03em;text-shadow:var(--glow);
+  padding:9px 16px;font-size:11px;font-weight:700;color:var(--g);letter-spacing:.03em;text-shadow:var(--glow);
   width:max-content;max-width:calc(100% - 32px);white-space:normal;text-align:center;pointer-events:none}
 .mu-toast::before{content:'> ';opacity:.8}
 .mu-toast.show{opacity:1;transform:translate(-50%,0)}
-.mu-hint{position:absolute;left:50%;bottom:150px;transform:translateX(-50%);font-size:11.5px;color:var(--g);z-index:6;
+.mu-hint{position:absolute;left:50%;bottom:150px;transform:translateX(-50%);font-size:10.5px;color:var(--g);z-index:6;
   padding:8px 14px;pointer-events:none;transition:opacity .6s;width:max-content;max-width:calc(100% - 24px);text-align:center;text-shadow:var(--glow)}
 .mu-modal{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,6,3,.7);z-index:8}
 .mu-modal[hidden]{display:none}
 .mu-card{width:min(360px,calc(100% - 32px));padding:22px 20px;text-align:center}
-.mu-card h2{margin:0 0 4px;font-size:16px;color:var(--g);letter-spacing:.08em;text-shadow:var(--glow)}
-.mu-card p{margin:0 0 14px;font-size:12px;color:var(--gd)}
-.mu-addr{text-align:left;font-size:12px;line-height:1.9;padding:10px 14px;border:1px solid var(--g3);background:rgba(61,255,143,.04);margin-bottom:16px}
+.mu-card h2{margin:0 0 4px;font-size:12px;color:var(--g);letter-spacing:.08em;text-shadow:var(--glow)}
+.mu-card p{margin:0 0 14px;font-size:11px;color:var(--gd)}
+.mu-addr{text-align:left;font-size:11px;line-height:1.9;padding:10px 14px;border:1px solid var(--g3);background:rgba(61,255,143,.04);margin-bottom:16px}
 .mu-addr div{display:flex;gap:8px;color:var(--gd)}
 .mu-addr div::before{content:'>';color:var(--g)}
 .mu-addr .me{color:var(--g);font-weight:700;text-shadow:var(--glow)}

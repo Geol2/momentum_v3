@@ -88,18 +88,18 @@ function posAt(path, t) {
 const CSS = `
 .jr-root{position:absolute;inset:0;z-index:22;background:#020504;overflow:hidden;touch-action:none}
 .jr-root canvas{position:absolute;inset:0;width:100%;height:100%}
-.jr-top{position:absolute;top:10px;left:10px;right:58px;max-width:560px;padding:10px 12px;z-index:2;pointer-events:none}
-.jr-top h3{margin:0;color:var(--g);font-size:16px;letter-spacing:.05em;text-shadow:var(--glow)}
-.jr-top .st{margin-top:6px;color:var(--gd);font-size:11.5px;line-height:1.6;font-variant-numeric:tabular-nums}
+.jr-top{position:absolute;top:10px;left:10px;right:58px;max-width:400px;padding:7px 10px;z-index:2;pointer-events:none}
+.jr-top h3{margin:0;color:var(--g);font-size:12px;letter-spacing:.05em;text-shadow:var(--glow)}
+.jr-top .st{margin-top:6px;color:var(--gd);font-size:10.5px;line-height:1.6;font-variant-numeric:tabular-nums}
 .jr-ev{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(150px + env(safe-area-inset-bottom));z-index:2;max-width:calc(100% - 30px);width:max-content;padding:9px 14px;
-  color:#eafff2;font-size:12.5px;font-weight:700;text-shadow:var(--glow);opacity:0;transition:opacity .4s;pointer-events:none}
+  color:#eafff2;font-size:11px;font-weight:700;text-shadow:var(--glow);opacity:0;transition:opacity .4s;pointer-events:none}
 .jr-ev.show{opacity:1}
 .jr-bar{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:8px 10px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(1,6,4,.92) 35%)}
 .jr-row{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:6px}
-.jr-bar button,.jr-close{border:1px solid var(--g2);background:rgba(1,22,11,.78);color:var(--g);font-family:inherit;font-weight:700;font-size:11.5px;cursor:pointer;text-shadow:var(--glow);padding:7px 10px;
+.jr-bar button,.jr-close{border:1px solid var(--g2);background:rgba(1,22,11,.78);color:var(--g);font-family:inherit;font-weight:700;font-size:10.5px;cursor:pointer;text-shadow:var(--glow);padding:7px 10px;
   clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)}
 .jr-bar button.on{background:rgba(61,255,143,.28);color:#eafff2}
-.jr-bar input{width:min(560px,100%);display:block;margin:0 auto;accent-color:#3dff8f}
+.jr-bar input{width:min(380px,100%);display:block;margin:0 auto;accent-color:#3dff8f}
 .jr-close{position:absolute;top:10px;right:10px;width:38px;height:38px;padding:0;z-index:3}
 `;
 
