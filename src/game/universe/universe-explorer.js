@@ -11,6 +11,8 @@
  *   });
  */
 
+import { createEarthRenderer } from './earth.js';
+
 // ───────────────────────── 단위 / 상수 ─────────────────────────
 const LY = 9.4607e15;          // 1광년 (m)
 const AU = 1.496e11;           // 1천문단위 (m)
@@ -406,6 +408,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   };
 
   const world = buildWorld();
+  const earth = createEarthRenderer();
 
   // ── 저장 상태 ──
   const load = () => {
@@ -769,25 +772,14 @@ export function mountUniverseExplorer(container, opts = {}) {
     const er = 6.371e6 / mpp;
     if (er >= 0.6) {
       const X = sx(0), Y = sy(0);
-      ctx.globalAlpha = 1;
-      if (er > 4) {
-        const atm = ctx.createRadialGradient(X, Y, er * 0.95, X, Y, er * 1.15);
-        atm.addColorStop(0, 'rgba(110,180,255,0.6)'); atm.addColorStop(1, 'rgba(110,180,255,0)');
-        ctx.fillStyle = atm; ctx.beginPath(); ctx.arc(X, Y, er * 1.15, 0, Math.PI * 2); ctx.fill();
-      }
-      const g = ctx.createRadialGradient(X - er * 0.35, Y - er * 0.35, er * 0.1, X, Y, er);
-      g.addColorStop(0, '#5fa8ff'); g.addColorStop(0.7, '#1f5fb8'); g.addColorStop(1, '#0b2a5c');
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(X, Y, er, 0, Math.PI * 2); ctx.fill();
-      if (er > 6) {
-        ctx.save(); ctx.beginPath(); ctx.arc(X, Y, er, 0, Math.PI * 2); ctx.clip();
-        ctx.fillStyle = 'rgba(80,160,90,0.85)';
-        for (const [u, v, a, b, rot] of world.continents) {
-          ctx.beginPath(); ctx.ellipse(X + u * er, Y + v * er, a * er, b * er, rot, 0, Math.PI * 2); ctx.fill();
+      if (onScreen(X, Y, er * 1.2)) {
+        ctx.globalAlpha = 1;
+        if (er > 5) {
+          earth.draw(ctx, X, Y, er, time, dpr);
+        } else {
+          ctx.fillStyle = '#5fa8ff';
+          ctx.beginPath(); ctx.arc(X, Y, Math.max(er, 1), 0, Math.PI * 2); ctx.fill();
         }
-        const shade = ctx.createLinearGradient(X - er, Y - er, X + er, Y + er);
-        shade.addColorStop(0.45, 'rgba(0,0,0,0)'); shade.addColorStop(1, 'rgba(0,0,10,0.65)');
-        ctx.fillStyle = shade; ctx.fillRect(X - er, Y - er, er * 2, er * 2);
-        ctx.restore();
       }
     }
 
