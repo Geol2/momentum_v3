@@ -4,6 +4,7 @@
 // 실제 데이터: 별(AT-HYG · Gaia DR3), 성운·성단·블랙홀(OpenNGC 등), 외계 행성계(Open Exoplanet Catalogue),
 // 위성은하. 나선팔·막대·팽대부는 최신 연구(막대 길이 약 5 kpc · 기울기 약 27° · 나선 기울기 약 12°)를 따른 모형.
 import * as THREE from 'three';
+import { bvRgb } from './deep-stars.js';
 
 const R0 = 26670;           // 태양 ~ 은하 중심 거리 (광년, GRAVITY 2019 ~ 8.18 kpc)
 const Z0 = 66;              // 태양의 원반 위 높이
@@ -223,7 +224,7 @@ const fmtLy = (ly) => {
  * @param {{ sky?:any, exo?:any, dwarfs?:Array, preset?:string, describeStar?:Function, dsoKo?:Object, onClose?:Function }} opts
  */
 export function openGalaxy3D(host, opts = {}) {
-  const { sky, exo, dwarfs = [], preset = 'mw', describeStar, dsoKo = {}, onClose } = opts;
+  const { sky, exo, deep, describeDeep, dwarfs = [], preset = 'mw', describeStar, dsoKo = {}, onClose } = opts;
   if (!document.getElementById('g3-style')) {
     const st = document.createElement('style'); st.id = 'g3-style'; st.textContent = CSS3D; document.head.appendChild(st);
   }
@@ -337,6 +338,26 @@ export function openGalaxy3D(host, opts = {}) {
       addPick(p, d.name, `${fmtLy(d.ly)} · ${dsoKo[d.kind] || ''}`, d.desc, 0, 400000);
     }
   }
+  // 맨눈 밖의 별 약 11만 개 (실제 위치)
+  let deepPos = null;
+  if (deep) {
+    const N = deep.N, pos = new Float32Array(N * 3), colA = new Float32Array(N * 3), size = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      const p = eqTo3(deep.ra[i], deep.dec[i], deep.ly[i]);
+      pos[i * 3] = p[0]; pos[i * 3 + 1] = p[1]; pos[i * 3 + 2] = p[2];
+      const [r, g, b] = bvRgb(deep.bv[i] / 50);
+      const k = Math.max(0.35, Math.min(1, 1.1 - (deep.mag[i] / 10 - 6.5) * 0.12));
+      colA[i * 3] = (r / 255) * k; colA[i * 3 + 1] = (g / 255) * k; colA[i * 3 + 2] = (b / 255) * k;
+      size[i] = 0.9;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colA, 3));
+    geo.setAttribute('size', new THREE.BufferAttribute(size, 1));
+    const m = pointMaterial({ opacity: 0.9, minPx: 1.0, maxPx: 6 }); mats.push(m);
+    const pts = new THREE.Points(geo, m); pts.frustumCulled = false; scene.add(pts);
+    deepPos = pos;
+  }
   if (exo) {
     const buf = new PointBuf();
     exo.rows.forEach((r) => {
@@ -416,7 +437,7 @@ export function openGalaxy3D(host, opts = {}) {
     mw: { t: [0, 0, 0], d: 95000, pitch: 0.95, title: '우리은하 3D', desc: '막대 나선 은하 · 지름 약 10만 광년 · 별 1000억~4000억 개. 드래그로 돌리고, 휠·핀치로 확대. 점 위에 올리거나 탭하면 정보.' },
     side: { t: [0, 0, 0], d: 80000, pitch: 0.04, title: '옆에서 본 우리은하', desc: '원반 두께는 약 1천 광년(얇은 원반)으로 지름의 1%. 가운데가 땅콩 모양 팽대부, 위아래 보라색은 페르미 거품.' },
     gc: { t: [0, 0, 0], d: 16000, pitch: 0.55, title: '은하 중심부', desc: '중심 막대와 팽대부의 늙은 별들, 붉은 중심 분자대, 그 한가운데 블랙홀 궁수자리 A*. 아치스·5중 성단은 여기서 가장 무거운 젊은 별들의 무리.' },
-    sun: { t: SUN, d: 2600, pitch: 0.6, title: '태양 주변 (실제 별)', desc: '실제 별 9,105개(Gaia DR3 거리)와 외계 행성계 3,688곳(초록). 우리가 행성을 찾은 범위가 은하 전체에 비해 얼마나 작은지 보여요.' },
+    sun: { t: SUN, d: 2600, pitch: 0.6, title: '태양 주변 (실제 별)', desc: '실제 별 약 11만 9천 개(Gaia DR3 거리 · 맨눈 별 9,105개 + 망원경 별 11만 개)와 외계 행성계 3,688곳(초록). 은하 전체에 비하면 아주 작은 동네예요.' },
     lmc: { t: LMC, d: 60000, ...vLMC, title: '대마젤란 은하', desc: '우리은하의 가장 큰 위성은하. 한쪽으로 치우친 막대와 거대한 별 탄생 구역 타란툴라 성운(분홍).' },
     m31: { t: M31, d: 270000, ...vM31, title: '안드로메다 은하', desc: '국부은하군에서 가장 큰 은하. 큰 팽대부와 1만 광년대 먼지 고리. 지금도 초속 약 110km로 다가오는 중.' },
     m33: { t: M33, d: 95000, ...vM33, title: '삼각형자리 은하', desc: '안드로메다의 동반 은하로 추정. 팽대부가 거의 없고 나선팔이 솜털처럼 흩어진 은하.' },
@@ -486,6 +507,26 @@ export function openGalaxy3D(host, opts = {}) {
   const v = new THREE.Vector3();
   let W = 1, H = 1;
   const project = (p) => { v.copy(p).project(camera); return v.z < 1 ? [(v.x + 1) * W / 2, (1 - v.y) * H / 2] : null; };
+  const vp = new THREE.Matrix4();
+  function pickDeep(pt) {
+    if (!deepPos || dist > 9000) return null;
+    vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    const e = vp.elements;
+    let best = -1, bd = 7 * 7;
+    for (let i = 0, n = deepPos.length / 3; i < n; i++) {
+      const x = deepPos[i * 3], y = deepPos[i * 3 + 1], z = deepPos[i * 3 + 2];
+      const w = e[3] * x + e[7] * y + e[11] * z + e[15];
+      if (w <= 0) continue;
+      const sx = ((e[0] * x + e[4] * y + e[8] * z + e[12]) / w + 1) * W / 2;
+      const dx = sx - pt[0]; if (dx > 7 || dx < -7) continue;
+      const sy = (1 - (e[1] * x + e[5] * y + e[9] * z + e[13]) / w) * H / 2;
+      const d2 = dx * dx + (sy - pt[1]) ** 2;
+      if (d2 < bd) { bd = d2; best = i; }
+    }
+    if (best < 0 || !describeDeep) return null;
+    const [title, l2, l3] = describeDeep(best);
+    return { pos: new THREE.Vector3(deepPos[best * 3], deepPos[best * 3 + 1], deepPos[best * 3 + 2]), title, l2, l3 };
+  }
   function pick(pt) {
     let best = null;
     for (const t of picks) {
@@ -494,6 +535,7 @@ export function openGalaxy3D(host, opts = {}) {
       const d = Math.hypot(s[0] - pt[0], s[1] - pt[1]);
       if (d < 14 && (!best || d < best.d)) best = { ...t, d, s };
     }
+    if (!best) { const h = pickDeep(pt); if (h) { const s2 = project(h.pos); if (s2) best = { ...h, s: s2 }; } }
     return best;
   }
 
@@ -517,7 +559,7 @@ export function openGalaxy3D(host, opts = {}) {
     info.style.left = `${x}px`; info.style.top = `${y}px`;
   }
 
-  let raf = 0, last = performance.now(), destroyed = false;
+  let raf = 0, last = performance.now(), destroyed = false, lastPickT = 0, hoverHit = null;
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     if (goal) {
@@ -557,7 +599,10 @@ export function openGalaxy3D(host, opts = {}) {
     }
     // 호버/탭 정보
     let hit = null;
-    if (hoverPt) hit = pick(hoverPt);
+    if (hoverPt) {
+      if (now - lastPickT > 90) { hoverHit = pick(hoverPt) || 0; lastPickT = now; }
+      if (hoverHit) { const s2 = project(hoverHit.pos); hit = s2 ? { ...hoverHit, s: s2 } : null; }
+    }
     else if (tapHit) { const s = project(tapHit.pos); hit = s ? { ...tapHit, s } : null; }
     showInfo(hit);
     $('.g3-scale').textContent = `시점 거리 ≈ ${fmtLy(dist)} · 드래그 회전 · 휠/핀치 확대 · 두 번 탭하면 그곳으로`;

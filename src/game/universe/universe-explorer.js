@@ -19,6 +19,7 @@ import { MOONS, PLANET_INFO, moonStates } from './moons.js';
 import { SYSTEMS, exoStates, eqToEcl, catalogToSystem, linkFeatured, teffColor } from './exoplanets.js';
 import catalogUrl from './exo-catalog.json?url';
 import skyUrl from './sky-catalog.json?url';
+import { loadDeepStars, deepSpect, deepName, bvRgb } from './deep-stars.js';
 import { plutoHelio, DWARFS, PROBES, probeDistanceAU } from './outer.js';
 import dayUrl from './earth-day.webp';
 import reliefUrl from './earth-relief.webp';
@@ -598,8 +599,73 @@ export function mountUniverseExplorer(container, opts = {}) {
       buckets.get(key).push(i);
     });
     const dso = d.dso.map(([name, kind, ra, dec, ly, desc]) => ({ name, kind, ly, desc, radec: [ra, dec], pos: skyPosM(ra, dec, ly * LY) }));
-    sky = { rows: d.stars, con: d.con, x, y, buckets: [...buckets].map(([k, idx]) => { const [rgb, sz] = k.split('|'); return { rgb, size: +sz, idx }; }), dso };
+    sky = { rows: d.stars, con: d.con, conKeys: d.conKeys || Object.keys(d.con), x, y, buckets: [...buckets].map(([k, idx]) => { const [rgb, sz] = k.split('|'); return { rgb, size: +sz, idx }; }), dso };
   }).catch(() => {});
+  // 맨눈 밖의 별 약 11만 개 (이웃 별 단계에 처음 들어갈 때 불러옴)
+  let deep = null, deepReq = false, deepA = 0;
+  function requestDeep() {
+    if (deepReq) return;
+    deepReq = true;
+    loadDeepStars().then((d) => {
+      if (destroyed) return;
+      const x = new Float64Array(d.N), y = new Float64Array(d.N), col = new Uint32Array(d.N);
+      const lut = new Map();
+      for (let i = 0; i < d.N; i++) {
+        const p = skyPosM(d.ra[i], d.dec[i], d.ly[i] * LY);
+        x[i] = p[0]; y[i] = p[1];
+        const m = d.mag[i] / 10;
+        const a = Math.max(60, Math.min(235, Math.round(255 * (1.15 - (m - 6.5) * 0.13))));
+        const key = (d.bv[i] >> 2) * 256 + a;
+        let c = lut.get(key);
+        if (c === undefined) { const [r, g, b] = bvRgb(d.bv[i] / 50); c = ((a << 24) | (Math.round(b) << 16) | (Math.round(g) << 8) | Math.round(r)) >>> 0; lut.set(key, c); }
+        col[i] = c;
+      }
+      deep = { d, x, y, col };
+    }).catch(() => { deepReq = false; });
+  }
+  const deepCv = document.createElement('canvas');
+  const deepCtx = deepCv.getContext('2d');
+  let deepImg = null, deepBuf = null;
+  function drawDeep(a, camX, camY, mpp) {
+    deepA = a;
+    if (!deep || a < 0.02) return;
+    const Wd = Math.max(1, Math.round(W * dpr)), Hd = Math.max(1, Math.round(H * dpr));
+    if (deepCv.width !== Wd || deepCv.height !== Hd) { deepCv.width = Wd; deepCv.height = Hd; deepImg = null; }
+    if (!deepImg) { deepImg = deepCtx.createImageData(Wd, Hd); deepBuf = new Uint32Array(deepImg.data.buffer); }
+    deepBuf.fill(0);
+    const { x, y, col } = deep, n = x.length;
+    const k = dpr / mpp, ox = (W / 2) * dpr, oy = (H / 2) * dpr, big = dpr >= 1.5;
+    for (let i = 0; i < n; i++) {
+      const X = (ox + (x[i] - camX) * k) | 0, Y = (oy - (y[i] - camY) * k) | 0;
+      if (X < 0 || Y < 0 || X >= Wd - 1 || Y >= Hd - 1) continue;
+      const j = Y * Wd + X;
+      deepBuf[j] = col[i];
+      if (big) { deepBuf[j + 1] = col[i]; deepBuf[j + Wd] = col[i]; deepBuf[j + Wd + 1] = col[i]; }
+    }
+    deepCtx.putImageData(deepImg, 0, 0);
+    ctx.globalAlpha = a;
+    ctx.drawImage(deepCv, 0, 0, W, H);
+  }
+  function pickDeep(px, py, r) {
+    if (!deep || deepA < 0.3) return null;
+    const [camX, camY] = getCam(s), m = mppAt(s);
+    let best = -1, bd = r * r;
+    const { x, y } = deep;
+    for (let i = 0; i < x.length; i++) {
+      const dx = W / 2 + (x[i] - camX) / m - px;
+      if (dx > r || dx < -r) continue;
+      const dy = H / 2 - (y[i] - camY) / m - py;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bd) { bd = d2; best = i; }
+    }
+    if (best < 0) return null;
+    return { deepStar: best, hoverOnly: true, x: W / 2 + (x[best] - camX) / m, y: H / 2 - (y[best] - camY) / m, wx: x[best], wy: y[best] };
+  }
+  function deepInfo(i) {
+    const d = deep.d;
+    const con = sky ? sky.con[sky.conKeys[d.con[i]]] || '' : '';
+    return [deepName(d, i), `${fmtLy(d.ly[i])} · ${starTypeKo(deepSpect(d.sp[i]))}`, `${con ? con + ' · ' : ''}${(d.mag[i] / 10).toFixed(1)}등급 · 맨눈으로는 안 보임`];
+  }
   const seasonInfo = earthSeason(TODAY);
   // 3D(WebGL2) 지구 — 안 되면 2D 지구로 자동 전환
   let earth = null;
@@ -861,6 +927,7 @@ export function mountUniverseExplorer(container, opts = {}) {
         `${fmtLy(r[4])} · ${starTypeKo(r[8])}`,
         `${con} · ${r[5].toFixed(1)}등급${r[10] ? ' · 거리: Gaia DR3' : ''}`];
     }
+    if (t.deepStar !== undefined && deep) return deepInfo(t.deepStar);
     if (t.dso) return [t.dso.name, `${fmtLy(t.dso.ly)} · ${DSO_KO[t.dso.kind]}`, t.dso.desc];
     if (t.gal) return [t.gal.name, `${fmtLy(t.gal.ly)} · 국부은하군`, t.gal.desc];
     if (t.deep) return [t.deep.name, `${fmtMly(t.deep.mly)}${t.deep.kind === 'far' || t.deep.mly > 5000 ? ' (공동 거리)' : ''} · ${DEEP_KO[t.deep.kind]}`, t.deep.desc];
@@ -875,7 +942,8 @@ export function mountUniverseExplorer(container, opts = {}) {
       const d = Math.hypot(p.x - x, p.y - y);
       if (d < 18 && (!best || d < best.d)) best = { p, d };
     }
-    const lab = best && hoverLabel(best.p);
+    const hit = best ? best.p : pickDeep(x, y, 10);
+    const lab = hit && hoverLabel(hit);
     if (!lab) return false;
     toast(lab.filter(Boolean).join(' · '));
     return true;
@@ -889,6 +957,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     };
     for (const t of lastMoonScreen) consider(t, 16);
     if (!best) for (const t of lastPlanetScreen) consider(t, t.cat !== undefined || t.sky !== undefined ? 10 : 20);
+    if (!best) return pickDeep(hoverPt.x, hoverPt.y, 6);
     return best && best.t;
   }
   function drawHover(time) {
@@ -1047,7 +1116,7 @@ export function mountUniverseExplorer(container, opts = {}) {
       if (destroyed) return;
       cancelAnimationFrame(raf); // 2D 화면은 잠시 멈춤
       g3 = openGalaxy3D(root, {
-        sky, exo: catalog, dwarfs: world.lgDwarfs, preset, dsoKo: DSO_KO,
+        sky, exo: catalog, deep: deep && deep.d, describeDeep: (i) => deepInfo(i), dwarfs: world.lgDwarfs, preset, dsoKo: DSO_KO,
         describeStar: (i) => hoverLabel({ sky: i }),
         onClose: () => { g3 = null; if (!destroyed) { last = performance.now(); raf = requestAnimationFrame(frame); } },
       });
@@ -1361,6 +1430,8 @@ export function mountUniverseExplorer(container, opts = {}) {
       if (!sky) return;
       const fk = focus ? 1 - focus.blend : 1;
       const aS = band(s, 16.2, 21.0) * fk;
+      if (s > 15.8) requestDeep();
+      drawDeep(aS * 0.9, camX, camY, mpp);
       if (aS > 0.02) {
         for (const b of sky.buckets) {
           ctx.globalAlpha = aS * (b.size >= 2.1 ? 1 : 0.8);
