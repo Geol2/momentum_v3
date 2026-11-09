@@ -237,7 +237,7 @@ const fmtLy = (ly) => {
  * @param {{ sky?:any, exo?:any, dwarfs?:Array, preset?:string, describeStar?:Function, dsoKo?:Object, onClose?:Function }} opts
  */
 export function openGalaxy3D(host, opts = {}) {
-  const { sky, exo, layers = [], subscribe, gaia, openBH, describeDeep, dwarfs = [], preset = 'mw', describeStar, dsoKo = {}, onClose } = opts;
+  const { sky, exo, layers = [], subscribe, gaia, openBH, photoFor, describeDeep, dwarfs = [], preset = 'mw', describeStar, dsoKo = {}, onClose } = opts;
   if (!document.getElementById('g3-style')) {
     const st = document.createElement('style'); st.id = 'g3-style'; st.textContent = CSS3D; document.head.appendChild(st);
   }
@@ -247,7 +247,7 @@ export function openGalaxy3D(host, opts = {}) {
     <div class="g3-labels"></div>
     <div class="g3-top mu-frame"><h3></h3><p></p></div>
     <button class="g3-close" aria-label="3D 보기 닫기">✕</button>
-    <div class="g3-ring"></div><div class="g3-info"><b></b><span></span><span></span></div>
+    <div class="g3-ring"></div><div class="g3-info"><b></b><span></span><span></span><img alt="" style="display:none;width:100%;max-height:170px;object-fit:cover;margin-top:5px;border:1px solid rgba(61,255,143,.35)"></div>
     <div class="g3-scale"></div>
     <div class="g3-bar"></div>`;
   host.appendChild(root);
@@ -662,6 +662,11 @@ export function openGalaxy3D(host, opts = {}) {
   function showInfo(hit) {
     if (!hit) { info.style.display = 'none'; ring.style.display = 'none'; return; }
     info.children[0].textContent = hit.title; info.children[1].textContent = hit.l2 || ''; info.children[2].textContent = hit.l3 || '';
+    const img = info.children[3];
+    if (photoFor && img.dataset.k !== hit.title) {
+      img.dataset.k = hit.title; img.style.display = 'none';
+      photoFor(hit.title).then((ph) => { if (img.dataset.k === hit.title && ph) { img.onload = () => { if (img.dataset.k === hit.title) img.style.display = 'block'; }; img.src = ph.src; } });
+    }
     info.style.display = 'block'; ring.style.display = 'block';
     ring.style.left = `${hit.s[0]}px`; ring.style.top = `${hit.s[1]}px`;
     const bw = info.offsetWidth, bh = info.offsetHeight;

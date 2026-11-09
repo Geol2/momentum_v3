@@ -23,6 +23,7 @@ import { loadDeepStars, deepSpect, starId, bvRgb } from './deep-stars.js';
 import { createGaiaTiles, bpColorKo, GAIA_ATTRIB } from './gaia-tiles.js';
 import { createSatellites, azKo } from './sats.js';
 import { createSound } from './sound.js';
+import { photoTitle, getPhoto } from './photos.js';
 import { loadSmallBodies, CLASS_KO, CLASS_COL, diamKm, orbitLine, jdNow } from './small-bodies.js';
 import { plutoHelio, DWARFS, PROBES, probeDistanceAU } from './outer.js';
 import dayUrl from './earth-day.webp';
@@ -472,6 +473,15 @@ const CSS = `
 .mu-3d[hidden]{display:none}
 .mu-more{top:148px;animation:none;font-size:11px}
 .mu-snd{top:102px;animation:none;font-size:15px;opacity:.6}
+.mu-sky{top:194px;animation:none;font-size:10px;letter-spacing:.02em}
+.mu-photo{position:absolute;z-index:7;width:180px;padding:4px 4px 3px;pointer-events:none;background:rgba(1,18,9,.92)}
+.mu-photo[hidden]{display:none}
+.mu-photo img{display:block;width:100%;max-height:180px;object-fit:cover;border:1px solid rgba(61,255,143,.35)}
+.mu-photo span{display:block;font-size:9px;color:rgba(166,255,203,.7);margin-top:2px;text-align:right}
+.mu-warp{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(196px + env(safe-area-inset-bottom));z-index:8;border:1px solid var(--g);background:rgba(61,255,143,.22);
+  color:#eafff2;font-family:inherit;font-weight:800;font-size:13px;letter-spacing:.08em;padding:9px 16px;cursor:pointer;text-shadow:var(--glow);
+  clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);animation:mu3dpulse 1.6s ease-in-out infinite}
+.mu-warp[hidden]{display:none}
 .mu-snd.on{opacity:1;background:rgba(61,255,143,.3);color:#eafff2}
 .mu-more.on{background:rgba(61,255,143,.3);color:#eafff2}
 @keyframes mu3dpulse{50%{box-shadow:inset 0 0 14px rgba(61,255,143,.55),0 0 12px rgba(61,255,143,.5)}}
@@ -539,6 +549,9 @@ export function mountUniverseExplorer(container, opts = {}) {
     </div>
     <button class="mu-close" aria-label="닫기">✕</button>
     <button class="mu-3d" hidden aria-label="3D로 은하 보기">3D</button>
+    <button class="mu-3d mu-sky" hidden aria-label="밤하늘 모드" title="내 위치에서 지금 올려다본 하늘">SKY</button>
+    <div class="mu-photo mu-frame" hidden><img alt=""><span></span></div>
+    <button class="mu-warp" hidden>▶▶ 광속 이동</button>
     <button class="mu-3d mu-snd" aria-label="소리 켜기" title="우주 소리 (펄서·플라스마·블랙홀)">♪</button>
     <button class="mu-3d mu-more" hidden aria-label="Gaia 별 약 985만 개 켜기" title="Gaia DR3 별 약 985만 개 (보이는 곳만 받기)">G★</button>
     <div class="mu-toast mu-frame"></div>
@@ -967,7 +980,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     for (const p of lastPlanetScreen) {
       if (p.hoverOnly) continue;
       const d = Math.hypot(p.x - x, p.y - y);
-      if (d < (p.cat !== undefined ? 16 : 30) && (!best || d < best.d - (p.sys ? 6 : 0))) best = { ...p, d };
+      if (d < (p.cat !== undefined ? 8 : 30) && (!best || d < best.d - (p.sys ? 6 : 0))) best = { ...p, d };
     }
     if (best && best.probe) {
       const pr = best.probe;
@@ -1057,6 +1070,8 @@ export function mountUniverseExplorer(container, opts = {}) {
     const lab = hit && hoverLabel(hit);
     if (!lab) return false;
     toast(lab.filter(Boolean).join(' · '));
+    offerWarp(hit);
+    clearTimeout(photoTimer); showPhoto(hit, null); photoTimer = setTimeout(() => { photoTimer = 0; photoEl.hidden = true; photoKey = ''; }, 5000);
     return true;
   }
   function pickHover() {
@@ -1075,6 +1090,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   let lastSoundKey = '';
   function drawHover(time) {
     const t = pickHover();
+    if (!t && photoKey && !photoTimer) { photoEl.hidden = true; photoKey = ''; }
     const sk = t ? (t.dso ? t.dso.name : t.probe ? t.probe.name : '') : '';
     if (sk !== lastSoundKey) { lastSoundKey = sk; soundFor(t); }
     overlay.style.cursor = t ? 'pointer' : '';
@@ -1125,6 +1141,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     g.shadowColor = 'rgba(61,255,143,.9)'; g.shadowBlur = 6;
     lines.forEach((L, i) => { g.font = L.font; g.fillStyle = L.color; g.fillText(L.text, bx + 8, by + 16 + i * 14); });
     g.shadowBlur = 0;
+    showPhoto(t, { x: bx, y: by, w: bw, h: bh });
   }
 
   // 지구가 화면을 크게 차지할 때: 1손가락 드래그 = 지구 회전 (관성 포함)
@@ -1229,6 +1246,99 @@ export function mountUniverseExplorer(container, opts = {}) {
     else if (t && t.probe && /보이저 1/.test(t.probe.name)) sound.hover('voyager');
     else sound.hover(null);
   }
+  // 실제 사진
+  const photoEl = $('.mu-photo'), photoImg = photoEl.querySelector('img'), photoCap = photoEl.querySelector('span');
+  let photoKey = '', photoTimer = 0;
+  function photoName(t) {
+    if (!t) return null;
+    if (t.dso) return t.dso.name; if (t.gal) return t.gal.name; if (t.deep) return t.deep.name; if (t.comet) return t.comet.name;
+    if (t.sat !== undefined && satSys) return satSys.sats[t.sat].name;
+    if (t.sys) { const q = SYSTEMS.find((z) => z.id === t.sys); return q && q.name; }
+    if (t.kind === 'moon' || t.name) return t.name;
+    return null;
+  }
+  function showPhoto(t, rect) {
+    const title = photoTitle(photoName(t));
+    if (!title) { photoEl.hidden = true; photoKey = ''; return; }
+    const place = () => {
+      const w = 180, h = photoEl.offsetHeight || 150;
+      let x = rect ? rect.x : W / 2 - w / 2, y = rect ? rect.y + rect.h + 6 : 70;
+      if (y + h > H - 150) y = rect ? rect.y - h - 6 : 70;
+      photoEl.style.left = `${Math.max(6, Math.min(W - w - 6, x))}px`; photoEl.style.top = `${Math.max(6, y)}px`;
+    };
+    if (photoKey === title) { place(); return; }
+    photoKey = title;
+    getPhoto(title).then((ph) => {
+      if (photoKey !== title) return;
+      if (!ph) { photoEl.hidden = true; return; }
+      photoImg.onload = () => { if (photoKey === title) { photoEl.hidden = false; place(); } };
+      photoImg.src = ph.src; photoCap.textContent = '실제 사진 · Wikipedia/Wikimedia Commons';
+    });
+    place();
+  }
+  // 빛의 속도로 여행
+  const btnWarp = $('.mu-warp');
+  let warpTarget = null, warpHideT = 0;
+  function warpCandidate(t) {
+    if (!t) return null;
+    if (t.sky !== undefined && sky) { const r = sky.rows[t.sky]; return { name: r[0] || r[1] || '별', ly: r[4], wx: t.wx, wy: t.wy, s: 17.0 }; }
+    if (t.deepStar) { const d = t.deepStar.L.d, i = t.deepStar.i; return { name: deepInfo(d, i)[0], ly: d.ly[i], wx: t.wx, wy: t.wy, s: 17.2 }; }
+    if (t.dso) return { name: t.dso.name, ly: t.dso.ly, wx: t.dso.pos[0], wy: t.dso.pos[1], s: t.dso.ly > 20000 ? 19.6 : 18.2 };
+    if (t.gal) return { name: t.gal.name, ly: t.gal.ly, wx: t.gal.pos[0], wy: t.gal.pos[1], s: 21.4 };
+    if (t.deep) return { name: t.deep.name, ly: t.deep.mly * 1e6, wx: t.deep.pos[0], wy: t.deep.pos[1], s: Math.log10(t.deep.mly * MLY) - 0.2 };
+    if (t.cat !== undefined && catalog) { const r = catalog.rows[t.cat]; return { name: r[0], ly: r[3], wx: catalog.x[t.cat], wy: catalog.y[t.cat], s: 17.0 }; }
+    return null;
+  }
+  function offerWarp(t) {
+    const c = warpCandidate(t);
+    if (!c || !(c.ly > 0)) return;
+    warpTarget = c;
+    btnWarp.textContent = `▶▶ 광속으로 ${c.name.replace(/ \(.*\)$/, '')}까지`;
+    btnWarp.hidden = false;
+    clearTimeout(warpHideT); warpHideT = setTimeout(() => { btnWarp.hidden = true; }, 9000);
+  }
+  let warping = null, arrival = null;
+  function drawArrival(time) {
+    if (!arrival) return;
+    const age = (performance.now() - arrival.t0) / 1000;
+    if (age > 10) { arrival = null; return; }
+    const [cx0, cy0] = getCam(s), m = mppAt(s);
+    const X = W / 2 + (arrival.wx - cx0) / m, Y = H / 2 - (arrival.wy - cy0) / m;
+    const g = octx, a = Math.min(1, (10 - age) / 2);
+    g.globalAlpha = a; g.strokeStyle = '#3dff8f'; g.lineWidth = 1.5; g.shadowColor = 'rgba(61,255,143,.9)'; g.shadowBlur = 10;
+    for (const k of [0, 0.5]) { const r = 8 + (((age + k) % 1) * 26); g.globalAlpha = a * (1 - ((age + k) % 1)); g.beginPath(); g.arc(X, Y, r, 0, Math.PI * 2); g.stroke(); }
+    g.globalAlpha = a; g.fillStyle = '#eafff2'; g.beginPath(); g.arc(X, Y, 3, 0, Math.PI * 2); g.fill();
+    g.font = '700 12px "SF Mono",Menlo,Consolas,"Apple SD Gothic Neo","Noto Sans KR",monospace'; g.textAlign = 'center'; g.fillStyle = '#3dff8f';
+    g.fillText(`도착 · ${arrival.name}`, X, Y - 30); g.shadowBlur = 0;
+  }
+  btnWarp.addEventListener('click', async () => {
+    if (!warpTarget || warping) return;
+    const tg = warpTarget; btnWarp.hidden = true;
+    const { warpTo } = await import('./warp.js');
+    warping = warpTo(root, { name: tg.name, ly: tg.ly, onArrive: () => {
+      warping = null;
+      if (focus) { exitFocus(); focus = null; }
+      s = targetS = tg.s;
+      const b = baseCam(s); pan = [tg.wx - b[0], tg.wy - b[1]]; panVel = [0, 0]; anchor = null;
+      arrival = { wx: tg.wx, wy: tg.wy, name: tg.name.replace(/ \(.*\)$/, ''), t0: performance.now() };
+      toast(`${tg.name} 도착 · 지구에서 ${fmtLy(tg.ly)} — 실제 광속이면 ${tg.ly < 1 ? Math.round(tg.ly * 365) + '일' : fmtLy(tg.ly).replace('광년', '년')} 걸려요`);
+    } });
+  });
+  // 밤하늘 모드
+  const btnSky = $('.mu-sky');
+  let skyView = null;
+  btnSky.addEventListener('click', async () => {
+    if (skyView) return;
+    skyView = 'loading';
+    try {
+      const { openNightSky } = await import('./nightsky.js');
+      if (destroyed) return;
+      cancelAnimationFrame(raf);
+      const base = starLayers.find((L) => !L.d.gaia);
+      skyView = openNightSky(root, { sky, deep: base && base.d, loc: myLoc, sats: satSys, describeStar: (i) => hoverLabel({ sky: i }),
+        onClose: () => { skyView = null; if (!destroyed && !g3) { last = performance.now(); raf = requestAnimationFrame(frame); } } });
+    } catch (e) { skyView = null; toast('밤하늘 모드를 열 수 없어요'); }
+  });
   // 블랙홀 체험
   let bhView = null;
   async function openBH(target) {
@@ -1259,7 +1369,7 @@ export function mountUniverseExplorer(container, opts = {}) {
       g3 = openGalaxy3D(root, {
         sky, exo: catalog, layers: starLayers.map((L) => L.d), describeDeep: deepInfo, subscribe: (f) => { g3Listeners.add(f); return () => g3Listeners.delete(f); },
         gaia: { toggle: () => toggleGaia(), get on() { return gaiaOn; }, view: (x0, x1, y0, y1, cell) => { if (gaiaOn) gaia.update(x0, x1, y0, y1, cell); } }, dwarfs: world.lgDwarfs, preset, dsoKo: DSO_KO,
-        describeStar: (i) => hoverLabel({ sky: i }), openBH: (k) => openBH(k),
+        describeStar: (i) => hoverLabel({ sky: i }), openBH: (k) => openBH(k), photoFor: (name) => getPhoto(photoTitle(name)),
         onClose: () => { g3 = null; if (!destroyed) { last = performance.now(); raf = requestAnimationFrame(frame); } },
       });
     } catch (e) { g3 = null; toast('3D 보기를 열 수 없어요'); }
@@ -1316,6 +1426,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   const setText = (key, el, v) => { if (hudCache[key] !== v) { hudCache[key] = v; el.textContent = v; } };
   function updateHud() {
     btn3d.hidden = s < 16.5;
+    btnSky.hidden = s > 12.5;
     btnMore.hidden = s < 16.5 || s > 21.8;
     let idx = 0;
     for (let i = 0; i < LEVELS.length; i++) if (s >= LEVELS[i].at) idx = i;
@@ -2325,6 +2436,7 @@ export function mountUniverseExplorer(container, opts = {}) {
         label(txt, 0, 0, aHere, { dy: 30, color: '#3dff8f', size: 12 });
       }
     }
+    drawArrival(time);
     drawHover(time);
     ctx.globalAlpha = 1;
   }
@@ -2368,6 +2480,8 @@ export function mountUniverseExplorer(container, opts = {}) {
     destroyed = true;
     if (g3 && g3 !== 'loading') g3.destroy();
     if (bhView && bhView !== 'loading') bhView.destroy();
+    if (skyView && skyView !== 'loading') skyView.destroy();
+    warping?.cancel();
     sound.destroy();
     cancelAnimationFrame(raf);
     clearTimeout(toastTimer);
@@ -2385,6 +2499,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     focusPlanet: (name) => enterFocus(name),
     focusSystem: (id) => enterSystem(id),
     get scale() { return s; },
+    get camInfo() { return { s, targetS, cam: getCam(s), pan, LY }; },
     get gaiaInfo() { return { on: gaiaOn, loaded: gaia.loadedCount, loading: gaia.loading, ready: gaia.ready, failed: gaia.failed, layers: starLayers.length }; },
   };
 }
