@@ -174,6 +174,7 @@ precision highp float;
 in vec3 vObj;
 out vec4 outColor;
 uniform vec3 uSun;
+uniform sampler2D uMoonTex; uniform float uHasTex; uniform vec3 uToEarth, uNorth;
 ${NOISE_GLSL}
 void main() {
   vec3 P = normalize(vObj);
@@ -181,6 +182,14 @@ void main() {
   float maria = smoothstep(0.52, 0.62, vnoise(P * 2.2 + 3.1) * 0.7 + vnoise(P * 5.0) * 0.3);
   float crater = vnoise(P * 18.0) * 0.5 + vnoise(P * 45.0) * 0.3 + vnoise(P * 110.0) * 0.2;
   float alb = mix(0.78, 0.45, maria) * (0.82 + crater * 0.36);
+  if (uHasTex > 0.5) {
+    // 실제 달 지도(LRO): 조석 고정 — 앞면(경도 0°)이 늘 지구를 향함
+    vec3 E = normalize(cross(uNorth, uToEarth));
+    float lon = atan(dot(P, E), dot(P, uToEarth));
+    float lat = asin(clamp(dot(P, uNorth), -1.0, 1.0));
+    vec2 uv = vec2(0.5 + lon / 6.2831853, 0.5 - lat / 3.1415927);
+    alb = texture(uMoonTex, uv).r * 1.15;
+  }
   float nd = dot(P, uSun);
   float lit = smoothstep(-0.02, 0.08, nd) * (0.15 + 0.85 * max(nd, 0.0));
   vec3 col = vec3(alb) * vec3(1.0, 0.98, 0.94) * lit + vec3(0.02, 0.025, 0.035);
@@ -221,7 +230,7 @@ export function canUseWebGL() {
  * @param {HTMLElement} host  — 캔버스를 넣을 부모
  * @param {Element} before    — 이 요소 앞에 캔버스를 끼워 넣음(2D 오버레이 아래)
  */
-export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, before } = {}) {
+export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before } = {}) {
   const canvas = document.createElement('canvas')
   canvas.className = 'mu-gl'
   canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none'
@@ -458,7 +467,14 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, before } = {}) 
   const smoothstep01 = (e0, e1, x) => { const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t) }
 
   // ── 달 ──
-  const moonUniforms = { uSun: uniforms.uSun }
+  const moonUniforms = { uSun: uniforms.uSun, uMoonTex: { value: null }, uHasTex: { value: 0 }, uToEarth: { value: new THREE.Vector3(1, 0, 0) }, uNorth: { value: new THREE.Vector3(0, 0, 1) } }
+  if (moonUrl) {
+    new THREE.TextureLoader().load(moonUrl, (t) => {
+      t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping; t.colorSpace = THREE.NoColorSpace
+      t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.needsUpdate = true
+      moonUniforms.uMoonTex.value = t; moonUniforms.uHasTex.value = 1
+    })
+  }
   const moon = new THREE.Mesh(
     new THREE.SphereGeometry(1737.4 / 6371, 96, 48),
     new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: moonUniforms, vertexShader: EARTH_VERT, fragmentShader: MOON_FRAG }),
@@ -495,6 +511,9 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, before } = {}) 
     uniforms.uSun.value.set(...sunDirection(d))
     moonInfo = moonState(d)
     moon.position.set(...moonInfo.pos)
+    const te = new THREE.Vector3(...moonInfo.pos).normalize().negate()
+    const nz = new THREE.Vector3(0, 0, 1); nz.addScaledVector(te, -nz.dot(te)).normalize()
+    moonUniforms.uToEarth.value.copy(te); moonUniforms.uNorth.value.copy(nz)
     const pa = orbitGeo.attributes.position
     pa.array.set(moonInfo.orbit)
     pa.needsUpdate = true

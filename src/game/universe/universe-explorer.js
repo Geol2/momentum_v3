@@ -28,6 +28,7 @@ import { loadSmallBodies, CLASS_KO, CLASS_COL, diamKm, orbitLine, jdNow } from '
 import { plutoHelio, DWARFS, PROBES, probeDistanceAU } from './outer.js';
 import dayUrl from './earth-day.webp';
 import reliefUrl from './earth-relief.webp';
+import moonUrl from './moon-map.webp';
 
 // ───────────────────────── 단위 / 상수 ─────────────────────────
 const LY = 9.4607e15;          // 1광년 (m)
@@ -474,6 +475,9 @@ const CSS = `
 .mu-more{top:148px;animation:none;font-size:11px}
 .mu-snd{top:102px;animation:none;font-size:15px;opacity:.6}
 .mu-sky{top:194px;animation:none;font-size:10px;letter-spacing:.02em}
+.mu-trip{top:240px;animation:none;font-size:9.5px;letter-spacing:0}
+.mu-today{top:286px;animation:none;font-size:9.5px;letter-spacing:0}
+@media (max-height:520px){.mu-trip{top:56px;right:56px}.mu-today{top:102px;right:56px}}
 .mu-photo{position:absolute;z-index:7;width:180px;padding:4px 4px 3px;pointer-events:none;background:rgba(1,18,9,.92)}
 .mu-photo[hidden]{display:none}
 .mu-photo img{display:block;width:100%;max-height:180px;object-fit:cover;border:1px solid rgba(61,255,143,.35)}
@@ -549,6 +553,8 @@ export function mountUniverseExplorer(container, opts = {}) {
     </div>
     <button class="mu-close" aria-label="닫기">✕</button>
     <button class="mu-3d" hidden aria-label="3D로 은하 보기">3D</button>
+    <button class="mu-3d mu-trip" hidden aria-label="탐사선 여행" title="보이저·뉴호라이즌스가 실제로 날아간 길">TRIP</button>
+    <button class="mu-3d mu-today" aria-label="오늘의 우주" title="오늘의 천문 사진 · 우주 뉴스 · 오늘 밤 하늘">NEWS</button>
     <button class="mu-3d mu-sky" hidden aria-label="밤하늘 모드" title="내 위치에서 지금 올려다본 하늘">SKY</button>
     <div class="mu-photo mu-frame" hidden><img alt=""><span></span></div>
     <button class="mu-warp" hidden>▶▶ 광속 이동</button>
@@ -772,7 +778,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   // 3D(WebGL2) 지구 — 안 되면 2D 지구로 자동 전환
   let earth = null;
   if (canUseWebGL()) {
-    try { earth = createEarthGL(root, { sdfUrl, dayUrl, reliefUrl, before: overlay }); } catch (err) { console.warn('3D 지구 초기화 실패, 2D로 전환', err); }
+    try { earth = createEarthGL(root, { sdfUrl, dayUrl, reliefUrl, moonUrl, before: overlay }); } catch (err) { console.warn('3D 지구 초기화 실패, 2D로 전환', err); }
   }
   if (!earth) earth = createEarthRenderer({ sdfUrl });
 
@@ -985,6 +991,8 @@ export function mountUniverseExplorer(container, opts = {}) {
     if (best && best.probe) {
       const pr = best.probe;
       soundFor(best);
+      const tripId = { '보이저 1호': 'v1', '보이저 2호': 'v2', 뉴호라이즌스: 'nh', '파이어니어 10호': 'p10', '파이어니어 11호': 'p11' }[pr.name];
+      if (tripId) setTimeout(() => openTrip(tripId), 900);
       toast(`${pr.name} · 태양에서 약 ${Math.round(pr.au)} AU · 빛으로 ${(pr.au * 1.496e11 / 2.998e8 / 3600).toFixed(1)}시간 · ${pr.desc}`);
     } else if (best && best.sys) enterSystem(best.sys);
     else if (best && best.cat !== undefined) enterCatalog(best.cat);
@@ -1044,6 +1052,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     }
     if (t.deepStar) return deepInfo(t.deepStar.L.d, t.deepStar.i);
     if (t.sat !== undefined && satSys) return satInfo(t.sat);
+    if (t.earthMoon) { const mi = earth.moon; const km = Math.round(Math.hypot(...mi.pos) * 6371); return ['달', `${mi.phase} · 밝은 면 ${Math.round(mi.illum * 100)}% · 지금 ${km.toLocaleString('ko-KR')}km (빛으로 ${(km / 299792).toFixed(2)}초)`, '늘 같은 면이 지구를 향해요(조석 고정) — 자전·공전 모두 27.3일 · 매년 3.8cm씩 멀어지는 중']; }
     if (t.small) return smallInfo(t.small);
     if (t.comet) { const c = t.comet; return [c.name, `${c.kind === 'iso' ? '성간 천체 · 태양계 밖에서 옴' : '혜성'} · 지금 태양에서 ${c.r.toFixed(1)} AU`, c.desc]; }
     if (t.dso) return [t.dso.name, `${fmtLy(t.dso.ly)} · ${DSO_KO[t.dso.kind]}${t.dso.kind === 'bh' ? ' · 탭하면 블랙홀 체험' : (t.dso.kind === 'psr' || t.dso.kind === 'mag') && sound.on ? ' · ♪ 신호음' : ''}`, t.dso.desc];
@@ -1254,6 +1263,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     if (t.dso) return t.dso.name; if (t.gal) return t.gal.name; if (t.deep) return t.deep.name; if (t.comet) return t.comet.name;
     if (t.sat !== undefined && satSys) return satSys.sats[t.sat].name;
     if (t.sys) { const q = SYSTEMS.find((z) => z.id === t.sys); return q && q.name; }
+    if (t.earthMoon) return '달';
     if (t.kind === 'moon' || t.name) return t.name;
     return null;
   }
@@ -1324,6 +1334,30 @@ export function mountUniverseExplorer(container, opts = {}) {
       toast(`${tg.name} 도착 · 지구에서 ${fmtLy(tg.ly)} — 실제 광속이면 ${tg.ly < 1 ? Math.round(tg.ly * 365) + '일' : fmtLy(tg.ly).replace('광년', '년')} 걸려요`);
     } });
   });
+  // 탐사선 여행
+  const btnTrip = $('.mu-trip');
+  let tripView = null;
+  async function openTrip(id = 'v1') {
+    if (tripView) return;
+    tripView = 'loading';
+    try {
+      const { openJourneys } = await import('./journeys.js');
+      if (destroyed) return;
+      cancelAnimationFrame(raf);
+      tripView = openJourneys(root, { start: id, sound, onClose: () => { tripView = null; if (!destroyed && !g3) { last = performance.now(); raf = requestAnimationFrame(frame); } } });
+    } catch (e) { tripView = null; toast('탐사선 여행을 열 수 없어요'); }
+  }
+  btnTrip.addEventListener('click', () => openTrip('v1'));
+  // 오늘의 우주 카드 (하루 한 번 자동)
+  const btnToday = $('.mu-today');
+  async function showToday() {
+    try { const { openToday } = await import('./today.js'); if (!destroyed) openToday(root, { loc: myLoc }); } catch { /* */ }
+  }
+  btnToday.addEventListener('click', showToday);
+  try {
+    const key = 'momentum.universe.today', d = new Date().toDateString();
+    if (localStorage.getItem(key) !== d) { localStorage.setItem(key, d); setTimeout(() => { if (!destroyed) showToday(); }, 1200); }
+  } catch { /* */ }
   // 밤하늘 모드
   const btnSky = $('.mu-sky');
   let skyView = null;
@@ -1427,6 +1461,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   function updateHud() {
     btn3d.hidden = s < 16.5;
     btnSky.hidden = s > 12.5;
+    btnTrip.hidden = s < 10.5 || s > 17.5;
     btnMore.hidden = s < 16.5 || s > 21.8;
     let idx = 0;
     for (let i = 0; i < LEVELS.length; i++) if (s >= LEVELS[i].at) idx = i;
@@ -2365,6 +2400,7 @@ export function mountUniverseExplorer(container, opts = {}) {
           if (er < 1.5) { ctx.globalAlpha = 1; ctx.fillStyle = '#5fa8ff'; ctx.beginPath(); ctx.arc(X, Y, 1.2, 0, Math.PI * 2); ctx.fill(); }
           if (aMoon > 0.02) {
             const m = earth.moonScreen(X, Y, er);
+            if (aMoon > 0.3 && !(m.z < 0 && (m.x - X) ** 2 + (m.y - Y) ** 2 < er * er)) lastPlanetScreen.push({ earthMoon: true, hoverOnly: true, x: m.x, y: m.y });
             if (m.r < 1.5) { ctx.globalAlpha = aMoon; ctx.fillStyle = '#c9c9c9'; ctx.beginPath(); ctx.arc(m.x, m.y, 1.5, 0, Math.PI * 2); ctx.fill(); }
             const la = aMoon * smooth(8.4, 8.8, s);
             if (la > 0.05 && m.x > -60 && m.x < W + 60 && m.y > -30 && m.y < H + 30) {
@@ -2481,6 +2517,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     if (g3 && g3 !== 'loading') g3.destroy();
     if (bhView && bhView !== 'loading') bhView.destroy();
     if (skyView && skyView !== 'loading') skyView.destroy();
+    if (tripView && tripView !== 'loading') tripView.destroy();
     warping?.cancel();
     sound.destroy();
     cancelAnimationFrame(raf);

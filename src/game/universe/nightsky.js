@@ -41,7 +41,34 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
   let tOff = 0, atmo = true, lines = null, gyro = false, showDeep = true;
   const lat = loc.lat * D, lon = loc.lon * D;
   const E = [-Math.sin(lon), Math.cos(lon), 0], N = [-Math.sin(lat) * Math.cos(lon), -Math.sin(lat) * Math.sin(lon), Math.cos(lat)], U = [Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat)];
-  fetch(linesUrl).then((r) => r.json()).then((j) => { lines = j; }).catch(() => {});
+  // 은하수: 윤곽 다각형을 적경·적위 지도(0.5°/px)에 겹쳐 칠하고 흐리게 → 화면 픽셀마다 거꾸로 찾아 부드럽게 그림
+  let mwMap = null; const MW_W = 720, MW_H = 360;
+  fetch(linesUrl).then((r) => r.json()).then((j) => {
+    lines = j;
+    const c = document.createElement('canvas'); c.width = MW_W; c.height = MW_H;
+    const cg = c.getContext('2d');
+    cg.fillStyle = '#fff';
+    for (const lvl of j.mw) {
+      cg.globalAlpha = 0.22;
+      for (const poly of lvl.p) {
+        // 적경이 0/360을 넘나드는 곳은 이어 붙이고 세 번(±360°) 그려서 경계 처리
+        let prev = null; const pts = [];
+        for (const [ra, de] of poly) { let x = ra; if (prev !== null) { while (x - prev > 180) x -= 360; while (prev - x > 180) x += 360; } pts.push([x, de]); prev = x; }
+        for (const off of [-360, 0, 360]) {
+          cg.beginPath();
+          pts.forEach(([x, de], k) => { const X = (x + off) * 2, Y = (90 - de) * 2; k ? cg.lineTo(X, Y) : cg.moveTo(X, Y); });
+          cg.closePath(); cg.fill();
+        }
+      }
+    }
+    const c2 = document.createElement('canvas'); c2.width = MW_W; c2.height = MW_H;
+    const g2 = c2.getContext('2d'); g2.filter = 'blur(5px)'; g2.drawImage(c, 0, 0); g2.filter = 'none';
+    const d = g2.getImageData(0, 0, MW_W, MW_H).data;
+    mwMap = new Float32Array(MW_W * MW_H);
+    for (let i = 0; i < mwMap.length; i++) mwMap[i] = d[i * 4 + 3] / 255 * (d[i * 4] / 255);
+  }).catch(() => {});
+  const mwCv = document.createElement('canvas'), mwG = mwCv.getContext('2d');
+  let mwImg = null;
 
   // 별 단위벡터(적도) 미리 계산
   const stars = [];
@@ -130,16 +157,28 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
     grd.addColorStop(1, `rgb(${6 + 120 * day | 0},${10 + 140 * day | 0},${20 + 190 * day | 0})`);
     g.fillStyle = grd; g.fillRect(0, 0, W, H);
     const starA = 1 - day * 0.97;
-    // 은하수
-    if (lines && starA > 0.05) {
-      for (const lvl of lines.mw) {
-        g.globalAlpha = starA * 0.05 * lvl.l; g.fillStyle = '#c8d4ff';
-        for (const poly of lvl.p) {
-          g.beginPath(); let ok = 0;
-          for (const [ra, de] of poly) { const p = proj(eqToEnu(eqVec(ra, de))); if (!p) continue; ok++ ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); }
-          if (ok > 3) g.fill();
-        }
+    // 은하수 (저해상도로 계산 후 부드럽게 확대)
+    if (mwMap && starA > 0.05) {
+      const step = 5, lw = Math.ceil(W / step), lh = Math.ceil(H / step);
+      if (mwCv.width !== lw || mwCv.height !== lh) { mwCv.width = lw; mwCv.height = lh; mwImg = mwG.createImageData(lw, lh); }
+      const px = mwImg.data;
+      for (let j = 0; j < lh; j++) for (let i = 0; i < lw; i++) {
+        const u = ((i + 0.5) * step - W / 2) / scale, v = -((j + 0.5) * step - H / 2) / scale;
+        const r2 = u * u + v * v, z = (4 - r2) / (4 + r2), k = (1 + z) / 2;
+        const X = u * k, Y = v * k;
+        const e0 = X * rgt[0] + Y * upv[0] + z * f[0], e1 = X * rgt[1] + Y * upv[1] + z * f[1], e2 = X * rgt[2] + Y * upv[2] + z * f[2];
+        // ENU → ECEF → 적도
+        const x = e0 * E[0] + e1 * N[0] + e2 * U[0], y = e0 * E[1] + e1 * N[1] + e2 * U[1], zz = e0 * E[2] + e1 * N[2] + e2 * U[2];
+        const qx = x * ct - y * st, qy = x * st + y * ct;
+        let ra = Math.atan2(qy, qx) / D; if (ra < 0) ra += 360;
+        const de = Math.asin(Math.max(-1, Math.min(1, zz))) / D;
+        const mx = Math.min(MW_W - 1, (ra * 2) | 0), my = Math.min(MW_H - 1, ((90 - de) * 2) | 0);
+        const lum = mwMap[my * MW_W + mx];
+        const o = (j * lw + i) * 4;
+        px[o] = 190; px[o + 1] = 205; px[o + 2] = 255; px[o + 3] = Math.min(255, lum * 230 * starA * (e2 < 0 ? 0.3 : 1));
       }
+      mwG.putImageData(mwImg, 0, 0);
+      g.globalAlpha = 1; g.imageSmoothingEnabled = true; g.drawImage(mwCv, 0, 0, W, H);
     }
     // 별자리 선
     if (lines && starA > 0.05) {
