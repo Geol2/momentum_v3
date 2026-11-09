@@ -1588,6 +1588,25 @@ export function mountUniverseExplorer(container, opts = {}) {
   // ── HUD 갱신 ──
   const hudCache = {};
   const setText = (key, el, v, html = false) => { if (hudCache[key] !== v) { hudCache[key] = v; if (html) el.innerHTML = v; else el.textContent = v; } };
+  // 화면 가운데에서 가장 가까운 이름 있는 천체 (배율에 맞는 종류만)
+  function nearestNamed(c, span) {
+    let best = null, bd = span * 0.18;
+    const test = (name, x, y) => { const d = Math.hypot(c[0] - x, c[1] - y); if (d < bd) { bd = d; best = name; } };
+    if (s >= 15.5 && s < 20.6) {
+      test('태양', SUN[0], SUN[1]);
+      if (sky) {
+        for (let i = 0; i < sky.rows.length; i++) { const r = sky.rows[i]; if (r[0]) test(r[0].replace(/ \(.*\)$/, ''), sky.x[i], sky.y[i]); }
+        if (s > 17.4) for (const d of sky.dso) test(d.name.replace(/ \(.*\)$/, ''), d.pos[0], d.pos[1]);
+      }
+    } else if (s >= 20.6 && s < 23.2) {
+      if (Math.hypot(c[0] - GC[0], c[1] - GC[1]) < 60000 * LY) return null; // 우리은하 안이면 '우리은하'로 충분
+      for (const g of world.lgGalaxies) test(g.name, g.pos[0], g.pos[1]);
+      for (const d of world.lgDwarfs || []) if (d.pos) test(d.name, d.pos[0], d.pos[1]);
+    } else if (s >= 23.2) {
+      for (const d of world.deepSpace) test(d.name.replace(/ \(.*\)$/, ''), d.pos[0], d.pos[1]);
+    }
+    return best;
+  }
   // 지금 화면 가운데가 우주의 어디인지 (큰 구조 → 작은 구조)
   function whereLine() {
     const c = getCam(s);
@@ -1624,6 +1643,8 @@ export function mountUniverseExplorer(container, opts = {}) {
     }
     const span = Math.pow(10, s);
     const vis = chain.filter(([, r], i) => i === 0 || r >= span * 0.12).map(([n]) => n);
+    const near = !(focus && focus.on) && nearestNamed(c, span);
+    if (near && !vis.includes(near)) vis.push(`${near} 근처`);
     const shown = vis.length > 5 ? ['…', ...vis.slice(-4)] : vis;
     return '위치 · ' + shown.map((t, i) => (i === shown.length - 1 ? `<b>${t}</b>` : t)).join(' › ');
   }
