@@ -328,6 +328,8 @@ const CSS = `
   background:rgba(10,14,30,.6);color:#e8ecff;font-size:16px;cursor:pointer;backdrop-filter:blur(6px)}
 .mu-bottom{position:absolute;left:0;right:0;bottom:0;padding:0 16px calc(14px + env(safe-area-inset-bottom));
   background:linear-gradient(transparent,rgba(3,4,10,.85) 40%)}
+.mu-credit{font-size:9.5px;line-height:1.35;color:#7e88b3;text-align:center;margin:0 auto 6px;max-width:560px}
+.mu-credit a{color:#9aa4c7}
 .mu-scale{font-size:12px;color:#9aa4c7;margin-bottom:8px;text-align:center;font-variant-numeric:tabular-nums}
 .mu-scale b{color:#e8ecff;font-weight:600}
 .mu-controls{display:flex;align-items:center;gap:8px;max-width:560px;margin:0 auto}
@@ -384,6 +386,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     <div class="mu-toast"></div>
     <div class="mu-hint">드래그로 지구 돌리기 · 핀치·휠·슬라이더로 우주 밖까지</div>
     <div class="mu-bottom">
+      <div class="mu-credit" hidden>위성 영상: <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless - https://s2maps.eu</a> by <a href="https://eox.at" target="_blank" rel="noopener">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2016 &amp; 2017)</div>
       <div class="mu-scale"></div>
       <div class="mu-controls">
         <button data-zoom="-1" aria-label="가까이">＋</button>
@@ -414,7 +417,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   const ui = {
     step: $('.mu-step'), name: $('.mu-name'), desc: $('.mu-desc'), scale: $('.mu-scale'),
     slider: $('.mu-slider'), fill: $('.mu-progress-fill'), progText: $('.mu-progress span'),
-    toast: $('.mu-toast'), hint: $('.mu-hint'), modal: $('.mu-modal'), time: $('.mu-time'), addr: $('.mu-addr'),
+    credit: $('.mu-credit'), toast: $('.mu-toast'), hint: $('.mu-hint'), modal: $('.mu-modal'), time: $('.mu-time'), addr: $('.mu-addr'),
   };
 
   const world = buildWorld();
@@ -612,6 +615,8 @@ export function mountUniverseExplorer(container, opts = {}) {
       const hhmm = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
       locLine = ` 📍 ${myLoc.label}${myLoc.approx ? '(기본값)' : ''} ${fmtCoord(myLoc.lat, 'N', 'S')}, ${fmtCoord(myLoc.lon, 'E', 'W')} · ${hhmm} ${phase} (태양 고도 ${elev.toFixed(0)}°)`;
     }
+    const showCredit = !!earth.detailActive;
+    if (hudCache.credit !== showCredit) { hudCache.credit = showCredit; ui.credit.hidden = !showCredit; }
     let extra = '';
     if (lv.id === 'moon' && earth.gl && earth.moon) {
       const m = earth.moon;

@@ -46,6 +46,9 @@ in vec3 vObj;
 out vec4 outColor;
 uniform sampler2D uSdf, uLand, uOcean, uBaseLights, uCity, uClouds, uDay, uRelief;
 uniform float uHasDay, uHasRelief;
+uniform sampler2D uDetail;
+uniform vec4 uDetailBox; // lon0, lat0(남), lon1, lat1(북) — 도
+uniform float uDetailA;
 uniform vec2 uSdfSize;
 uniform float uSdfK;
 uniform vec3 uSun, uView;
@@ -104,6 +107,18 @@ void main() {
   float field = (nfine - 0.5) * 46.0 / 255.0 * zoomDetail * (1.0 - 0.6 * uHasDay);
   vec3 lc = lc0 * tex1 + vec3(field, field * 0.6, 0.0);
   vec3 col = mix(oc, lc, landA);
+
+  // ── 확대 시 고해상도 위성 타일(Sentinel-2 cloudless) ──
+  if (uDetailA > 0.001) {
+    float lonD = u * 360.0 - 180.0;
+    if (lonD < uDetailBox.x) lonD += 360.0;
+    float latD = lat * 180.0 / PI;
+    vec2 duv = vec2((lonD - uDetailBox.x) / (uDetailBox.z - uDetailBox.x), (uDetailBox.w - latD) / (uDetailBox.w - uDetailBox.y));
+    vec4 det = texture(uDetail, clamp(duv, 0.0, 1.0));
+    float inside = step(0.0, duv.x) * step(duv.x, 1.0) * step(0.0, duv.y) * step(duv.y, 1.0);
+    float edge = smoothstep(0.0, 0.03, min(min(duv.x, 1.0 - duv.x), min(duv.y, 1.0 - duv.y)));
+    col = mix(col, det.rgb * 1.12, det.a * inside * edge * uDetailA);
+  }
 
   // ── 조명 (실제 태양 방향) ──
   float nd = dot(P, uSun);
@@ -223,6 +238,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, before } = {}) 
     uSun: { value: new THREE.Vector3(1, 0, 0) }, uView: { value: new THREE.Vector3(0, 0, 1) },
     uR: { value: 100 }, uCloudShift: { value: 0 },
     uDay: { value: landT }, uRelief: { value: landT }, uHasDay: { value: 0 }, uHasRelief: { value: 0 },
+    uDetail: { value: landT }, uDetailBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uDetailA: { value: 0 },
   }
   const earthMat = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms, vertexShader: EARTH_VERT, fragmentShader: EARTH_FRAG })
   const earth = new THREE.Mesh(new THREE.SphereGeometry(1, 256, 128), earthMat)
@@ -265,6 +281,152 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, before } = {}) 
   }
   loadImageTex(dayUrl, (t) => { uniforms.uDay.value = t; fades.push({ u: uniforms.uHasDay, t0: performance.now() }) })
   loadImageTex(reliefUrl, (t) => { uniforms.uRelief.value = t; fades.push({ u: uniforms.uHasRelief, t0: performance.now() }) })
+
+  // ── 고해상도 위성 타일 (EOX Sentinel-2 cloudless 2016, CC BY 4.0, EPSG:4326 WMTS) ──
+  // 레벨 z: 타일 1장 = 180/2^z 도, 256px. 레벨 13 ≈ 10m/px
+  const TILE_URL = (z, r, cl) => `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless/default/WGS84/${z}/${r}/${cl}.jpg`
+  const MAX_Z = 13, MAX_TILES = 80
+  const tileCache = new Map() // url → Image(로드 완료)
+  const pending = new Map() // url → Image(로딩 중)
+  let inflight = 0
+  const canvases = [document.createElement('canvas'), document.createElement('canvas')]
+  let cur = null // { z, r0, c0, nr, nc, box:[lon0,lat0,lon1,lat1], canvas, gen }
+  let gen = 0
+  let wantKey = '', wantSince = 0, want = null
+  let texDirty = false, lastUpload = 0, detailDrawn = false
+  const detailTex = new THREE.CanvasTexture(canvases[0])
+  detailTex.flipY = false
+  detailTex.colorSpace = THREE.NoColorSpace
+  detailTex.generateMipmaps = false
+  detailTex.minFilter = THREE.LinearFilter
+  detailTex.magFilter = THREE.LinearFilter
+  uniforms.uDetail.value = detailTex
+
+  function cacheTile(url, img) {
+    tileCache.set(url, img)
+    if (tileCache.size > 160) tileCache.delete(tileCache.keys().next().value)
+  }
+  function drawTile(m, r, cl, img) {
+    const g = m.canvas.getContext('2d')
+    g.drawImage(img, (cl - m.c0) * 256, (r - m.r0) * 256, 256, 256)
+    texDirty = true
+    detailDrawn = true
+  }
+  const queue = []
+  function pump() {
+    while (inflight < 8 && queue.length) {
+      const job = queue.shift()
+      if (job.gen !== gen) continue
+      const url = TILE_URL(job.z, job.r, job.wrapC)
+      if (tileCache.has(url)) { drawTile(cur, job.r, job.c, tileCache.get(url)); continue }
+      if (pending.has(url)) continue
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.decoding = 'async'
+      pending.set(url, img)
+      inflight++
+      const done = (ok) => {
+        inflight--
+        pending.delete(url)
+        if (ok && img.naturalWidth === 256) {
+          cacheTile(url, img)
+          if (job.gen === gen && cur) drawTile(cur, job.r, job.c, img)
+        }
+        pump()
+      }
+      img.onload = () => done(true)
+      img.onerror = () => done(false)
+      img.src = url
+    }
+  }
+
+  // 화면에 보이는 위경도 범위(시점 기준으로 경도 펼침)
+  function visibleBox(X, Y, R, W, H) {
+    let lonMin = 1e9, lonMax = -1e9, latMin = 90, latMax = -90, any = false
+    const { E, N, C } = basis
+    const G = 9
+    for (let i = 0; i <= G; i++) for (let j = 0; j <= G; j++) {
+      const x = ((i / G) * W - X) / R, y = -((j / G) * H - Y) / R
+      const r2 = x * x + y * y
+      if (r2 > 1) continue
+      const z = Math.sqrt(1 - r2)
+      const px = x * E[0] + y * N[0] + z * C[0], py = x * E[1] + y * N[1] + z * C[1], pz = x * E[2] + y * N[2] + z * C[2]
+      const la = Math.asin(Math.max(-1, Math.min(1, pz))) / DEG
+      let lo = Math.atan2(py, px) / DEG
+      lo = view.lon + ((((lo - view.lon) % 360) + 540) % 360) - 180
+      lonMin = Math.min(lonMin, lo); lonMax = Math.max(lonMax, lo)
+      latMin = Math.min(latMin, la); latMax = Math.max(latMax, la)
+      any = true
+    }
+    // 화면 중앙(시점)도 포함
+    lonMin = Math.min(lonMin, view.lon); lonMax = Math.max(lonMax, view.lon)
+    latMin = Math.min(latMin, view.lat); latMax = Math.max(latMax, view.lat)
+    return any ? { lonMin, lonMax, latMin, latMax } : null
+  }
+
+  function planDetail(X, Y, R, W, H, ratio) {
+    const box = visibleBox(X, Y, R, W, H)
+    if (!box) return null
+    let z = Math.ceil(Math.log2((R * ratio * Math.PI) / 256))
+    z = Math.max(3, Math.min(MAX_Z, z))
+    for (; z >= 3; z--) {
+      const sp = 180 / 2 ** z
+      const c0 = Math.floor((box.lonMin + 180) / sp) - 1, c1 = Math.floor((box.lonMax + 180) / sp) + 1
+      const r0 = Math.max(0, Math.floor((90 - box.latMax) / sp) - 1), r1 = Math.min(2 ** z - 1, Math.floor((90 - box.latMin) / sp) + 1)
+      const nc = c1 - c0 + 1, nr = r1 - r0 + 1
+      if (nc * nr <= MAX_TILES && nc <= 12 && nr <= 12) return { z, c0, r0, nc, nr, sp }
+    }
+    return null
+  }
+
+  function applyPlan(p) {
+    gen++
+    const prev = cur
+    const canvas = prev && prev.canvas === canvases[0] ? canvases[1] : canvases[0]
+    canvas.width = p.nc * 256; canvas.height = p.nr * 256
+    const g = canvas.getContext('2d')
+    g.clearRect(0, 0, canvas.width, canvas.height)
+    const box = [p.c0 * p.sp - 180, 90 - (p.r0 + p.nr) * p.sp, (p.c0 + p.nc) * p.sp - 180, 90 - p.r0 * p.sp]
+    // 새 타일이 오기 전까지 이전 모자이크를 늘려서 깔아 둔다
+    if (prev && detailDrawn) {
+      const [a0, b0, a1, b1] = prev.box
+      const sx = canvas.width / (box[2] - box[0]), sy = canvas.height / (box[3] - box[1])
+      let off = 0
+      if (a0 - box[0] > 180) off = -360; else if (box[0] - a0 > 180) off = 360
+      g.imageSmoothingEnabled = true
+      g.drawImage(prev.canvas, (a0 + off - box[0]) * sx, (box[3] - b1) * sy, (a1 - a0) * sx, (b1 - b0) * sy)
+    }
+    cur = { ...p, box, canvas, gen }
+    detailTex.image = canvas
+    detailTex.needsUpdate = true
+    uniforms.uDetailBox.value.set(...box)
+    // 화면 중앙 가까운 타일부터
+    const cr = p.r0 + p.nr / 2, cc = p.c0 + p.nc / 2
+    queue.length = 0
+    const jobs = []
+    const ncols = 2 ** (p.z + 1)
+    for (let r = p.r0; r < p.r0 + p.nr; r++) for (let cl = p.c0; cl < p.c0 + p.nc; cl++) {
+      jobs.push({ z: p.z, r, c: cl, wrapC: ((cl % ncols) + ncols) % ncols, gen, d: (r - cr) ** 2 + (cl - cc) ** 2 })
+    }
+    jobs.sort((a, b) => a.d - b.d)
+    queue.push(...jobs)
+    pump()
+  }
+
+  function updateDetail(X, Y, R, W, H, ratio) {
+    const a = smoothstep01(900, 2500, R)
+    uniforms.uDetailA.value = a
+    if (a <= 0.001) return
+    const p = planDetail(X, Y, R, W, H, ratio)
+    if (!p) return
+    const key = `${p.z}|${p.c0}|${p.r0}|${p.nc}|${p.nr}`
+    // 현재 모자이크가 이미 이 범위를 같은 레벨로 덮고 있으면 유지
+    if (cur && cur.z === p.z && p.c0 >= cur.c0 && p.r0 >= cur.r0 && p.c0 + p.nc <= cur.c0 + cur.nc && p.r0 + p.nr <= cur.r0 + cur.nr) return
+    const now = performance.now()
+    if (key !== wantKey) { wantKey = key; wantSince = now; want = p; return }
+    if (now - wantSince > 180) applyPlan(want) // 줌·회전이 잠깐 멈추면 갱신
+  }
+  const smoothstep01 = (e0, e1, x) => { const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t) }
 
   // ── 달 ──
   const moonUniforms = { uSun: uniforms.uSun }
@@ -334,6 +496,8 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, before } = {}) 
       updateBasis()
     },
     get moon() { updateAstro(); return moonInfo },
+    /** 고해상도 위성 타일이 화면에 쓰이는 중인지 (출처 표시용) */
+    get detailActive() { return uniforms.uDetailA.value > 0.05 && detailDrawn },
     /** 달의 화면 위치·반지름 */
     moonScreen(X, Y, R) {
       updateAstro()
@@ -375,6 +539,8 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, before } = {}) 
         fades[i].u.value = k
         if (k >= 1) fades.splice(i, 1)
       }
+      updateDetail(X, Y, R, w, h, Math.min(ratio, 2))
+      if (texDirty && performance.now() - lastUpload > 150) { detailTex.needsUpdate = true; texDirty = false; lastUpload = performance.now() }
       uniforms.uR.value = R
       uniforms.uCloudShift.value = ((Math.floor(time / 10) * 10) / CLOUD_PERIOD) % 1
       orbitMat.opacity = opts.moonAlpha ?? 0
@@ -395,7 +561,8 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, before } = {}) 
     },
     destroy() {
       renderer.dispose()
-      ;[landT, oceanT, baseLightsT, cityT, cloudsT, uniforms.uSdf.value, uniforms.uDay.value, uniforms.uRelief.value].forEach((t) => t.dispose?.())
+      gen++; queue.length = 0
+      ;[landT, oceanT, baseLightsT, cityT, cloudsT, detailTex, uniforms.uSdf.value, uniforms.uDay.value, uniforms.uRelief.value].forEach((t) => t.dispose?.())
       canvas.remove()
     },
   }
