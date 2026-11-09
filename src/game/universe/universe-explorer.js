@@ -14,6 +14,8 @@
 import { createEarthRenderer, solarElevation } from './earth.js';
 import sdfUrl from './earth-sdf.webp';
 import { createEarthGL, canUseWebGL } from './earth-gl.js';
+import dayUrl from './earth-day.webp';
+import reliefUrl from './earth-relief.webp';
 
 // ───────────────────────── 단위 / 상수 ─────────────────────────
 const LY = 9.4607e15;          // 1광년 (m)
@@ -419,7 +421,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   // 3D(WebGL2) 지구 — 안 되면 2D 지구로 자동 전환
   let earth = null;
   if (canUseWebGL()) {
-    try { earth = createEarthGL(root, { sdfUrl, before: overlay }); } catch (err) { console.warn('3D 지구 초기화 실패, 2D로 전환', err); }
+    try { earth = createEarthGL(root, { sdfUrl, dayUrl, reliefUrl, before: overlay }); } catch (err) { console.warn('3D 지구 초기화 실패, 2D로 전환', err); }
   }
   if (!earth) earth = createEarthRenderer({ sdfUrl });
 

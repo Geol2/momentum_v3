@@ -44,7 +44,8 @@ const EARTH_FRAG = /* glsl */ `
 precision highp float;
 in vec3 vObj;
 out vec4 outColor;
-uniform sampler2D uSdf, uLand, uOcean, uBaseLights, uCity, uClouds;
+uniform sampler2D uSdf, uLand, uOcean, uBaseLights, uCity, uClouds, uDay, uRelief;
+uniform float uHasDay, uHasRelief;
 uniform vec2 uSdfSize;
 uniform float uSdfK;
 uniform vec3 uSun, uView;
@@ -89,9 +90,19 @@ void main() {
   float zoomDetail = smoothstep(2.0, 10.0, climatePx);
   float shallow = max(smoothstep(30.0, 128.0, d) * 0.85, smoothstep(0.04, 0.5, land.a) * 0.55) * (1.0 - ice);
   vec3 oc = mix(ocean.rgb, vec3(30.0, 104.0, 146.0) / 255.0, shallow);
+  // NASA Blue Marble 위성 사진 (로드되면 서서히 교체)
+  vec3 day = seamless(uDay, u, u2, v).rgb;
+  // 해안 근처 바다는 위성 텍셀이 육지색으로 채워져 있으므로 절차적 얕은 바다를 쓴다
+  float coastW = smoothstep(128.0 - unit * 7.0, 128.0 - unit * 4.5, d);
+  vec3 dayOcean = mix(day * vec3(0.92, 1.0, 1.08), oc, coastW);
+  oc = mix(oc, dayOcean, uHasDay);
+  vec3 lc0 = mix(land.rgb, day * 1.08, uHasDay);
+  // 산맥 음영(기복도) + 확대 시 프랙탈 질감
+  float rel = (seamless(uRelief, u, u2, v).r - 0.5) * 2.0;
+  lc0 *= 1.0 + rel * 0.85 * uHasRelief;
   float tex1 = 1.0 + (nfine - 0.5) * 0.5 * zoomDetail;
-  float field = (nfine - 0.5) * 46.0 / 255.0 * zoomDetail;
-  vec3 lc = land.rgb * tex1 + vec3(field, field * 0.6, 0.0);
+  float field = (nfine - 0.5) * 46.0 / 255.0 * zoomDetail * (1.0 - 0.6 * uHasDay);
+  vec3 lc = lc0 * tex1 + vec3(field, field * 0.6, 0.0);
   vec3 col = mix(oc, lc, landA);
 
   // ── 조명 (실제 태양 방향) ──
@@ -181,7 +192,7 @@ export function canUseWebGL() {
  * @param {HTMLElement} host  — 캔버스를 넣을 부모
  * @param {Element} before    — 이 요소 앞에 캔버스를 끼워 넣음(2D 오버레이 아래)
  */
-export function createEarthGL(host, { sdfUrl, before } = {}) {
+export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, before } = {}) {
   const canvas = document.createElement('canvas')
   canvas.className = 'mu-gl'
   canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none'
@@ -211,6 +222,7 @@ export function createEarthGL(host, { sdfUrl, before } = {}) {
     uLand: { value: landT }, uOcean: { value: oceanT }, uBaseLights: { value: baseLightsT }, uCity: { value: cityT }, uClouds: { value: cloudsT },
     uSun: { value: new THREE.Vector3(1, 0, 0) }, uView: { value: new THREE.Vector3(0, 0, 1) },
     uR: { value: 100 }, uCloudShift: { value: 0 },
+    uDay: { value: landT }, uRelief: { value: landT }, uHasDay: { value: 0 }, uHasRelief: { value: 0 },
   }
   const earthMat = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms, vertexShader: EARTH_VERT, fragmentShader: EARTH_FRAG })
   const earth = new THREE.Mesh(new THREE.SphereGeometry(1, 256, 128), earthMat)
@@ -234,6 +246,25 @@ export function createEarthGL(host, { sdfUrl, before } = {}) {
       lowSdfT.dispose()
     })
   }
+
+  // 위성 사진·기복도 로드 → 0.8초에 걸쳐 서서히 전환
+  const fades = []
+  const loadImageTex = (url, onReady) => {
+    if (!url) return
+    new THREE.TextureLoader().load(url, (t) => {
+      t.wrapS = THREE.RepeatWrapping
+      t.wrapT = THREE.ClampToEdgeWrapping
+      t.flipY = false
+      t.colorSpace = THREE.NoColorSpace
+      t.minFilter = THREE.LinearMipmapLinearFilter
+      t.magFilter = THREE.LinearFilter
+      t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy())
+      t.needsUpdate = true
+      onReady(t)
+    })
+  }
+  loadImageTex(dayUrl, (t) => { uniforms.uDay.value = t; fades.push({ u: uniforms.uHasDay, t0: performance.now() }) })
+  loadImageTex(reliefUrl, (t) => { uniforms.uRelief.value = t; fades.push({ u: uniforms.uHasRelief, t0: performance.now() }) })
 
   // ── 달 ──
   const moonUniforms = { uSun: uniforms.uSun }
@@ -339,6 +370,11 @@ export function createEarthGL(host, { sdfUrl, before } = {}) {
       camera.near = -depth; camera.far = depth
       camera.updateProjectionMatrix()
 
+      for (let i = fades.length - 1; i >= 0; i--) {
+        const k = Math.min(1, (performance.now() - fades[i].t0) / 800)
+        fades[i].u.value = k
+        if (k >= 1) fades.splice(i, 1)
+      }
       uniforms.uR.value = R
       uniforms.uCloudShift.value = ((Math.floor(time / 10) * 10) / CLOUD_PERIOD) % 1
       orbitMat.opacity = opts.moonAlpha ?? 0
@@ -359,7 +395,7 @@ export function createEarthGL(host, { sdfUrl, before } = {}) {
     },
     destroy() {
       renderer.dispose()
-      ;[landT, oceanT, baseLightsT, cityT, cloudsT, uniforms.uSdf.value].forEach((t) => t.dispose?.())
+      ;[landT, oceanT, baseLightsT, cityT, cloudsT, uniforms.uSdf.value, uniforms.uDay.value, uniforms.uRelief.value].forEach((t) => t.dispose?.())
       canvas.remove()
     },
   }
