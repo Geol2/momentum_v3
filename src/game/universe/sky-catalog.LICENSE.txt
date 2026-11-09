@@ -1,6 +1,6 @@
-sky-catalog.json · stars-deep.bin — 우주 탐험 게임용 별·심우주 천체 데이터
+sky-catalog.json · stars-deep.bin · stars-mega-*.bin — 우주 탐험 게임용 별·심우주 천체 데이터
 
-별 데이터: AT-HYG v3.2 (HYGLike subset), David Nash / astronexus
+별 데이터: AT-HYG v3.2 (전체 및 HYGLike subset, 약 249만 개), David Nash / astronexus
   https://codeberg.org/astronexus/athyg  (Gaia DR3, Hipparcos, Tycho-2 기반)
   License: Creative Commons Attribution-ShareAlike 4.0 (CC BY-SA 4.0)
 성운·성단 좌표: OpenNGC, Mattia Verga
@@ -8,5 +8,5 @@ sky-catalog.json · stars-deep.bin — 우주 탐험 게임용 별·심우주 �
   License: CC BY-SA 4.0
 블랙홀·펄서·은하 등 추가 천체의 거리·설명: 공개 문헌 값을 정리 (Gaia BH1–3, EHT, JWST 등)
 
-이 파일들(sky-catalog.json, stars-deep.bin)은 위 데이터를 걸러내고 변환한 2차 저작물이며,
+이 파일들(sky-catalog.json, stars-deep.bin, stars-mega-1~6.bin)은 위 데이터를 걸러내고 변환한 2차 저작물이며,
 같은 CC BY-SA 4.0 조건으로 배포됩니다. https://creativecommons.org/licenses/by-sa/4.0/

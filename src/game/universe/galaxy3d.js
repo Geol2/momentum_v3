@@ -224,7 +224,7 @@ const fmtLy = (ly) => {
  * @param {{ sky?:any, exo?:any, dwarfs?:Array, preset?:string, describeStar?:Function, dsoKo?:Object, onClose?:Function }} opts
  */
 export function openGalaxy3D(host, opts = {}) {
-  const { sky, exo, deep, describeDeep, dwarfs = [], preset = 'mw', describeStar, dsoKo = {}, onClose } = opts;
+  const { sky, exo, layers = [], subscribe, loadMore, describeDeep, dwarfs = [], preset = 'mw', describeStar, dsoKo = {}, onClose } = opts;
   if (!document.getElementById('g3-style')) {
     const st = document.createElement('style'); st.id = 'g3-style'; st.textContent = CSS3D; document.head.appendChild(st);
   }
@@ -338,15 +338,15 @@ export function openGalaxy3D(host, opts = {}) {
       addPick(p, d.name, `${fmtLy(d.ly)} · ${dsoKo[d.kind] || ''}`, d.desc, 0, 400000);
     }
   }
-  // 맨눈 밖의 별 약 11만 개 (실제 위치)
-  let deepPos = null;
-  if (deep) {
-    const N = deep.N, pos = new Float32Array(N * 3), colA = new Float32Array(N * 3), size = new Float32Array(N);
+  // 맨눈 밖의 별 (기본 11만 + 불러온 묶음들, 실제 위치)
+  const deepSets = []; // { d, pos }
+  function addLayer(d) {
+    const N = d.N, pos = new Float32Array(N * 3), colA = new Float32Array(N * 3), size = new Float32Array(N);
     for (let i = 0; i < N; i++) {
-      const p = eqTo3(deep.ra[i], deep.dec[i], deep.ly[i]);
+      const p = eqTo3(d.ra[i], d.dec[i], d.ly[i]);
       pos[i * 3] = p[0]; pos[i * 3 + 1] = p[1]; pos[i * 3 + 2] = p[2];
-      const [r, g, b] = bvRgb(deep.bv[i] / 50);
-      const k = Math.max(0.35, Math.min(1, 1.1 - (deep.mag[i] / 10 - 6.5) * 0.12));
+      const [r, g, b] = bvRgb(d.bv[i] / 50);
+      const k = Math.max(0.1, Math.min(1, Math.pow(10, -0.2 * (d.mag[i] / 10 - 7)))); // 어두운 별은 흐리게(빽빽하면 빛이 쌓임)
       colA[i * 3] = (r / 255) * k; colA[i * 3 + 1] = (g / 255) * k; colA[i * 3 + 2] = (b / 255) * k;
       size[i] = 0.9;
     }
@@ -354,10 +354,13 @@ export function openGalaxy3D(host, opts = {}) {
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(colA, 3));
     geo.setAttribute('size', new THREE.BufferAttribute(size, 1));
-    const m = pointMaterial({ opacity: 0.9, minPx: 1.0, maxPx: 6 }); mats.push(m);
+    const m = pointMaterial({ opacity: 0.85, minPx: 1.0, maxPx: 6 }); mats.push(m);
+    m.uniforms.uScale.value = mats[0].uniforms.uScale.value;
     const pts = new THREE.Points(geo, m); pts.frustumCulled = false; scene.add(pts);
-    deepPos = pos;
+    deepSets.push({ d, pos });
   }
+  layers.forEach(addLayer);
+  const unsub = subscribe ? subscribe(addLayer) : null;
   if (exo) {
     const buf = new PointBuf();
     exo.rows.forEach((r) => {
@@ -443,11 +446,11 @@ export function openGalaxy3D(host, opts = {}) {
     m33: { t: M33, d: 95000, ...vM33, title: '삼각형자리 은하', desc: '안드로메다의 동반 은하로 추정. 팽대부가 거의 없고 나선팔이 솜털처럼 흩어진 은하.' },
     lg: { t: [M31[0] * 0.4, M31[1] * 0.4, M31[2] * 0.4], d: 4.6e6, pitch: 0.55, title: '국부은하군 3D', desc: '우리은하·안드로메다·삼각형자리 은하와 위성은하 수십 개. 실제 방향과 거리로 배치했어요.' },
   };
-  const ORDER = [['mw', '우리은하'], ['side', '옆모습'], ['gc', '은하 중심'], ['sun', '태양 주변'], ['lmc', '대마젤란'], ['m31', '안드로메다'], ['m33', '삼각형자리'], ['lg', '국부은하군'], ['rot', '자동회전']];
+  const ORDER = [['mw', '우리은하'], ['side', '옆모습'], ['gc', '은하 중심'], ['sun', '태양 주변'], ['lmc', '대마젤란'], ['m31', '안드로메다'], ['m33', '삼각형자리'], ['lg', '국부은하군'], ['more', '★ 별 +237만'], ['rot', '자동회전']];
   const bar = $('.g3-bar');
   for (const [k, name] of ORDER) {
     const b = document.createElement('button'); b.textContent = name; b.dataset.k = k;
-    b.addEventListener('click', () => { if (k === 'rot') { autoRot = !autoRot; b.classList.toggle('on', autoRot); } else go(k); });
+    b.addEventListener('click', () => { if (k === 'more') { loadMore?.(); go('sun'); } else if (k === 'rot') { autoRot = !autoRot; b.classList.toggle('on', autoRot); } else go(k); });
     bar.appendChild(b);
   }
   bar.querySelector('[data-k="rot"]').classList.add('on');
@@ -509,10 +512,12 @@ export function openGalaxy3D(host, opts = {}) {
   const project = (p) => { v.copy(p).project(camera); return v.z < 1 ? [(v.x + 1) * W / 2, (1 - v.y) * H / 2] : null; };
   const vp = new THREE.Matrix4();
   function pickDeep(pt) {
-    if (!deepPos || dist > 9000) return null;
+    if (!deepSets.length || dist > 12000) return null;
     vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     const e = vp.elements;
-    let best = -1, bd = 7 * 7;
+    let best = -1, bd = 7 * 7, bestSet = null;
+    for (const set of deepSets) {
+    const deepPos = set.pos;
     for (let i = 0, n = deepPos.length / 3; i < n; i++) {
       const x = deepPos[i * 3], y = deepPos[i * 3 + 1], z = deepPos[i * 3 + 2];
       const w = e[3] * x + e[7] * y + e[11] * z + e[15];
@@ -521,11 +526,13 @@ export function openGalaxy3D(host, opts = {}) {
       const dx = sx - pt[0]; if (dx > 7 || dx < -7) continue;
       const sy = (1 - (e[1] * x + e[5] * y + e[9] * z + e[13]) / w) * H / 2;
       const d2 = dx * dx + (sy - pt[1]) ** 2;
-      if (d2 < bd) { bd = d2; best = i; }
+      if (d2 < bd) { bd = d2; best = i; bestSet = set; }
+    }
     }
     if (best < 0 || !describeDeep) return null;
-    const [title, l2, l3] = describeDeep(best);
-    return { pos: new THREE.Vector3(deepPos[best * 3], deepPos[best * 3 + 1], deepPos[best * 3 + 2]), title, l2, l3 };
+    const [title, l2, l3] = describeDeep(bestSet.d, best);
+    const P = bestSet.pos;
+    return { pos: new THREE.Vector3(P[best * 3], P[best * 3 + 1], P[best * 3 + 2]), title, l2, l3 };
   }
   function pick(pt) {
     let best = null;
@@ -612,7 +619,7 @@ export function openGalaxy3D(host, opts = {}) {
 
   function destroy() {
     if (destroyed) return;
-    destroyed = true; cancelAnimationFrame(raf); ro.disconnect();
+    destroyed = true; cancelAnimationFrame(raf); ro.disconnect(); unsub?.();
     scene.traverse((o) => { o.geometry?.dispose(); });
     mats.forEach((m) => m.dispose()); bubbleMat.dispose();
     renderer.dispose(); root.remove();
