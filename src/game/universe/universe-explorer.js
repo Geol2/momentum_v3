@@ -517,6 +517,15 @@ const CSS = `
 .mu-controls{display:flex;align-items:center;gap:8px;max-width:400px;margin:0 auto}
 .mu-controls button{flex:none;width:42px;height:40px;font-size:12px}
 .mu-slider{flex:1;accent-color:#3dff8f;height:28px;filter:drop-shadow(0 0 4px rgba(61,255,143,.6))}
+.mu-where{margin-top:5px;font-size:10px;line-height:1.4;color:#9ff0d6;letter-spacing:.02em;text-shadow:0 0 4px rgba(61,255,143,.4)}
+.mu-where b{color:var(--g);font-weight:700}
+.mu-ladder{position:relative;display:flex;gap:2px;max-width:400px;margin:10px auto 0;padding-top:7px}
+.mu-lv{flex:1;min-width:0;height:20px;padding:0;border:1px solid var(--g3);background:rgba(1,18,9,.7);color:rgba(61,255,143,.45);font:inherit;font-size:10px;font-weight:700;cursor:pointer;font-variant-numeric:tabular-nums}
+.mu-lv.found{background:rgba(61,255,143,.16);color:var(--g);border-color:var(--g2)}
+.mu-lv.cur{background:rgba(61,255,143,.42);color:#eafff2;border-color:var(--g);box-shadow:0 0 8px rgba(61,255,143,.6);text-shadow:0 0 3px #000}
+.mu-lvmark{position:absolute;top:0;left:0;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid var(--g);filter:drop-shadow(0 0 3px var(--g));transform:translateX(-5px);transition:left .12s linear}
+.mu-lvtext{max-width:400px;margin:4px auto 0;font-size:10px;text-align:center;color:var(--gd);letter-spacing:.04em}
+.mu-lvtext b{color:var(--g)}
 .mu-progress{position:relative;max-width:400px;margin:10px auto 0;height:16px;border:1px solid var(--g2);background:rgba(1,18,9,.7);overflow:hidden}
 .mu-progress-fill{position:absolute;top:2px;bottom:2px;left:2px;width:0;transition:width .5s;
   background:repeating-linear-gradient(90deg,var(--g) 0 9px,transparent 9px 12px);box-shadow:0 0 10px rgba(61,255,143,.6)}
@@ -562,6 +571,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     <div class="mu-top mu-frame">
       <div class="mu-title"><span class="mu-step"></span><span class="mu-name"></span></div>
       <div class="mu-desc"></div>
+      <div class="mu-where"></div>
     </div>
     <button class="mu-close" aria-label="닫기">✕</button>
     <button class="mu-3d" hidden aria-label="3D로 은하 보기">3D</button>
@@ -590,7 +600,8 @@ export function mountUniverseExplorer(container, opts = {}) {
         <button data-zoom="1" aria-label="멀리">－</button>
         <button class="mu-home" aria-label="지구로 귀환">⌂</button>
       </div>
-      <div class="mu-progress"><div class="mu-progress-fill"></div><span></span></div>
+      <div class="mu-ladder"><div class="mu-lvmark"></div>${LEVELS.map((l, i) => `<button class="mu-lv" data-i="${i}" title="${l.name}">${i + 1}</button>`).join('')}</div>
+      <div class="mu-lvtext"></div>
     </div>
     <div class="mu-modal" hidden>
       <div class="mu-card mu-frame">
@@ -612,7 +623,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   let ctx = baseCtx; // 지구보다 위에 그릴 것은 octx 로 바꿔서 그린다
   const ui = {
     step: $('.mu-step'), name: $('.mu-name'), desc: $('.mu-desc'), scale: $('.mu-scale'),
-    slider: $('.mu-slider'), fill: $('.mu-progress-fill'), progText: $('.mu-progress span'),
+    slider: $('.mu-slider'), ladder: $('.mu-ladder'), lvMark: $('.mu-lvmark'), lvText: $('.mu-lvtext'), where: $('.mu-where'),
     credit: $('.mu-credit'), toast: $('.mu-toast'), focusbar: $('.mu-focusbar'), speed: $('.mu-speed'), hint: $('.mu-hint'), modal: $('.mu-modal'), time: $('.mu-time'), addr: $('.mu-addr'),
   };
 
@@ -1576,7 +1587,55 @@ export function mountUniverseExplorer(container, opts = {}) {
 
   // ── HUD 갱신 ──
   const hudCache = {};
-  const setText = (key, el, v) => { if (hudCache[key] !== v) { hudCache[key] = v; el.textContent = v; } };
+  const setText = (key, el, v, html = false) => { if (hudCache[key] !== v) { hudCache[key] = v; if (html) el.innerHTML = v; else el.textContent = v; } };
+  // 지금 화면 가운데가 우주의 어디인지 (큰 구조 → 작은 구조)
+  function whereLine() {
+    const c = getCam(s);
+    const d = (p) => Math.hypot(c[0] - p[0], c[1] - p[1]);
+    // [이름, 크기(반지름 m)] — 화면 폭에 비해 너무 작은 곳은 빼고 보여 줌
+    const chain = [['관측 가능한 우주', Infinity]];
+    if (d(LANI) < 260 * MLY) chain.push(['라니아케아 초은하단', 260 * MLY]);
+    if (d(VIRGO) < 62 * MLY) chain.push(['처녀자리 초은하단', 55 * MLY]);
+    if (d(VIRGO) < 7 * MLY) chain.push(['처녀자리 은하단', 7 * MLY]);
+    if (d(LG_CENTER) < 5 * MLY) chain.push(['국부은하군', 5 * MLY]);
+    const dGC = d(GC), dSun = d(SUN);
+    if (dGC < 60000 * LY) {
+      chain.push(['우리은하', 50000 * LY]);
+      if (dGC < 4000 * LY) chain.push(['은하 중심부', 4000 * LY]);
+      else if (dSun < 3000 * LY) chain.push(['오리온 팔', 3000 * LY]);
+    } else if (d(ANDROMEDA) < 120000 * LY) chain.push(['안드로메다 은하', 110000 * LY]);
+    else if (d(M33) < 40000 * LY) chain.push(['삼각형자리 은하', 30000 * LY]);
+    else if (d(LMC) < 15000 * LY) chain.push(['대마젤란 은하', 15000 * LY]);
+    else if (d(SMC) < 8000 * LY) chain.push(['소마젤란 은하', 8000 * LY]);
+    if (focus && focus.on && focus.kind === 'star') {
+      if (focus.sys.distLy < 50) chain.push(['태양 이웃', 50 * LY]);
+      chain.push([`${focus.name} 행성계`, Infinity]);
+    } else if (dSun < 50 * LY) {
+      chain.push(['태양 이웃', 50 * LY]);
+      if (dSun < 1.6 * LY) {
+        if (dSun > 2000 * AU) chain.push(['오르트 구름', 1.6 * LY]);
+        else if (dSun > 120 * AU) { chain.push(['태양계', 1.6 * LY]); chain.push(['태양권 바깥', 1000 * AU]); }
+        else {
+          chain.push(['태양계', 60 * AU]);
+          if (focus && focus.on && focus.kind === 'planet') chain.push([focus.name, Infinity]);
+          else if (Math.hypot(c[0], c[1]) < 1.2e9) chain.push(s < 8.7 ? ['지구', 6.4e6] : ['지구와 달', 4e8]);
+        }
+      }
+    }
+    const span = Math.pow(10, s);
+    const vis = chain.filter(([, r], i) => i === 0 || r >= span * 0.12).map(([n]) => n);
+    const shown = vis.length > 5 ? ['…', ...vis.slice(-4)] : vis;
+    return '위치 · ' + shown.map((t, i) => (i === shown.length - 1 ? `<b>${t}</b>` : t)).join(' › ');
+  }
+  ui.ladder.addEventListener('click', (e) => {
+    const b = e.target.closest('.mu-lv'); if (!b) return;
+    const i = Number(b.dataset.i);
+    markInteracted();
+    if (focus) exitFocus();
+    pan = [0, 0]; panVel = [0, 0]; anchor = null;
+    const a = LEVELS[i].at, nx = i + 1 < LEVELS.length ? LEVELS[i + 1].at : S_MAX;
+    setTarget(i === 0 ? S_START : Math.min(S_MAX, a + Math.min(0.6, (nx - a) * 0.4)));
+  });
   function updateHud() {
     btn3d.hidden = s < 16.5;
     btnSky.hidden = s > 12.5;
@@ -1657,9 +1716,21 @@ export function mountUniverseExplorer(container, opts = {}) {
     const sc = `화면 폭 ≈ <b>${fmtLength(span)}</b> · 빛으로 ${fmtLightTime(span)}`;
     if (hudCache.scale !== sc) { hudCache.scale = sc; ui.scale.innerHTML = sc; }
     if (document.activeElement !== ui.slider) ui.slider.value = s.toFixed(2);
-    const pct = `${(found.size / LEVELS.length) * 100}%`;
-    if (hudCache.pct !== pct) { hudCache.pct = pct; ui.fill.style.width = pct; }
-    setText('prog', ui.progText, `발견 ${found.size}/${LEVELS.length}`);
+    // 12단계 사다리: 지금 단계 · 발견한 단계 · 연속 위치 표시
+    const ladderKey = idx + ':' + [...found].join(',');
+    if (hudCache.ladder !== ladderKey) {
+      hudCache.ladder = ladderKey;
+      ui.ladder.querySelectorAll('.mu-lv').forEach((b, i) => { b.classList.toggle('cur', i === idx); b.classList.toggle('found', found.has(LEVELS[i].id)); });
+    }
+    let frac = 0;
+    for (let i = 0; i < LEVELS.length; i++) {
+      const a = i === 0 ? S_MIN : LEVELS[i].at, b = i + 1 < LEVELS.length ? LEVELS[i + 1].at : S_MAX;
+      if (s >= a && (s < b || i === LEVELS.length - 1)) { frac = i + Math.min(1, Math.max(0, (s - a) / (b - a))); break; }
+    }
+    const lvW = ui.ladder.clientWidth;
+    if (lvW) ui.lvMark.style.left = `${(frac / LEVELS.length) * lvW}px`;
+    setText('lv', ui.lvText, `<b>${String(idx + 1).padStart(2, '0')} ${LEVELS[idx].name}</b> · 발견 ${found.size}/${LEVELS.length} · 숫자를 누르면 그 단계로`, true);
+    setText('where', ui.where, whereLine(), true);
   }
 
   // ── 도시 라벨 (확대할수록 더 많이) ──
