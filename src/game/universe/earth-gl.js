@@ -124,7 +124,9 @@ void main() {
     float mx = max(det.r, max(det.g, det.b)), mn = min(det.r, min(det.g, det.b));
     float sat = (mx - mn) / max(mx, 1e-3);
     float lum = dot(det.rgb, vec3(0.3, 0.55, 0.15));
-    urban = (1.0 - smoothstep(0.1, 0.28, sat)) * smoothstep(0.2, 0.42, lum);
+    // 갯벌·모래(갈색 기운)는 제외: 빨강이 파랑보다 뚜렷이 큰 곳은 감점
+    float brown = smoothstep(0.03, 0.09, det.r - det.b);
+    urban = (1.0 - smoothstep(0.07, 0.2, sat)) * smoothstep(0.2, 0.42, lum) * (1.0 - 0.8 * brown);
     urbanW = wD;
   }
 
