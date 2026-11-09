@@ -10,6 +10,29 @@ const EPS = 23.4393 * D;
 const PLANET_KO = ['수성', '금성', '화성', '목성', '토성', '천왕성', '해왕성'];
 const PLANET_COL = { 수성: '#c8bfb4', 금성: '#fff3c4', 화성: '#ff8a5c', 목성: '#f2d7a8', 토성: '#f0dc9c', 천왕성: '#a8e6ef', 해왕성: '#8fa8ff' };
 
+// 적도 → 은하 좌표 회전
+const TG = [[-0.0548755604, -0.8734370902, -0.4838350155], [0.4941094279, -0.4448296300, 0.7469822445], [-0.8676661490, -0.1980763734, 0.4559837762]];
+// 파장대: 색 · 설명 · 점광원 [이름, 적경, 적위, 세기, 퍼짐(도)]
+const BANDS = {
+  vis: { ko: '가시광', note: '' },
+  ir: { ko: '적외선', col: [255, 150, 90], note: '적외선(2MASS·WISE처럼): 먼지를 뚫고 은하 중심의 팽대부가 보이고, 차갑고 붉은 별(베텔게우스·안타레스)이 가장 밝아져요',
+    src: [] },
+  radio: { ko: '전파', col: [255, 200, 70], note: '전파(408MHz, 하슬람 지도처럼): 은하 자기장 속 전자가 내는 빛 · 거대한 「고리 I(북쪽 극 돌기)」 · 별은 거의 안 보여요',
+    src: [['카시오페이아 A', 350.85, 58.81, 1, 0.4], ['백조자리 A (전파은하)', 299.868, 40.734, 0.95, 0.3], ['궁수자리 A (은하 중심)', 266.417, -29.008, 0.9, 1.2], ['센타우루스 A', 201.365, -43.019, 0.7, 1.5], ['황소자리 A (게 성운)', 83.633, 22.014, 0.6, 0.3], ['처녀자리 A (M87)', 187.706, 12.391, 0.5, 0.3], ['화로자리 A', 50.67, -37.21, 0.4, 0.6], ['화가자리 A', 79.957, -45.779, 0.3, 0.3], ['헤라클레스 A', 252.784, 4.993, 0.3, 0.3], ['오리온 A', 83.82, -5.39, 0.3, 0.5], ['목성 (데카미터파)', null, null, 0, 0]] },
+  xray: { ko: 'X선', col: [150, 120, 255], note: 'X선(ROSAT·eROSITA처럼): 대기가 막아서 위성으로만 보는 하늘 · 블랙홀·중성자별 쌍성, 초신성 잔해, 수천만 도의 은하단 가스',
+    src: [['전갈자리 X-1', 244.979, -15.64, 1, 0.3], ['게 성운', 83.633, 22.014, 0.6, 0.3], ['백조자리 X-1 (블랙홀)', 299.59, 35.2, 0.6, 0.3], ['백조자리 X-3', 308.107, 40.958, 0.4, 0.3], ['돛자리 초신성 잔해', 128.8, -45.2, 0.5, 4], ['카시오페이아 A', 350.85, 58.81, 0.35, 0.4], ['헤라클레스 X-1', 254.457, 35.342, 0.35, 0.3], ['센타우루스 X-3', 170.316, -60.623, 0.35, 0.3], ['GX 5-1', 270.284, -25.079, 0.4, 0.3], ['GX 339-4 (블랙홀)', 255.706, -48.79, 0.3, 0.3], ['페르세우스 은하단', 49.95, 41.51, 0.3, 1], ['머리털자리 은하단', 194.95, 27.98, 0.2, 1], ['처녀자리 은하단 (M87)', 187.706, 12.391, 0.25, 1.5], ['대마젤란 X-3', 84.73, -64.08, 0.25, 0.3], ['백조자리 고리', 312.75, 30.7, 0.3, 1.6], ['고물자리 A', 125.5, -43.0, 0.3, 0.6]] },
+  gamma: { ko: '감마선', col: [255, 80, 210], note: '감마선(페르미 망원경처럼): 우주선이 가스와 부딪혀 빛나는 은하면, 은하 중심 위아래 「페르미 거품」, 펄서와 블레이자 · 달도 감마선으로 빛나요',
+    src: [['돛자리 펄서', 128.836, -45.176, 1, 0.3], ['게미나', 98.476, 17.77, 0.8, 0.3], ['게 성운·펄서', 83.633, 22.014, 0.7, 0.3], ['3C 454.3 (블레이자)', 343.49, 16.148, 0.5, 0.3], ['3C 279 (블레이자)', 194.047, -5.789, 0.4, 0.3], ['PKS 1510-089', 228.21, -9.1, 0.3, 0.3], ['은하 중심', 266.4, -29.0, 0.6, 1.5], ['대마젤란 은하', 80.9, -69.8, 0.3, 3], ['백조자리 고치', 306, 41, 0.3, 2]] },
+};
+function diffuse(band, l, b) { // l: -180~180, b: 도 → 세기(0~)
+  const ab = Math.abs(b);
+  if (band === 'ir') return Math.exp(-ab / 2.2) * (0.3 + 0.7 * Math.exp(-((l / 35) ** 2))) + 1.6 * Math.exp(-((l / 9) ** 2 + (b / 6) ** 2));
+  const dI = (() => { const l0 = -31 * D, b0 = 17.5 * D, lr = l * D, br = b * D; return Math.acos(Math.max(-1, Math.min(1, Math.sin(b0) * Math.sin(br) + Math.cos(b0) * Math.cos(br) * Math.cos(lr - l0)))) / D; })();
+  if (band === 'radio') return Math.exp(-ab / 5) * (0.35 + 0.65 * Math.exp(-((l / 55) ** 2))) + 0.6 * Math.exp(-((l / 12) ** 2 + (b / 9) ** 2)) + 0.12 * (1 - 0.5 * Math.abs(Math.sin(b * D))) + (b > -10 ? 0.35 * Math.exp(-(((dI - 58) / 4) ** 2)) : 0);
+  if (band === 'xray') return 0.25 * (0.4 + 0.6 * Math.abs(Math.sin(b * D))) * (1 - 0.7 * Math.exp(-ab / 8)) + (b > -10 ? 0.6 * Math.exp(-(((dI - 58) / 6) ** 2)) : 0) + 0.15 * Math.exp(-((l / 25) ** 2 + (b / 12) ** 2));
+  if (band === 'gamma') { const fb = (l / 20) ** 2 + ((ab - 25) / 22) ** 2; return 1.2 * Math.exp(-ab / 1.6) * (0.25 + 0.75 * Math.exp(-((l / 40) ** 2))) + (fb < 1 ? 0.12 * (1 - fb * 0.4) : 0) + 0.03; }
+  return 0;
+}
 const gmst = (d) => { const n = d.getTime() / 86400000 + 2440587.5 - 2451545.0; return ((280.46061837 + 360.98564736629 * n) % 360 + 360) % 360; };
 const eqVec = (raDeg, decDeg) => { const a = raDeg * D, b = decDeg * D; return [Math.cos(b) * Math.cos(a), Math.cos(b) * Math.sin(a), Math.sin(b)]; };
 
@@ -38,7 +61,7 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
   const info = root.querySelector('.ns-info');
   let W = 1, H = 1, dpr = 1;
   let az = 180, alt = 35, fov = 100; // 남쪽 하늘부터
-  let tOff = 0, atmo = true, lines = null, gyro = false, showDeep = true;
+  let tOff = 0, atmo = true, lines = null, gyro = false, showDeep = true, band = 'vis';
   const lat = loc.lat * D, lon = loc.lon * D;
   const E = [-Math.sin(lon), Math.cos(lon), 0], N = [-Math.sin(lat) * Math.cos(lon), -Math.sin(lat) * Math.sin(lon), Math.cos(lat)], U = [Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat)];
   // 은하수: 윤곽 다각형을 적경·적위 지도(0.5°/px)에 겹쳐 칠하고 흐리게 → 화면 픽셀마다 거꾸로 찾아 부드럽게 그림
@@ -80,6 +103,8 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
   // 바
   const bar = root.querySelector('.ns-bar');
   const btn = (k, label, fn) => { const b = document.createElement('button'); b.textContent = label; b.dataset.k = k; b.onclick = () => fn(b); bar.appendChild(b); return b; };
+  for (const [k, B] of Object.entries(BANDS)) btn('band-' + k, B.ko, () => { band = k; bar.querySelectorAll('[data-k^="band-"]').forEach((b) => b.classList.toggle('on', b.dataset.k === 'band-' + k)); });
+  bar.querySelector('[data-k="band-vis"]').classList.add('on');
   btn('m1', '-1시간', () => { tOff -= 3600000; });
   btn('now', '지금', () => { tOff = 0; });
   btn('p1', '+1시간', () => { tOff += 3600000; });
@@ -151,14 +176,16 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
     const moonEnu = enuOf(mTopo.map((x) => x / mtl));
     // 하늘색
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const day = atmo ? Math.max(0, Math.min(1, (sunAlt + 8) / 14)) : 0;
+    const day = atmo && (band === 'vis' || band === 'ir') ? Math.max(0, Math.min(1, (sunAlt + 8) / 14)) * (band === 'ir' ? 0.5 : 1) : 0;
     const grd = g.createLinearGradient(0, 0, 0, H);
     grd.addColorStop(0, `rgb(${2 + 40 * day | 0},${6 + 90 * day | 0},${14 + 170 * day | 0})`);
     grd.addColorStop(1, `rgb(${6 + 120 * day | 0},${10 + 140 * day | 0},${20 + 190 * day | 0})`);
     g.fillStyle = grd; g.fillRect(0, 0, W, H);
     const starA = 1 - day * 0.97;
     // 은하수 (저해상도로 계산 후 부드럽게 확대)
-    if (mwMap && starA > 0.05) {
+    const nonVis = band !== 'vis';
+    const BB = BANDS[band];
+    if ((mwMap && starA > 0.05) || nonVis) {
       const step = 5, lw = Math.ceil(W / step), lh = Math.ceil(H / step);
       if (mwCv.width !== lw || mwCv.height !== lh) { mwCv.width = lw; mwCv.height = lh; mwImg = mwG.createImageData(lw, lh); }
       const px = mwImg.data;
@@ -173,9 +200,16 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
         let ra = Math.atan2(qy, qx) / D; if (ra < 0) ra += 360;
         const de = Math.asin(Math.max(-1, Math.min(1, zz))) / D;
         const mx = Math.min(MW_W - 1, (ra * 2) | 0), my = Math.min(MW_H - 1, ((90 - de) * 2) | 0);
-        const lum = mwMap[my * MW_W + mx];
         const o = (j * lw + i) * 4;
-        px[o] = 190; px[o + 1] = 205; px[o + 2] = 255; px[o + 3] = Math.min(255, lum * 230 * starA * (e2 < 0 ? 0.3 : 1));
+        if (!nonVis) {
+          const lum = mwMap ? mwMap[my * MW_W + mx] : 0;
+          px[o] = 190; px[o + 1] = 205; px[o + 2] = 255; px[o + 3] = Math.min(255, lum * 230 * starA * (e2 < 0 ? 0.3 : 1));
+        } else {
+          const gx = TG[0][0] * qx + TG[0][1] * qy + TG[0][2] * zz, gy = TG[1][0] * qx + TG[1][1] * qy + TG[1][2] * zz, gz = TG[2][0] * qx + TG[2][1] * qy + TG[2][2] * zz;
+          const I = diffuse(band, Math.atan2(gy, gx) / D, Math.asin(Math.max(-1, Math.min(1, gz))) / D);
+          const a = Math.min(1, I * 0.85);
+          px[o] = BB.col[0]; px[o + 1] = BB.col[1]; px[o + 2] = BB.col[2]; px[o + 3] = Math.min(255, (a * 255) * (e2 < 0 ? 0.35 : 1));
+        }
       }
       mwG.putImageData(mwImg, 0, 0);
       g.globalAlpha = 1; g.imageSmoothingEnabled = true; g.drawImage(mwCv, 0, 0, W, H);
@@ -200,7 +234,10 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
     const picks = [];
     const magLim = Math.min(7.6, 4.5 + (160 - fov) / 30) - day * 5;
     const drawStar = (s, pick) => {
-      if (s.mag > magLim) return;
+      if (band !== 'vis' && band !== 'ir') return;
+      const mg = band === 'ir' ? s.mag - (0.15 + 2.2 * s.bv) + 1.2 : s.mag; // 적외선: 붉은 별일수록 밝게
+      if (mg > magLim) return;
+      s = band === 'ir' ? { ...s, mag: mg, col: s.bv > 1 ? '#ffb38a' : '#ffd9c0' } : s;
       const v = eqToEnu(s.v);
       const p = proj(v); if (!p || p[0] < -5 || p[0] > W + 5 || p[1] < -5 || p[1] > H + 5) return;
       const r = Math.max(0.5, (magLim + 1.5 - s.mag) * 0.55 * (100 / fov) ** 0.3);
@@ -220,10 +257,22 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
       const v = [ge[0], ge[1] * Math.cos(EPS) - ge[2] * Math.sin(EPS), ge[1] * Math.sin(EPS) + ge[2] * Math.cos(EPS)];
       const L = Math.hypot(...v); const enu = eqToEnu(v.map((x) => x / L));
       const p = proj(enu); if (!p) continue;
-      g.globalAlpha = enu[2] < 0 ? 0.35 : 1; g.fillStyle = PLANET_COL[name];
+      if (band !== 'vis' && band !== 'ir' && !(band === 'radio' && name === '목성')) continue;
+      g.globalAlpha = enu[2] < 0 ? 0.35 : 1; g.fillStyle = band === 'radio' ? '#ffd166' : PLANET_COL[name];
       g.beginPath(); g.arc(p[0], p[1], 3.2, 0, Math.PI * 2); g.fill();
       g.font = '700 11px "SF Mono",Menlo,Consolas,"Apple SD Gothic Neo","Noto Sans KR",monospace'; g.fillText(name, p[0] + 6, p[1] - 5);
       picks.push({ p, kind: 'planet', name, dist: L, alt: Math.asin(enu[2]) / D, az: (Math.atan2(enu[0], enu[1]) / D + 360) % 360 });
+    }
+    // 파장대 점광원
+    if (BB.src) for (const [nm, ra, de, w, sz] of BB.src) {
+      if (ra == null) continue;
+      const v = eqToEnu(eqVec(ra, de)); const p = proj(v); if (!p) continue;
+      const R = Math.max(5 + 9 * w, sz * D * scale * 2.2);
+      const gr = g.createRadialGradient(p[0], p[1], 0, p[0], p[1], R);
+      gr.addColorStop(0, `rgba(${BB.col.join(',')},${0.95 * w + 0.05})`); gr.addColorStop(0.3, `rgba(${BB.col.join(',')},${0.4 * w})`); gr.addColorStop(1, `rgba(${BB.col.join(',')},0)`);
+      g.globalAlpha = v[2] < 0 ? 0.35 : 1; g.fillStyle = gr; g.beginPath(); g.arc(p[0], p[1], R, 0, Math.PI * 2); g.fill();
+      if (w >= 0.3) { g.fillStyle = '#ffffff'; g.font = '600 10.5px "SF Mono",Menlo,Consolas,"Apple SD Gothic Neo","Noto Sans KR",monospace'; g.textAlign = 'left'; g.fillText(nm, p[0] + R * 0.5 + 4, p[1] - 4); }
+      picks.push({ p, kind: 'src', name: nm, alt: Math.asin(v[2]) / D, az: (Math.atan2(v[0], v[1]) / D + 360) % 360 });
     }
     // 달
     {
@@ -231,7 +280,9 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
       if (p) {
         const R = Math.max(5, (0.26 * D / (fov * D)) * W * 2.5);
         g.globalAlpha = moonEnu[2] < 0 ? 0.35 : 1;
-        g.fillStyle = '#2a2e38'; g.beginPath(); g.arc(p[0], p[1], R, 0, Math.PI * 2); g.fill();
+        g.fillStyle = band === 'gamma' ? 'rgba(255,80,210,.9)' : band === 'xray' ? '#000' : '#2a2e38'; g.beginPath(); g.arc(p[0], p[1], R, 0, Math.PI * 2); g.fill();
+        if (band === 'gamma' || band === 'xray' || band === 'radio') { g.fillStyle = '#e8ecff'; g.font = '700 11px "SF Mono",Menlo,Consolas,"Apple SD Gothic Neo","Noto Sans KR",monospace'; g.fillText(band === 'gamma' ? '달 (우주선이 부딪혀 감마선으로 빛남)' : band === 'xray' ? '달 (뒤의 X선을 가리는 그림자)' : '달', p[0] + R + 5, p[1] - 4); picks.push({ p, kind: 'moon', alt: Math.asin(moonEnu[2]) / D, az: (Math.atan2(moonEnu[0], moonEnu[1]) / D + 360) % 360 }); }
+        else {
         // 밝은 쪽: 해 방향
         const sp = proj(sunEnu) || [p[0] + (sunEnu[0] - moonEnu[0]) * 1000, p[1] - (sunEnu[2] - moonEnu[2]) * 1000];
         const ang = Math.atan2(sp[1] - p[1], sp[0] - p[0]);
@@ -241,9 +292,10 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
         g.restore();
         g.fillStyle = '#e8ecff'; g.font = '700 11px "SF Mono",Menlo,Consolas,"Apple SD Gothic Neo","Noto Sans KR",monospace'; g.fillText(`달 · ${ms.phase}`, p[0] + R + 5, p[1] - 4);
         picks.push({ p, kind: 'moon', alt: Math.asin(moonEnu[2]) / D, az: (Math.atan2(moonEnu[0], moonEnu[1]) / D + 360) % 360 });
+        }
       }
       const s = proj(sunEnu);
-      if (s && sunEnu[2] > -0.05) { g.globalAlpha = 1; const gr = g.createRadialGradient(s[0], s[1], 0, s[0], s[1], 40); gr.addColorStop(0, '#fffbe8'); gr.addColorStop(0.2, 'rgba(255,240,180,.8)'); gr.addColorStop(1, 'rgba(255,220,150,0)'); g.fillStyle = gr; g.beginPath(); g.arc(s[0], s[1], 40, 0, Math.PI * 2); g.fill(); }
+      if (s && (sunEnu[2] > -0.05 || (band !== 'vis' && band !== 'ir'))) { g.globalAlpha = 1; const gr = g.createRadialGradient(s[0], s[1], 0, s[0], s[1], 40); gr.addColorStop(0, '#fffbe8'); gr.addColorStop(0.2, 'rgba(255,240,180,.8)'); gr.addColorStop(1, 'rgba(255,220,150,0)'); g.fillStyle = gr; g.beginPath(); g.arc(s[0], s[1], 40, 0, Math.PI * 2); g.fill(); }
     }
     // 국제우주정거장
     if (sats && sats.count) {
@@ -283,7 +335,7 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
     }
     // 상단 설명
     const hh = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-    root.querySelector('.ns-top p').textContent = `${loc.label} ${loc.lat.toFixed(2)}°, ${loc.lon.toFixed(2)}° · ${date.getMonth() + 1}월 ${date.getDate()}일 ${hh}${tOff ? ' (시간 이동 중)' : ''} · 해 고도 ${sunAlt.toFixed(0)}° · 달 ${ms.phase} · 보는 방향 ${dirKo(az)} ${alt.toFixed(0)}° · 시야 ${fov.toFixed(0)}°${day > 0.5 && atmo ? ' · 낮이라 별이 안 보여요 — 「대기 끄기」' : ''}`;
+    root.querySelector('.ns-top p').textContent = (BB.note ? `[${BB.ko}] ${BB.note} — ` : '') + `${loc.label} ${loc.lat.toFixed(2)}°, ${loc.lon.toFixed(2)}° · ${date.getMonth() + 1}월 ${date.getDate()}일 ${hh}${tOff ? ' (시간 이동 중)' : ''} · 해 고도 ${sunAlt.toFixed(0)}° · 달 ${ms.phase} · 보는 방향 ${dirKo(az)} ${alt.toFixed(0)}° · 시야 ${fov.toFixed(0)}°${day > 0.5 && atmo ? ' · 낮이라 별이 안 보여요 — 「대기 끄기」' : ''}`;
     // 호버·탭 정보
     const pt = hover || tap;
     let best = null, bd = 14 * 14;
@@ -293,6 +345,7 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
       const where = `${dirKo(best.az)} 고도 ${best.alt.toFixed(0)}°${best.alt < 0 ? ' (지평선 아래)' : ''}`;
       if (best.kind === 'star') lab = describeStar ? describeStar(best.s.i) : [best.s.name || '별', '', ''];
       else if (best.kind === 'planet') lab = [best.name, `지구에서 ${best.dist.toFixed(2)} AU · 빛으로 ${(best.dist * 8.317).toFixed(0)}분`, ''];
+      else if (best.kind === 'src') lab = [best.name, `${BB.ko}으로 밝은 천체`, ''];
       else if (best.kind === 'moon') lab = ['달', `${ms.phase} · 밝은 면 ${(ms.illum * 100).toFixed(0)}%`, ''];
       else lab = ['국제우주정거장 ISS', `거리 약 ${Math.round(best.km).toLocaleString('ko-KR')}km`, '맨눈으로 빠르게 움직이는 밝은 점'];
       info.children[0].textContent = lab[0]; info.children[1].textContent = [lab[1], where].filter(Boolean).join(' · '); info.children[2].textContent = lab[2] || '';

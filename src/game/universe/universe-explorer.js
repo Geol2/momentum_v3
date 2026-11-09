@@ -475,6 +475,7 @@ const CSS = `
 .mu-more{top:148px;animation:none;font-size:11px}
 .mu-snd{top:102px;animation:none;font-size:15px;opacity:.6}
 .mu-sky{top:194px;animation:none;font-size:10px;letter-spacing:.02em}
+.mu-imp{top:240px;animation:none;font-size:10px;color:#ff9a8a;border-color:rgba(255,120,100,.6)}
 .mu-trip{top:240px;animation:none;font-size:9.5px;letter-spacing:0}
 .mu-today{top:286px;animation:none;font-size:9.5px;letter-spacing:0}
 @media (max-height:520px){.mu-trip{top:56px;right:56px}.mu-today{top:102px;right:56px}}
@@ -555,6 +556,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     <button class="mu-3d" hidden aria-label="3D로 은하 보기">3D</button>
     <button class="mu-3d mu-trip" hidden aria-label="탐사선 여행" title="보이저·뉴호라이즌스가 실제로 날아간 길">TRIP</button>
     <button class="mu-3d mu-today" aria-label="오늘의 우주" title="오늘의 천문 사진 · 우주 뉴스 · 오늘 밤 하늘">NEWS</button>
+    <button class="mu-3d mu-imp" hidden aria-label="소행성 충돌 시뮬레이터" title="소행성이 우리 동네에 떨어진다면?">HIT</button>
     <button class="mu-3d mu-sky" hidden aria-label="밤하늘 모드" title="내 위치에서 지금 올려다본 하늘">SKY</button>
     <div class="mu-photo mu-frame" hidden><img alt=""><span></span></div>
     <button class="mu-warp" hidden>▶▶ 광속 이동</button>
@@ -1300,6 +1302,13 @@ export function mountUniverseExplorer(container, opts = {}) {
     return null;
   }
   function offerWarp(t) {
+    if (t && t.small && t.small.neo) { // 근지구 소행성 → 충돌 시뮬레이션 제안
+      const n = t.small.neo, L = (n.diam || diamKm(n.H)) * 1000;
+      warpTarget = { impact: { L: Math.max(1, L), v: 17, angle: 45, type: 'stone', note: `${n.name} — 지름 약 ${L >= 1000 ? (L / 1000).toFixed(1) + 'km' : Math.round(L) + 'm'} · 속도는 근지구 소행성 평균(초속 약 17km)으로 가정` } };
+      btnWarp.textContent = `▶ ${n.name}이(가) 떨어진다면?`; btnWarp.hidden = false;
+      clearTimeout(warpHideT); warpHideT = setTimeout(() => { btnWarp.hidden = true; }, 9000);
+      return;
+    }
     const c = warpCandidate(t);
     if (!c || !(c.ly > 0)) return;
     warpTarget = c;
@@ -1324,6 +1333,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   btnWarp.addEventListener('click', async () => {
     if (!warpTarget || warping) return;
     const tg = warpTarget; btnWarp.hidden = true;
+    if (tg.impact) { openImp(tg.impact); return; }
     const { warpTo } = await import('./warp.js');
     warping = warpTo(root, { name: tg.name, ly: tg.ly, onArrive: () => {
       warping = null;
@@ -1334,6 +1344,20 @@ export function mountUniverseExplorer(container, opts = {}) {
       toast(`${tg.name} 도착 · 지구에서 ${fmtLy(tg.ly)} — 실제 광속이면 ${tg.ly < 1 ? Math.round(tg.ly * 365) + '일' : fmtLy(tg.ly).replace('광년', '년')} 걸려요`);
     } });
   });
+  // 소행성 충돌 시뮬레이터
+  const btnImp = $('.mu-imp');
+  let impView = null;
+  async function openImp(preset) {
+    if (impView) return;
+    impView = 'loading';
+    try {
+      const { openImpact } = await import('./impact.js');
+      if (destroyed) return;
+      cancelAnimationFrame(raf);
+      impView = openImpact(root, { loc: myLoc, preset, sound, onClose: () => { impView = null; if (!destroyed && !g3) { last = performance.now(); raf = requestAnimationFrame(frame); } } });
+    } catch (e) { impView = null; toast('충돌 시뮬레이터를 열 수 없어요'); }
+  }
+  btnImp.addEventListener('click', () => openImp());
   // 탐사선 여행
   const btnTrip = $('.mu-trip');
   let tripView = null;
@@ -1462,6 +1486,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     btn3d.hidden = s < 16.5;
     btnSky.hidden = s > 12.5;
     btnTrip.hidden = s < 10.5 || s > 17.5;
+    btnImp.hidden = s > 10.4;
     btnMore.hidden = s < 16.5 || s > 21.8;
     let idx = 0;
     for (let i = 0; i < LEVELS.length; i++) if (s >= LEVELS[i].at) idx = i;
@@ -2518,6 +2543,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     if (bhView && bhView !== 'loading') bhView.destroy();
     if (skyView && skyView !== 'loading') skyView.destroy();
     if (tripView && tripView !== 'loading') tripView.destroy();
+    if (impView && impView !== 'loading') impView.destroy();
     warping?.cancel();
     sound.destroy();
     cancelAnimationFrame(raf);
