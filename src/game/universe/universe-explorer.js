@@ -271,7 +271,7 @@ function buildWorld(seed = 20261109) {
     ['페가수스 왜소 불규칙은하', 352.15, 14.74, 3000, '국부은하군의 왜소 불규칙은하'],
     ['물병자리 왜소은하', 311.72, -12.85, 3200, '국부은하군 가장자리의 왜소은하'],
     ['육분의자리 A', 152.75, -4.69, 4310, '국부은하군 바로 바깥의 왜소은하'],
-  ].map(([name, ra, dec, kly, desc]) => ({ name, desc, ly: kly * 1000, pos: skyPosM(ra, dec, kly * 1000 * LY) }));
+  ].map(([name, ra, dec, kly, desc]) => ({ name, desc, ra, dec, ly: kly * 1000, pos: skyPosM(ra, dec, kly * 1000 * LY) }));
 
   // 실제 은하군·은하단·거대 구조 [이름, 종류, 적경, 적위, 거리(백만 광년), 설명]
   // 종류: grp 은하군, cl 은하단, sc 초은하단, wall 거대 구조, void 보이드, far 가장 먼 천체 (공동 거리)
@@ -446,6 +446,12 @@ const CSS = `
 .mu-close{position:absolute;top:10px;right:10px;width:38px;height:38px;z-index:6;border:1px solid var(--g2);
   background:rgba(1,18,9,.7);color:var(--g);font-weight:700;font-size:15px;cursor:pointer;text-shadow:var(--glow);
   clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);box-shadow:inset 0 0 10px rgba(61,255,143,.25)}
+.mu-3d{position:absolute;top:56px;right:10px;width:38px;height:38px;z-index:6;border:1px solid var(--g2);padding:0;
+  background:rgba(1,18,9,.7);color:var(--g);font-family:inherit;font-weight:800;font-size:12px;cursor:pointer;text-shadow:var(--glow);
+  clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);box-shadow:inset 0 0 10px rgba(61,255,143,.25);
+  animation:mu3dpulse 2.4s ease-in-out infinite}
+.mu-3d[hidden]{display:none}
+@keyframes mu3dpulse{50%{box-shadow:inset 0 0 14px rgba(61,255,143,.55),0 0 12px rgba(61,255,143,.5)}}
 .mu-bottom{position:absolute;left:0;right:0;bottom:0;padding:0 12px calc(12px + env(safe-area-inset-bottom));z-index:6;
   background:linear-gradient(transparent,rgba(1,6,4,.9) 45%)}
 .mu-focusbar{display:flex;justify-content:center;gap:8px;margin-bottom:8px}
@@ -509,6 +515,7 @@ export function mountUniverseExplorer(container, opts = {}) {
       <div class="mu-desc"></div>
     </div>
     <button class="mu-close" aria-label="닫기">✕</button>
+    <button class="mu-3d" hidden aria-label="3D로 은하 보기">3D</button>
     <div class="mu-toast mu-frame"></div>
     <div class="mu-hint mu-frame">드래그로 이동 · 핀치·휠로 가리킨 곳 확대 · 두 번 탭하면 그곳으로</div>
     <div class="mu-bottom">
@@ -590,7 +597,7 @@ export function mountUniverseExplorer(container, opts = {}) {
       if (!buckets.has(key)) buckets.set(key, []);
       buckets.get(key).push(i);
     });
-    const dso = d.dso.map(([name, kind, ra, dec, ly, desc]) => ({ name, kind, ly, desc, pos: skyPosM(ra, dec, ly * LY) }));
+    const dso = d.dso.map(([name, kind, ra, dec, ly, desc]) => ({ name, kind, ly, desc, radec: [ra, dec], pos: skyPosM(ra, dec, ly * LY) }));
     sky = { rows: d.stars, con: d.con, x, y, buckets: [...buckets].map(([k, idx]) => { const [rgb, sz] = k.split('|'); return { rgb, size: +sz, idx }; }), dso };
   }).catch(() => {});
   const seasonInfo = earthSeason(TODAY);
@@ -1028,6 +1035,24 @@ export function mountUniverseExplorer(container, opts = {}) {
 
   // ── 모달 ──
   $('.mu-close').addEventListener('click', () => close());
+  // 3D 은하 보기 (필요할 때만 불러옴)
+  let g3 = null;
+  const btn3d = $('.mu-3d');
+  btn3d.addEventListener('click', async () => {
+    if (g3) return;
+    g3 = 'loading';
+    const preset = s < 19.6 ? 'sun' : s < 22.2 ? 'mw' : 'lg';
+    try {
+      const { openGalaxy3D } = await import('./galaxy3d.js');
+      if (destroyed) return;
+      cancelAnimationFrame(raf); // 2D 화면은 잠시 멈춤
+      g3 = openGalaxy3D(root, {
+        sky, exo: catalog, dwarfs: world.lgDwarfs, preset, dsoKo: DSO_KO,
+        describeStar: (i) => hoverLabel({ sky: i }),
+        onClose: () => { g3 = null; if (!destroyed) { last = performance.now(); raf = requestAnimationFrame(frame); } },
+      });
+    } catch (e) { g3 = null; toast('3D 보기를 열 수 없어요'); }
+  });
   $('.mu-go-home').addEventListener('click', () => { ui.modal.hidden = true; setTarget(S_START); });
   $('.mu-stay').addEventListener('click', () => { ui.modal.hidden = true; });
   $('.mu-reset').addEventListener('click', () => {
@@ -1079,6 +1104,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   const hudCache = {};
   const setText = (key, el, v) => { if (hudCache[key] !== v) { hudCache[key] = v; el.textContent = v; } };
   function updateHud() {
+    btn3d.hidden = s < 16.5;
     let idx = 0;
     for (let i = 0; i < LEVELS.length; i++) if (s >= LEVELS[i].at) idx = i;
     // 지구에서 멀리 벗어나 있으면 지구·달 단계 설명 대신 태양계 단계로
@@ -1930,6 +1956,7 @@ export function mountUniverseExplorer(container, opts = {}) {
 
   function destroy() {
     destroyed = true;
+    if (g3 && g3 !== 'loading') g3.destroy();
     cancelAnimationFrame(raf);
     clearTimeout(toastTimer);
     ro.disconnect();
