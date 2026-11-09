@@ -333,7 +333,7 @@ export function openGalaxy3D(host, opts = {}) {
 
   // ── 실제 천체 점 ──
   const picks = []; // { pos:Vector3, title, l2, l3, min, max }
-  const addPick = (pos, title, l2, l3, min = 0, max = Infinity) => picks.push({ pos: new THREE.Vector3(...pos), title, l2, l3, min, max });
+  const addPick = (pos, title, l2, l3, min = 0, max = Infinity, bh = null) => picks.push({ pos: new THREE.Vector3(...pos), title, l2, l3, min, max, bh });
   if (sky) {
     const buf = new PointBuf();
     sky.rows.forEach((r, i) => {
@@ -412,7 +412,7 @@ export function openGalaxy3D(host, opts = {}) {
   addLabel([0, 0, 0], '궁수자리 A* · 은하 중심', '#ffe0a8', 0, 400000, 9, true);
   addLabel([0, 0, 0], '우리은하', '#ffe8c0', 400000, 1.5e7, 9, true);
   addPick(SUN, '태양 (우리 태양계)', '은하 중심에서 약 2만 6,670광년', '오리온 돌기(국부 팔) 안쪽 · 은하를 한 바퀴 도는 데 약 2억 3천만 년');
-  addPick([0, 0, 0], '궁수자리 A*', '태양 질량 430만 배 블랙홀', '주위를 S2 별이 16년마다 공전 · 2022년 EHT가 그림자 촬영');
+  addPick([0, 0, 0], '궁수자리 A*', '태양 질량 430만 배 블랙홀 · 탭하면 블랙홀 체험', '주위를 S2 별이 16년마다 공전 · 2022년 EHT가 그림자 촬영', 0, 400000, 'sgra');
   // 팔 이름
   const tanP = Math.tan((12 * Math.PI) / 180);
   const armPt = (r0, r) => { const th = Math.PI + Math.log(r / r0) / tanP; return gal3(r * Math.cos(th), r * Math.sin(th), 0); };
@@ -435,6 +435,20 @@ export function openGalaxy3D(host, opts = {}) {
   addLabel(SMC, '소마젤란 은하', '#cfe0ff', 40000, 3e6, 6);
   addPick(SMC, '소마젤란 은하', '20만 광년 · 지름 약 1만 9천 광년', '대마젤란 은하에 끌려 찢어지는 중');
   addLabel(gal3(0, -60000, -180000), '마젤란 흐름 (가스)', '#8fb8ff', 80000, 3e6, 3);
+  // 은하 중심 블랙홀
+  {
+    const OC = eqTo3(201.697, -47.479, 17090);
+    const BHS = [
+      [M31, '◉ M31* 블랙홀', '안드로메다 중심 블랙홀', '태양 질량 약 1억 4천만 배 · 탭하면 블랙홀 체험', 'm31', 20000, 3e6],
+      [LMC, '◉ 대마젤란 블랙홀', '대마젤란 은하 중심 블랙홀', '태양 질량 약 60만 배 (2025년, 초고속 별로 찾음) · 탭하면 블랙홀 체험', 'lmc', 5000, 1e6],
+      [M33, '삼각형자리: 중심 블랙홀 없음', '삼각형자리 은하 중심', '초대질량 블랙홀이 없어요 — 있어도 태양의 1,500배 이하', null, 20000, 3e6],
+      [OC, '◉ 오메가 센타우리 중간질량 블랙홀', '오메가 센타우리 중심', '태양의 8,200배 이상 「중간질량 블랙홀」 (2024) · 탭하면 블랙홀 체험', 'omegacen', 0, 120000],
+      [eqTo3(187.706, 12.391, 54e6), '◉ M87* 블랙홀', 'M87* (처녀자리 은하단)', '태양 질량 65억 배 · 최초의 블랙홀 사진 · 탭하면 블랙홀 체험', 'm87', 2e7, 3e10],
+      [eqTo3(201.365, -43.019, 12e6), '◉ 센타우루스 A 블랙홀', '센타우루스 A', '태양 질량 5,500만 배 · 거대한 제트 · 탭하면 블랙홀 체험', 'cena', 5e6, 3e10],
+      [eqTo3(10.46, -9.30, 700e6), '◉ 홈베리 15A 블랙홀', '홈베리 15A (Abell 85)', '태양 질량 약 400억 배 · 탭하면 블랙홀 체험', 'holm15a', 2e8, 3e10],
+    ];
+    for (const [pos, lab, title, l2, bh, mn, mx] of BHS) { addLabel(pos, lab, bh ? '#c78cff' : '#9aa3c0', mn, mx, 5); addPick(pos, title, l2, '', mn, mx, bh); }
+  }
   if (sky) {
     for (const d of sky.dso) {
       const col = { bh: '#c78cff', neb: '#ff7ab6', pn: '#7af0ff', snr: '#ffb05a', oc: '#bfe3ff', gc: '#ffe08a', psr: '#5affff', mag: '#ff6eff', planet: '#78ffc8' }[d.kind] || '#cfe';
@@ -600,6 +614,7 @@ export function openGalaxy3D(host, opts = {}) {
       const pt = [e.clientX - r.left, e.clientY - r.top];
       const hit = pick(pt);
       const now = performance.now();
+      if (hit && hit.bh && openBH) { openBH(hit.bh); lastTapT = 0; tapHit = null; return; }
       if (hit && now - lastTapT < 350) { goal = { target: hit.pos.clone(), dist: Math.max(60, Math.min(dist, hit.pos.distanceTo(camera.position) * 0.35)) }; }
       lastTapT = now;
       tapHit = hit; tapPt = pt;

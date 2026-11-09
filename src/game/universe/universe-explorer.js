@@ -304,6 +304,10 @@ function buildWorld(seed = 20261109) {
     ['페르세우스 은하단', 'cl', 49.95, 41.51, 240, '페르세우스-물고기자리 초은하단의 중심 · X선이 가장 밝음'],
     ['사자자리 은하단 (Abell 1367)', 'cl', 176.2, 19.7, 300, '머리털자리 초은하단의 일부'],
     ['머리털자리 은하단', 'cl', 194.95, 27.98, 321, '은하 1000개 이상 · 1933년 암흑물질 첫 단서'],
+    ['M87* 블랙홀', 'bh', 187.706, 12.391, 54, '태양 질량 65억 배 · 2019년 인류 최초의 블랙홀 사진 · 탭하면 블랙홀 체험'],
+    ['센타우루스 A 블랙홀', 'bh', 201.365, -43.019, 12, '태양 질량 5,500만 배 · 거대한 제트를 뿜는 가장 가까운 전파은하 · 탭하면 블랙홀 체험'],
+    ['홈베리 15A 블랙홀', 'bh', 10.46, -9.30, 700, '태양 질량 약 400억 배 — 직접 잰 것 중 최대급 · 탭하면 블랙홀 체험'],
+    ['TON 618 블랙홀', 'bh', 187.104, 31.477, 18300, '태양 질량 400억~660억 배 퀘이사 · 빛이 108억 년 걸려 옴(공동 거리 약 183억 광년) · 탭하면 블랙홀 체험'],
     ['IC 1101', 'gal', 227.733, 5.745, 1045, '가장 큰 은하 중 하나 · 별빛 지름 약 400만 광년 (우리은하의 40배)'],
     ['알키오네우스', 'gal', 122.0, 52.0, 3000, '2022년 발견 · 전파 제트 길이 약 1600만 광년의 거대 전파은하 (위치는 대략)'],
     ['헤라클레스 은하단', 'cl', 241.15, 17.72, 500, '충돌 중인 은하가 많은 은하단'],
@@ -402,7 +406,7 @@ const PLANET_PHYS = {
 // 주요 위성 평균 표면 온도(°C, 대략)
 const MOON_TEMP = { 포보스: -40, 데이모스: -40, 이오: -143, 유로파: -160, 가니메데: -163, 칼리스토: -139, 미마스: -209, 엔켈라두스: -198, 테티스: -187, 디오네: -186, 레아: -195, 타이탄: -179, 이아페투스: -160, 미란다: -187, 아리엘: -213, 움브리엘: -198, 티타니아: -203, 오베론: -198, 트리톤: -235, 네레이드: -222 };
 const DSO_KO = { neb: '발광 성운', pn: '행성상 성운', snr: '초신성 잔해', oc: '산개성단', gc: '구상성단', bh: '블랙홀', psr: '펄서', mag: '마그네타', ns: '중성자별', bd: '갈색왜성', star: '특이한 별', cloud: '별 구름', planet: '외계 행성' };
-const DEEP_KO = { grp: '은하군', cl: '은하단', sc: '초은하단', wall: '거대 구조', void: '보이드(빈 공간)', far: '가장 먼 천체', gal: '거대 은하' };
+const DEEP_KO = { bh: '초대질량 블랙홀', grp: '은하군', cl: '은하단', sc: '초은하단', wall: '거대 구조', void: '보이드(빈 공간)', far: '가장 먼 천체', gal: '거대 은하' };
 // 분광형 → "적색 초거성" 같은 한국어 설명
 function starTypeKo(sp) {
   if (!sp) return '별';
@@ -1052,11 +1056,18 @@ export function mountUniverseExplorer(container, opts = {}) {
     }
     if (t.deepStar) return deepInfo(t.deepStar.L.d, t.deepStar.i);
     if (t.sat !== undefined && satSys) return satInfo(t.sat);
+    if (t.lgal) {
+      const B = { 우리은하: ['궁수자리 A* · 태양 질량 430만 배', '탭하면 블랙홀 체험'], 안드로메다: ['M31* · 태양 질량 약 1억 4천만 배', '탭하면 블랙홀 체험'],
+        '삼각형자리 은하': ['중심 블랙홀이 없어요! (있어도 태양의 1,500배 이하)', '큰 은하인데 초대질량 블랙홀이 없는 드문 예'], '대마젤란 은하': ['약 60만 배 블랙홀 (2025년 발견)', '튕겨 나온 초고속 별로 찾아냄 · 탭하면 블랙홀 체험'],
+        '소마젤란 은하': ['중심 블랙홀은 아직 못 찾았어요', ''] }[t.lgal.name] || ['', ''];
+      return [t.lgal.name, `중심: ${B[0]}`, B[1]];
+    }
     if (t.earthMoon) { const mi = earth.moon; const km = Math.round(Math.hypot(...mi.pos) * 6371); return ['달', `${mi.phase} · 밝은 면 ${Math.round(mi.illum * 100)}% · 지금 ${km.toLocaleString('ko-KR')}km (빛으로 ${(km / 299792).toFixed(2)}초)`, '늘 같은 면이 지구를 향해요(조석 고정) — 자전·공전 모두 27.3일 · 매년 3.8cm씩 멀어지는 중']; }
     if (t.small) return smallInfo(t.small);
     if (t.comet) { const c = t.comet; return [c.name, `${c.kind === 'iso' ? '성간 천체 · 태양계 밖에서 옴' : '혜성'} · 지금 태양에서 ${c.r.toFixed(1)} AU`, c.desc]; }
-    if (t.dso) return [t.dso.name, `${fmtLy(t.dso.ly)} · ${DSO_KO[t.dso.kind]}${t.dso.kind === 'bh' ? ' · 탭하면 블랙홀 체험' : (t.dso.kind === 'psr' || t.dso.kind === 'mag') && sound.on ? ' · ♪ 신호음' : ''}`, t.dso.desc];
+    if (t.dso) return [t.dso.name, `${fmtLy(t.dso.ly)} · ${DSO_KO[t.dso.kind]}${t.dso.kind === 'bh' || t.dso.name === '오메가 센타우리' ? ' · 탭하면 블랙홀 체험' : (t.dso.kind === 'psr' || t.dso.kind === 'mag') && sound.on ? ' · ♪ 신호음' : ''}`, t.dso.desc];
     if (t.gal) return [t.gal.name, `${fmtLy(t.gal.ly)} · 국부은하군`, t.gal.desc];
+    if (t.deep && t.deep.kind === 'bh') return [t.deep.name, `${fmtMly(t.deep.mly)}${t.deep.mly > 5000 ? ' (공동 거리)' : ''} · 초대질량 블랙홀`, t.deep.desc];
     if (t.deep) return [t.deep.name, `${fmtMly(t.deep.mly)}${t.deep.kind === 'far' || t.deep.mly > 5000 ? ' (공동 거리)' : ''} · ${DEEP_KO[t.deep.kind]}`, t.deep.desc];
     if (t.name) {
       const d = PERIOD_DAYS[t.name], ph = PLANET_PHYS[t.name];
@@ -1075,6 +1086,9 @@ export function mountUniverseExplorer(container, opts = {}) {
     }
     const hit = best ? best.p : pickSat(x, y, 12) || pickSmall(x, y, 10) || pickDeep(x, y, 10);
     if (hit && hit.dso && hit.dso.kind === 'bh') { openBH(bhTarget(hit.dso.name)); return true; }
+    if (hit && hit.deep && hit.deep.kind === 'bh') { openBH(bhTarget(hit.deep.name)); return true; }
+    if (hit && hit.lgal) { const k = { 우리은하: 'sgra', 안드로메다: 'm31', '대마젤란 은하': 'lmc' }[hit.lgal.name]; if (k) { openBH(k); return true; } }
+    if (hit && hit.dso && hit.dso.name === '오메가 센타우리') { toast('오메가 센타우리 중심에 중간질량 블랙홀(태양의 8,200배 이상) — 블랙홀 체험으로'); openBH('omegacen'); return true; }
     soundFor(hit);
     const lab = hit && hoverLabel(hit);
     if (!lab) return false;
@@ -1386,7 +1400,8 @@ export function mountUniverseExplorer(container, opts = {}) {
       bhView = openBlackHole(root, { target, sound, onClose: () => { bhView = null; if (paused && !destroyed && !g3) { last = performance.now(); raf = requestAnimationFrame(frame); } } });
     } catch (e) { bhView = null; toast('블랙홀 체험을 열 수 없어요'); }
   }
-  const bhTarget = (name) => (/궁수자리 A/.test(name) ? 'sgra' : /백조자리 X-1|V404|GRS|A0620/.test(name) ? 'cygx1' : /가이아/.test(name) ? 'gaiabh3' : /M87/.test(name) ? 'm87' : 'sgra');
+  const bhTarget = (name) => (/궁수자리 A/.test(name) ? 'sgra' : /백조자리 X-1|V404|GRS|A0620/.test(name) ? 'cygx1' : /가이아/.test(name) ? 'gaiabh3' : /M87/.test(name) ? 'm87'
+    : /센타우루스 A/.test(name) ? 'cena' : /홈베리/.test(name) ? 'holm15a' : /TON 618/.test(name) ? 'ton618' : 'sgra');
   // 3D 은하 보기 (필요할 때만 불러옴)
   let g3 = null;
   const btn3d = $('.mu-3d');
@@ -1965,7 +1980,7 @@ export function mountUniverseExplorer(container, opts = {}) {
         if (a < 0.03) continue;
         const X = sx(d.pos[0]), Y = sy(d.pos[1]);
         if (!onScreen(X, Y, 60)) continue;
-        const col = { grp: '200,215,255', cl: '255,230,200', sc: '255,209,102', wall: '183,168,255', void: '120,140,200', far: '255,106,90', gal: '255,190,240' }[d.kind];
+        const col = { bh: '199,140,255', grp: '200,215,255', cl: '255,230,200', sc: '255,209,102', wall: '183,168,255', void: '120,140,200', far: '255,106,90', gal: '255,190,240' }[d.kind];
         ctx.globalAlpha = a; ctx.strokeStyle = `rgba(${col},0.9)`; ctx.lineWidth = 1.2;
         if (d.kind === 'void') {
           const rv = (d.name.startsWith('목동') ? 165 : 60) * MLY / mpp;
@@ -1978,6 +1993,7 @@ export function mountUniverseExplorer(container, opts = {}) {
           ctx.stroke(); ctx.setLineDash([]);
         } else {
           glow(d.pos[0], d.pos[1], d.kind === 'cl' || d.kind === 'sc' ? 12 : 7, a, col);
+          if (d.kind === 'bh') { ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(X, Y, 3.2, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(X, Y, 5.5, 0, Math.PI * 2); ctx.stroke(); }
           if (d.kind === 'far') { ctx.beginPath(); ctx.moveTo(X - 9, Y); ctx.lineTo(X - 4, Y); ctx.moveTo(X + 4, Y); ctx.lineTo(X + 9, Y); ctx.moveTo(X, Y - 9); ctx.lineTo(X, Y - 4); ctx.moveTo(X, Y + 4); ctx.lineTo(X, Y + 9); ctx.stroke(); }
           if (d.kind === 'sc') { ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.arc(X, Y, 16, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
         }
@@ -2054,6 +2070,7 @@ export function mountUniverseExplorer(container, opts = {}) {
         if (!onScreen(X, Y, rPx * 2 + 20)) continue;
         const isMW = g.name === '우리은하';
         const a = aLG * (isMW ? smooth(21.8, 22.6, s) : 1);
+        if (a > 0.3) lastPlanetScreen.push({ lgal: g, hoverOnly: true, x: X, y: Y, wx: g.pos[0], wy: g.pos[1] });
         if (rPx > 1) {
           ctx.save();
           ctx.translate(X, Y); ctx.rotate(g.rot); ctx.scale(1, g.ar);
