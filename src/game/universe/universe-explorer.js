@@ -494,7 +494,7 @@ const CSS = `
 .mu-photo[hidden]{display:none}
 .mu-photo img{display:block;width:100%;max-height:180px;object-fit:cover;border:1px solid rgba(61,255,143,.35)}
 .mu-photo span{display:block;font-size:10px;color:rgba(166,255,203,.7);margin-top:2px;text-align:right}
-.mu-warp{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(196px + env(safe-area-inset-bottom));z-index:8;border:1px solid var(--g);background:rgba(61,255,143,.22);
+.mu-warp{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(150px + env(safe-area-inset-bottom));z-index:8;border:1px solid var(--g);background:rgba(61,255,143,.22);
   color:#eafff2;font-family:inherit;font-weight:800;font-size:11px;letter-spacing:.08em;padding:9px 16px;cursor:pointer;text-shadow:var(--glow);
   clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);animation:mu3dpulse 1.6s ease-in-out infinite}
 .mu-warp[hidden]{display:none}
@@ -503,40 +503,40 @@ const CSS = `
 @keyframes mu3dpulse{50%{box-shadow:inset 0 0 14px rgba(61,255,143,.55),0 0 12px rgba(61,255,143,.5)}}
 .mu-bottom{position:absolute;left:0;right:0;bottom:0;padding:0 12px calc(12px + env(safe-area-inset-bottom));z-index:6;
   background:linear-gradient(transparent,rgba(1,6,4,.9) 45%)}
-.mu-focusbar{display:flex;justify-content:center;gap:8px;margin-bottom:8px}
+.mu-focusbar{display:flex;justify-content:center;gap:6px;margin-bottom:6px}
 .mu-focusbar[hidden]{display:none}
 .mu-focusbar button,.mu-controls button,.mu-card button{border:1px solid var(--g2);background:rgba(1,22,11,.75);color:var(--g);
   font-family:inherit;font-weight:700;font-size:11px;letter-spacing:.06em;cursor:pointer;text-shadow:var(--glow);touch-action:none;
   clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);box-shadow:inset 0 0 10px rgba(61,255,143,.2)}
-.mu-focusbar button{padding:8px 14px}
+.mu-focusbar button{padding:5px 11px;font-size:10.5px}
 .mu-focusbar button:active,.mu-controls button:active,.mu-card button:active{background:rgba(61,255,143,.25)}
 .mu-credit{font-size:10px;line-height:1.35;color:rgba(166,255,203,.55);text-align:center;margin:0 auto 6px;max-width:400px}
 .mu-credit a{color:rgba(166,255,203,.8)}
 .mu-scale{font-size:10.5px;color:var(--gd);opacity:.85;margin-bottom:8px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.04em}
 .mu-scale b{color:var(--g);font-weight:700;text-shadow:var(--glow)}
-.mu-controls{display:flex;align-items:center;gap:8px;max-width:400px;margin:0 auto}
-.mu-controls button{flex:none;width:42px;height:40px;font-size:12px}
+.mu-controls{display:flex;align-items:flex-end;gap:5px;max-width:440px;margin:0 auto}
+.mu-controls>button{flex:none;width:36px;height:30px;font-size:12px}
 .mu-slider{flex:1;accent-color:#3dff8f;height:28px;filter:drop-shadow(0 0 4px rgba(61,255,143,.6))}
 .mu-where{margin-top:5px;font-size:10px;line-height:1.4;color:#9ff0d6;letter-spacing:.02em;text-shadow:0 0 4px rgba(61,255,143,.4)}
 .mu-where b{color:var(--g);font-weight:700}
-.mu-ladder{position:relative;display:flex;gap:2px;max-width:400px;margin:10px auto 0;padding-top:7px}
-.mu-lv{flex:1;min-width:0;height:20px;padding:0;border:1px solid var(--g3);background:rgba(1,18,9,.7);color:rgba(61,255,143,.45);font:inherit;font-size:10px;font-weight:700;cursor:pointer;font-variant-numeric:tabular-nums}
+.mu-ladder{position:relative;flex:1;min-width:0;display:flex;gap:2px;padding-top:7px;touch-action:none;cursor:ew-resize}
+.mu-lv{flex:1;min-width:0;height:23px;pointer-events:none;padding:0;border:1px solid var(--g3);background:rgba(1,18,9,.7);color:rgba(61,255,143,.45);font:inherit;font-size:10px;font-weight:700;cursor:pointer;font-variant-numeric:tabular-nums}
 .mu-lv.found{background:rgba(61,255,143,.16);color:var(--g);border-color:var(--g2)}
 .mu-lv.cur{background:rgba(61,255,143,.42);color:#eafff2;border-color:var(--g);box-shadow:0 0 8px rgba(61,255,143,.6);text-shadow:0 0 3px #000}
 .mu-lvmark{position:absolute;top:0;left:0;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid var(--g);filter:drop-shadow(0 0 3px var(--g));transform:translateX(-5px);transition:left .12s linear}
-.mu-lvtext{max-width:400px;margin:4px auto 0;font-size:10px;text-align:center;color:var(--gd);letter-spacing:.04em}
+.mu-lvtext{max-width:440px;margin:0 auto 5px;font-size:10px;text-align:center;color:var(--gd);letter-spacing:.03em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mu-lvtext b{color:var(--g)}
 .mu-progress{position:relative;max-width:400px;margin:10px auto 0;height:16px;border:1px solid var(--g2);background:rgba(1,18,9,.7);overflow:hidden}
 .mu-progress-fill{position:absolute;top:2px;bottom:2px;left:2px;width:0;transition:width .5s;
   background:repeating-linear-gradient(90deg,var(--g) 0 9px,transparent 9px 12px);box-shadow:0 0 10px rgba(61,255,143,.6)}
 .mu-progress span{position:absolute;inset:0;font-size:10px;line-height:14px;text-align:center;color:#eafff2;font-weight:700;letter-spacing:.12em;
   text-shadow:0 0 3px #000,0 0 6px #000}
-.mu-toast{position:absolute;left:50%;bottom:calc(150px + env(safe-area-inset-bottom));transform:translate(-50%,10px);opacity:0;transition:all .3s;z-index:25;
+.mu-toast{position:absolute;left:50%;bottom:calc(112px + env(safe-area-inset-bottom));transform:translate(-50%,10px);opacity:0;transition:all .3s;z-index:25;
   padding:9px 16px;font-size:11px;font-weight:700;color:var(--g);letter-spacing:.03em;text-shadow:var(--glow);
   width:max-content;max-width:calc(100% - 32px);white-space:normal;text-align:center;pointer-events:none}
 .mu-toast::before{content:'> ';opacity:.8}
 .mu-toast.show{opacity:1;transform:translate(-50%,0)}
-.mu-hint{position:absolute;left:50%;bottom:150px;transform:translateX(-50%);font-size:10.5px;color:var(--g);z-index:6;
+.mu-hint{position:absolute;left:50%;bottom:calc(112px + env(safe-area-inset-bottom));transform:translateX(-50%);font-size:10.5px;color:var(--g);z-index:6;
   padding:8px 14px;pointer-events:none;transition:opacity .6s;width:max-content;max-width:calc(100% - 24px);text-align:center;text-shadow:var(--glow)}
 .mu-modal{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,6,3,.7);z-index:8}
 .mu-modal[hidden]{display:none}
@@ -593,15 +593,13 @@ export function mountUniverseExplorer(container, opts = {}) {
         <button class="mu-sys3d" hidden>3D로 보기</button>
       </div>
       <div class="mu-credit" hidden>위성 영상: <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless - https://s2maps.eu</a> by <a href="https://eox.at" target="_blank" rel="noopener">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2016 &amp; 2017)</div>
-      <div class="mu-scale"></div>
+      <div class="mu-lvtext"></div>
       <div class="mu-controls">
         <button data-zoom="-1" aria-label="가까이">＋</button>
-        <input class="mu-slider" type="range" min="${S_MIN}" max="${S_MAX}" step="0.01" aria-label="배율">
+        <div class="mu-ladder" role="slider" aria-label="배율 (1~12단계)"><div class="mu-lvmark"></div>${LEVELS.map((l, i) => `<button class="mu-lv" data-i="${i}" title="${l.name}" tabindex="-1">${i + 1}</button>`).join('')}</div>
         <button data-zoom="1" aria-label="멀리">－</button>
         <button class="mu-home" aria-label="지구로 귀환">⌂</button>
       </div>
-      <div class="mu-ladder"><div class="mu-lvmark"></div>${LEVELS.map((l, i) => `<button class="mu-lv" data-i="${i}" title="${l.name}">${i + 1}</button>`).join('')}</div>
-      <div class="mu-lvtext"></div>
     </div>
     <div class="mu-modal" hidden>
       <div class="mu-card mu-frame">
@@ -622,8 +620,8 @@ export function mountUniverseExplorer(container, opts = {}) {
   const octx = overlay.getContext('2d');
   let ctx = baseCtx; // 지구보다 위에 그릴 것은 octx 로 바꿔서 그린다
   const ui = {
-    step: $('.mu-step'), name: $('.mu-name'), desc: $('.mu-desc'), scale: $('.mu-scale'),
-    slider: $('.mu-slider'), ladder: $('.mu-ladder'), lvMark: $('.mu-lvmark'), lvText: $('.mu-lvtext'), where: $('.mu-where'),
+    step: $('.mu-step'), name: $('.mu-name'), desc: $('.mu-desc'),
+    ladder: $('.mu-ladder'), lvMark: $('.mu-lvmark'), lvText: $('.mu-lvtext'), where: $('.mu-where'),
     credit: $('.mu-credit'), toast: $('.mu-toast'), focusbar: $('.mu-focusbar'), speed: $('.mu-speed'), hint: $('.mu-hint'), modal: $('.mu-modal'), time: $('.mu-time'), addr: $('.mu-addr'),
   };
 
@@ -1271,7 +1269,8 @@ export function mountUniverseExplorer(container, opts = {}) {
     btn.addEventListener('pointerdown', (e) => { e.preventDefault(); markInteracted(); zoomVel = dir * 2.4; setTarget(targetS + dir * 0.15); });
     ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => btn.addEventListener(ev, () => { zoomVel = 0; }));
   });
-  ui.slider.addEventListener('input', () => { markInteracted(); setTarget(parseFloat(ui.slider.value)); });
+  // 안내 상자는 처음 몇 초만
+  setTimeout(() => { if (!destroyed) ui.hint.style.opacity = '0'; }, 6000);
   $('.mu-home').addEventListener('click', () => {
     setTarget(S_START); spin = { vx: 0, vy: 0 }; earth.setView(myLoc.lat, myLoc.lon);
     pan = [0, 0]; panVel = [0, 0]; anchor = null;
@@ -1648,15 +1647,32 @@ export function mountUniverseExplorer(container, opts = {}) {
     const shown = vis.length > 5 ? ['…', ...vis.slice(-4)] : vis;
     return '위치 · ' + shown.map((t, i) => (i === shown.length - 1 ? `<b>${t}</b>` : t)).join(' › ');
   }
-  ui.ladder.addEventListener('click', (e) => {
-    const b = e.target.closest('.mu-lv'); if (!b) return;
-    const i = Number(b.dataset.i);
-    markInteracted();
-    if (focus) exitFocus();
-    pan = [0, 0]; panVel = [0, 0]; anchor = null;
-    const a = LEVELS[i].at, nx = i + 1 < LEVELS.length ? LEVELS[i + 1].at : S_MAX;
-    setTarget(i === 0 ? S_START : Math.min(S_MAX, a + Math.min(0.6, (nx - a) * 0.4)));
+  // 1~12 단계 바 = 배율 슬라이더: 끌면 연속 확대·축소, 숫자를 탭하면 그 단계로
+  const ladderS = (clientX) => {
+    const r = ui.ladder.getBoundingClientRect();
+    const f = Math.max(0, Math.min(0.9999, (clientX - r.left) / r.width)) * LEVELS.length;
+    const i = Math.floor(f), a = i === 0 ? S_MIN : LEVELS[i].at, b = i + 1 < LEVELS.length ? LEVELS[i + 1].at : S_MAX;
+    return { i, s: a + (f - i) * (b - a) };
+  };
+  let ladDrag = null;
+  ui.ladder.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); ui.ladder.setPointerCapture(e.pointerId); ladDrag = { x: e.clientX, moved: false }; markInteracted(); });
+  ui.ladder.addEventListener('pointermove', (e) => {
+    if (!ladDrag) return;
+    if (!ladDrag.moved && Math.abs(e.clientX - ladDrag.x) < 5) return;
+    ladDrag.moved = true; setTarget(ladderS(e.clientX).s);
   });
+  const ladUp = (e) => {
+    if (!ladDrag) return;
+    if (!ladDrag.moved) {
+      const i = ladderS(e.clientX).i;
+      if (focus) exitFocus();
+      pan = [0, 0]; panVel = [0, 0]; anchor = null;
+      const a = LEVELS[i].at, nx = i + 1 < LEVELS.length ? LEVELS[i + 1].at : S_MAX;
+      setTarget(i === 0 ? S_START : Math.min(S_MAX, a + Math.min(0.6, (nx - a) * 0.4)));
+    }
+    ladDrag = null;
+  };
+  ui.ladder.addEventListener('pointerup', ladUp); ui.ladder.addEventListener('pointercancel', () => { ladDrag = null; });
   function updateHud() {
     btn3d.hidden = s < 16.5;
     btnSky.hidden = s > 12.5;
@@ -1734,9 +1750,6 @@ export function mountUniverseExplorer(container, opts = {}) {
       setText('desc', ui.desc, idx === 0 ? lv.desc + locLine : lv.desc + extra);
     }
     const span = Math.pow(10, s);
-    const sc = `화면 폭 ≈ <b>${fmtLength(span)}</b> · 빛으로 ${fmtLightTime(span)}`;
-    if (hudCache.scale !== sc) { hudCache.scale = sc; ui.scale.innerHTML = sc; }
-    if (document.activeElement !== ui.slider) ui.slider.value = s.toFixed(2);
     // 12단계 사다리: 지금 단계 · 발견한 단계 · 연속 위치 표시
     const ladderKey = idx + ':' + [...found].join(',');
     if (hudCache.ladder !== ladderKey) {
@@ -1750,7 +1763,8 @@ export function mountUniverseExplorer(container, opts = {}) {
     }
     const lvW = ui.ladder.clientWidth;
     if (lvW) ui.lvMark.style.left = `${(frac / LEVELS.length) * lvW}px`;
-    setText('lv', ui.lvText, `<b>${String(idx + 1).padStart(2, '0')} ${LEVELS[idx].name}</b> · 발견 ${found.size}/${LEVELS.length} · 숫자를 누르면 그 단계로`, true);
+    const lvName = hud && hud.kind === 'star' ? `${hud.sys.name} 행성계` : hud ? hud.name : `${String(idx + 1).padStart(2, '0')} ${LEVELS[idx].name}`;
+    setText('lv', ui.lvText, `<b>${lvName}</b> · 폭 <b>${fmtLength(span)}</b> · 빛으로 ${fmtLightTime(span)} · 발견 ${found.size}/${LEVELS.length}`, true);
     setText('where', ui.where, whereLine(), true);
   }
 
