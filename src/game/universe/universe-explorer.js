@@ -482,7 +482,15 @@ const CSS = `
 .mu-trip{top:240px;animation:none;font-size:10px;letter-spacing:0}
 .mu-today{top:286px;animation:none;font-size:10px;letter-spacing:0}
 .mu-find{top:332px;animation:none;font-size:10px;letter-spacing:0}
-@media (max-height:520px){.mu-trip{top:56px;right:56px}.mu-today{top:102px;right:56px}.mu-find{top:148px;right:56px}}
+.mu-menu{position:absolute;top:56px;right:10px;width:38px;height:38px;z-index:7;border:1px solid var(--g2);padding:0;
+  background:rgba(1,18,9,.7);color:var(--g);font-family:inherit;font-weight:800;font-size:15px;cursor:pointer;text-shadow:var(--glow);
+  clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);box-shadow:inset 0 0 10px rgba(61,255,143,.25)}
+.mu-menu.on{background:rgba(61,255,143,.3);color:#eafff2}
+.mu-menu.ping::after{content:'';position:absolute;top:5px;right:5px;width:6px;height:6px;background:var(--g);box-shadow:0 0 6px var(--g)}
+.mu-tools{position:absolute;top:102px;right:10px;z-index:7;display:flex;flex-flow:column wrap;align-items:flex-end;align-content:flex-end;gap:6px;max-height:calc(100% - 230px)}
+.mu-tools:not(.open){display:none}
+.mu-tools .mu-3d{position:relative;top:auto;right:auto;width:auto;min-width:38px;height:34px;padding:0 10px;animation:none;opacity:1;font-size:10.5px;letter-spacing:.02em;white-space:nowrap}
+.mu-tools .mu-3d::after{content:attr(data-label);margin-left:6px;font-weight:700;color:#cfffe2}
 .mu-findbox{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:min(340px,calc(100% - 120px));z-index:9;padding:8px}
 .mu-findbox[hidden]{display:none}
 .mu-findbox input{width:100%;box-sizing:border-box;background:rgba(0,0,0,.5);border:1px solid var(--g2);color:#eafff2;font:inherit;font-size:12px;padding:7px 8px;outline:none}
@@ -574,7 +582,7 @@ export function mountUniverseExplorer(container, opts = {}) {
       <div class="mu-where"></div>
     </div>
     <button class="mu-close" aria-label="닫기">✕</button>
-    <button class="mu-3d" hidden aria-label="3D로 은하 보기">3D</button>
+    <button class="mu-3d mu-g3" hidden aria-label="3D로 은하 보기">3D</button>
     <button class="mu-3d mu-trip" hidden aria-label="탐사선 여행" title="보이저·뉴호라이즌스가 실제로 날아간 길">TRIP</button>
     <button class="mu-3d mu-today" aria-label="오늘의 우주" title="오늘의 천문 사진 · 우주 뉴스 · 오늘 밤 하늘">NEWS</button>
     <button class="mu-3d mu-find" aria-label="천체 찾기" title="이름으로 천체 찾기">찾기</button>
@@ -1439,6 +1447,20 @@ export function mountUniverseExplorer(container, opts = {}) {
   findIn.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') findList.querySelector('button')?.click(); if (e.key === 'Escape') findBox.hidden = true; });
   for (const ev of ['pointerdown', 'wheel', 'touchstart']) findBox.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
   // 탐사선 여행
+  // ── 오른쪽 도구 메뉴 (열고 닫기) ──
+  const menuBtn = document.createElement('button');
+  menuBtn.className = 'mu-menu'; menuBtn.textContent = '≡'; menuBtn.setAttribute('aria-label', '메뉴 열기');
+  const tools = document.createElement('div'); tools.className = 'mu-tools';
+  const TOOL_LABEL = [['.mu-find', ''], ['.mu-g3', '은하 보기'], ['.mu-sky', '밤하늘'], ['.mu-more', 'Gaia 별'], ['.mu-trip', '탐사선 여행'], ['.mu-today', '오늘의 우주'], ['.mu-snd', '소리']];
+  for (const [sel, lab] of TOOL_LABEL) { const b = root.querySelector(sel); if (!b) continue; b.dataset.label = lab; tools.appendChild(b); }
+  root.querySelector('.mu-close').after(menuBtn, tools);
+  const setMenu = (open) => { tools.classList.toggle('open', open); menuBtn.classList.toggle('on', open); menuBtn.textContent = '≡'; menuBtn.setAttribute('aria-label', open ? '메뉴 닫기' : '메뉴 열기'); if (open) menuBtn.classList.remove('ping'); };
+  menuBtn.addEventListener('click', () => setMenu(!tools.classList.contains('open')));
+  tools.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b && !b.matches('.mu-snd,.mu-more')) setMenu(false); });
+  root.addEventListener('pointerdown', (e) => { if (tools.classList.contains('open') && !tools.contains(e.target) && e.target !== menuBtn) setMenu(false); }, true);
+  // 새 버튼(3D·밤하늘 등)이 생기면 메뉴에 점 표시
+  let toolSig = '';
+  const watchTools = () => { const sig = [...tools.children].filter((b) => !b.hidden).map((b) => b.className).join('|'); if (toolSig && sig !== toolSig && sig.length > toolSig.length && !tools.classList.contains('open')) menuBtn.classList.add('ping'); toolSig = sig; };
   const btnTrip = $('.mu-trip');
   let tripView = null;
   async function openTrip(id = 'v1') {
@@ -1518,7 +1540,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     : /센타우루스 A/.test(name) ? 'cena' : /홈베리/.test(name) ? 'holm15a' : /TON 618/.test(name) ? 'ton618' : 'sgra');
   // 3D 은하 보기 (필요할 때만 불러옴)
   let g3 = null;
-  const btn3d = $('.mu-3d');
+  const btn3d = $('.mu-g3');
   const btnMore = $('.mu-more');
   btnMore.addEventListener('click', () => toggleGaia());
   btn3d.addEventListener('click', async () => {
@@ -1766,6 +1788,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     const lvName = hud && hud.kind === 'star' ? `${hud.sys.name} 행성계` : hud ? hud.name : `${String(idx + 1).padStart(2, '0')} ${LEVELS[idx].name}`;
     setText('lv', ui.lvText, `<b>${lvName}</b> · 폭 <b>${fmtLength(span)}</b> · 빛으로 ${fmtLightTime(span)} · 발견 ${found.size}/${LEVELS.length}`, true);
     setText('where', ui.where, whereLine(), true);
+    watchTools();
   }
 
   // ── 도시 라벨 (확대할수록 더 많이) ──
