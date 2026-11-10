@@ -161,7 +161,7 @@ void main() {
   col = mix(col, vec3(cl, cl, cl * 1.02), ca);
 
   // ── 대기 테두리 ──
-  float t = 1.0 - max(dot(P, uView), 0.0);
+  float t = clamp(1.0 - dot(P, uView), 0.0, 1.0); // 화면 정중앙에서 dot이 1을 살짝 넘으면 sqrt(음수)=NaN → 흰 점
   float rm = t * t * sqrt(t) * (0.12 + 0.88 * smoothstep(-0.3, 0.3, nd));
   col += vec3(70.0, 140.0, 255.0) / 255.0 * rm;
 
