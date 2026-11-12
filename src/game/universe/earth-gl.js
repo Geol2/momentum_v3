@@ -344,9 +344,9 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
   loadImageTex(dayUrl, (t) => { uniforms.uDay.value = t; fades.push({ u: uniforms.uHasDay, t0: performance.now() }) })
   loadImageTex(reliefUrl, (t) => { uniforms.uRelief.value = t; fades.push({ u: uniforms.uHasRelief, t0: performance.now() }) })
 
-  // ── 고해상도 위성 타일 (EOX Sentinel-2 cloudless 2016, CC BY 4.0, EPSG:4326 WMTS) ──
-  // 레벨 z: 타일 1장 = 180/2^z 도, 256px. 레벨 13 ≈ 10m/px
-  const TILE_URL = (z, r, cl) => `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless/default/WGS84/${z}/${r}/${cl}.jpg`
+  // ── 고해상도 위성 타일 (EOX Sentinel-2 cloudless 2024 — CC BY-NC-SA 4.0, 비상업 이용 · EPSG:4326 WMTS) ──
+  // 2024판이 없는 타일은 2016판(CC BY 4.0)으로 대신. 레벨 z: 타일 1장 = 180/2^z 도, 256px. 레벨 13 ≈ 10m/px
+  const TILE_URL = (z, r, cl, old = false) => `https://tiles.maps.eox.at/wmts/1.0.0/${old ? 's2cloudless' : 's2cloudless-2024'}/default/WGS84/${z}/${r}/${cl}.jpg`
   const MAX_Z = 13, MAX_TILES = 96
   const tileCache = new Map() // url → Image(로드 완료)
   const pending = new Map() // url → Image(로딩 중)
@@ -384,7 +384,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
     while (inflight < 8 && queue.length) {
       const job = queue.shift()
       if (job.gen !== gen) continue
-      const url = TILE_URL(job.z, job.r, job.wrapC)
+      const url = TILE_URL(job.z, job.r, job.wrapC, job.old)
       if (tileCache.has(url)) { drawTile(cur, job.r, job.c, tileCache.get(url)); continue }
       if (pending.has(url)) continue
       const img = new Image()
@@ -398,7 +398,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
         if (ok && img.naturalWidth === 256) {
           cacheTile(url, img)
           if (job.gen === gen && cur) drawTile(cur, job.r, job.c, img)
-        }
+        } else if (!job.old && job.gen === gen) queue.unshift({ ...job, old: true }) // 2016판으로 다시
         pump()
       }
       img.onload = () => done(true)
