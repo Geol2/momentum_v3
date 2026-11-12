@@ -225,8 +225,8 @@ void main() {
     vec2 ruv = vec2((lonR - uRoadBox.x) / (uRoadBox.z - uRoadBox.x), (uRoadBox.w - latDeg) / (uRoadBox.w - uRoadBox.y));
     if (ruv.x >= 0.0 && ruv.x <= 1.0 && ruv.y >= 0.0 && ruv.y <= 1.0) {
       vec2 rr = texture(uRoad, ruv).rg * uRoadA;
-      float rd = min(rr.r + rr.g * 0.55, 1.0);
-      col = mix(col, vec3(0.42, 1.0, 0.72), rd * 0.3 * (1.0 - nightK));
+      float rd = min(rr.r + rr.g * 0.6, 1.0);
+      col = mix(col, vec3(0.42, 1.0, 0.72), min(rr.r * 0.7 + rr.g * 0.5, 0.75) * (1.0 - nightK));
       col += rd * nightK * vec3(1.1, 0.8, 0.42) * (0.3 + 0.7 * bmEnv) * 0.75 * (1.0 - min(li, 1.0) * 0.6);
     }
   }
@@ -591,7 +591,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
       // 확대·이동이 잠깐 멈췄을 때만 요청 (애니메이션 중간 단계마다 받지 않게)
       const k = `${view.lat.toFixed(3)},${view.lon.toFixed(3)},${vKm.toPrecision(2)}`, now = performance.now()
       if (k !== rViewKey) { rViewKey = k; rViewSince = now }
-      else if (now - rViewSince > 400) { rView = { lat: view.lat, lon: view.lon, km: vKm, kmH: (H / Math.max(1, R)) * 6371 }; planRoads() }
+      else if (now - rViewSince > 400) { rView = { lat: view.lat, lon: view.lon, km: vKm, kmH: (H / Math.max(1, R)) * 6371, w: W }; planRoads() }
     }
     const a = smoothstep01(900, 2500, R)
     uniforms.uDetailA.value = a
@@ -853,10 +853,10 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     if (performance.now() - rFailAt < 30000) return // 모든 서버가 거절하면 30초 쉬기
     const my = ++rGen
     rBusy = true
-    try { await loadRoads(my, b0(), lvl, cosL) } finally { rBusy = false }
+    try { await loadRoads(my, b0(), lvl, cosL, (km * 1000) / Math.max(1, rView.w)) } finally { rBusy = false }
     function b0() { return [lon0, lat0, lon1, lat1] }
   }
-  async function loadRoads(my, [lon0, lat0, lon1, lat1], lvl, cosL) {
+  async function loadRoads(my, [lon0, lat0, lon1, lat1], lvl, cosL, scrMpp) {
     // 화면보다 조금 넓게, 격자에 맞춰 잘라 같은 구역은 다시 받지 않음
     const g = [0.25, 0.1, 0.04][lvl], ex = (lon1 - lon0) * 0.25, ey = (lat1 - lat0) * 0.25
     const b = [Math.floor((lon0 - ex) / g) * g, Math.floor((lat0 - ey) / g) * g, Math.ceil((lon1 + ex) / g) * g, Math.ceil((lat1 + ey) / g) * g]
@@ -882,8 +882,9 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     const g2 = rCanvas.getContext('2d')
     g2.fillStyle = '#000'; g2.fillRect(0, 0, W, H)
     g2.globalCompositeOperation = 'lighter'; g2.lineCap = 'round'; g2.lineJoin = 'round'
-    const draw = (list, style, widthM, minPx) => {
-      g2.strokeStyle = style; g2.lineWidth = Math.max(minPx, widthM / mpp)
+    // 실제 도로 폭(m)은 화면에선 1px도 안 돼서 안 보임 → 화면 기준 최소 굵기를 보장
+    const draw = (list, style, widthM, scrPx) => {
+      g2.strokeStyle = style; g2.lineWidth = Math.max(1, widthM / mpp, (scrPx * scrMpp) / mpp)
       g2.beginPath()
       for (const a of list) {
         for (let k = 0; k < a.length; k += 2) {
@@ -893,8 +894,8 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
       }
       g2.stroke()
     }
-    draw(ways.min, 'rgb(0,255,0)', 10, 1)
-    draw(ways.maj, 'rgb(255,0,0)', 22, 1.3)
+    draw(ways.min, 'rgb(0,255,0)', 8, 1.4)
+    draw(ways.maj, 'rgb(255,0,0)', 20, 2.4)
     g2.globalCompositeOperation = 'source-over'
     if (!rTex || rTex.userData.size !== `${W}x${H}`) { rTex?.dispose(); rTex = canvasTex(rCanvas); rTex.userData.size = `${W}x${H}`; uniforms.uRoad.value = rTex }
     rTex.needsUpdate = true

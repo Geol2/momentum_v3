@@ -11,7 +11,7 @@ const C = 2.998e8;             // 빛의 속도
 const DEG = Math.PI / 180;
 
 // s = log10(화면 짧은 변이 담는 실제 길이, m)
-const S_MIN = 3.8;   // 약 6 km (동네까지 확대 — 위성 타일 10m 해상도)
+const S_MIN = 3.4;   // 약 2.5 km (골목·도로까지 확대 — 위성 타일 10m 해상도)
 const S_MAX = 27.35; // 관측 가능한 우주 지름의 약 2.5배
 const S_START = 7.45;
 
