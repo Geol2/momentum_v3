@@ -406,6 +406,27 @@ export default function App() {
           animation: 'fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) 0s both',
         }}>{greeting}</div>
 
+        {/* 우주 탐험 바로가기 (시계 7번 탭 비밀 입구와 별개) */}
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent('momentum:open-universe'))}
+          aria-label="우주 탐험 열기"
+          title="우주 탐험"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 10, padding: '4px 11px 4px 8px',
+            border: '1px solid rgba(255,255,255,0.22)', borderRadius: 999, background: 'rgba(8,12,24,0.35)',
+            backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', color: 'rgba(255,255,255,0.78)',
+            fontSize: 11, letterSpacing: '0.08em', cursor: 'pointer', fontFamily: "'Noto Sans KR', sans-serif",
+            animation: 'fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) 0.04s both',
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.2" fill="currentColor" opacity="0.9" />
+            <ellipse cx="12" cy="12" rx="10.5" ry="4" stroke="currentColor" strokeWidth="1.4" transform="rotate(-22 12 12)" />
+          </svg>
+          우주
+        </button>
+
         <Clock now={now} use24h={settings.use24h} showSeconds={settings.showSeconds} />
 
         <div style={{
