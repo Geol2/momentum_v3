@@ -793,7 +793,14 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     const url = GIBS('VIIRS_Black_Marble', [lon0, lat0, lon1, lat1], w, h, null, 'image/png')
     let im
     if (nightImgs.has(url)) im = nightImgs.get(url)
-    else { try { im = await loadImg(url) } catch { return } lruSet(nightImgs, url, im, 12) }
+    else {
+      try { im = await loadImg(url) } catch {
+        // NASA 서버가 가끔 504 — 잠시 후 한 번 더
+        if (!c.nRetry && my === nGen && !dead) { c.nRetry = true; setTimeout(() => { if (my === nGen) planNight(c) }, 6000) }
+        return
+      }
+      lruSet(nightImgs, url, im, 12)
+    }
     if (my !== nGen || dead) return
     nCanvas.width = w; nCanvas.height = h
     nCanvas.getContext('2d').drawImage(im, 0, 0, w, h)
@@ -813,11 +820,21 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     ['motorway|trunk|primary|secondary|motorway_link|trunk_link|primary_link|secondary_link', 'tertiary|tertiary_link'],
     ['motorway|trunk|primary|secondary|motorway_link|trunk_link|primary_link|secondary_link', 'tertiary|tertiary_link|residential|unclassified|living_street'],
   ]
+  const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter']
+  let opIdx = 0
   const overpass = async (re, b) => {
     const q = `[out:json][timeout:25];way["highway"~"^(${re})$"](${b[1]},${b[0]},${b[3]},${b[2]});out skel geom qt;`
-    const r = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: AbortSignal.timeout(30000) })
-    if (!r.ok) throw new Error('overpass ' + r.status)
-    const j = await r.json()
+    // 공용 서버가 자주 붐벼서(502/504) 미러를 차례로 시도, 성공한 곳을 다음에 먼저 씀
+    let j = null, lastErr = null
+    for (let t = 0; t < OVERPASS.length && !j; t++) {
+      const k = (opIdx + t) % OVERPASS.length
+      try {
+        const r = await fetch(OVERPASS[k], { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: AbortSignal.timeout(25000) })
+        if (!r.ok) throw new Error('overpass ' + r.status)
+        j = await r.json(); opIdx = k
+      } catch (e) { lastErr = e; if (dead) throw e }
+    }
+    if (!j) throw lastErr
     return (j.elements || []).filter((e) => e.geometry && e.geometry.length > 1).map((e) => { const a = new Float32Array(e.geometry.length * 2); e.geometry.forEach((g, k) => { a[k * 2] = g.lon; a[k * 2 + 1] = g.lat }); return a })
   }
   let rBusy = false, rView = null, rViewKey = '', rViewSince = 0
@@ -833,7 +850,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     if (lon0 < -180 || lon1 > 180) return
     const lvl = spanKm > 30 ? 0 : spanKm > 9 ? 1 : 2
     if (rBox && rLvl === lvl && lon0 >= rBox[0] && lon1 <= rBox[2] && lat0 >= rBox[1] && lat1 <= rBox[3]) return
-    if (performance.now() - rFailAt < 60000) return // 서버가 거절하면 1분 쉬기
+    if (performance.now() - rFailAt < 30000) return // 모든 서버가 거절하면 30초 쉬기
     const my = ++rGen
     rBusy = true
     try { await loadRoads(my, b0(), lvl, cosL) } finally { rBusy = false }
