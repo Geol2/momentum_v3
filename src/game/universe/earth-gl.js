@@ -709,6 +709,26 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     }
     const od = new ImageData(outW, outH)
     const dyM = ((lat1 - lat0) / outH) * 110574, EXAG = 1.6
+    // 원본 고도(SRTM)는 약 30m 간격·1m 단위라, 그보다 촘촘하게 확대하면 등고선처럼 계단이 진다
+    // → 원본 간격만큼 부드럽게 펴서(상자 흐림 2회 ≈ 가우시안) 기울기를 구한다
+    const srcM = Math.max(30, (40075016 / (256 * n)) * Math.cos(((lat0 + lat1) / 2) * DEG))
+    const rad = Math.min(8, Math.round((srcM * 1.3) / Math.max(1, dyM)))
+    if (rad >= 1) {
+      const tmp = new Float32Array(outW * outH)
+      const pass = (src, dst, horiz) => {
+        const L = horiz ? outW : outH, M = horiz ? outH : outW
+        for (let b = 0; b < M; b++) {
+          let acc = 0
+          const at = (a) => src[horiz ? b * outW + Math.max(0, Math.min(L - 1, a)) : Math.max(0, Math.min(L - 1, a)) * outW + b]
+          for (let a = -rad; a <= rad; a++) acc += at(a)
+          for (let a = 0; a < L; a++) {
+            dst[horiz ? b * outW + a : a * outW + b] = acc / (2 * rad + 1)
+            acc += at(a + rad + 1) - at(a - rad)
+          }
+        }
+      }
+      for (let k = 0; k < 2; k++) { pass(Hh, tmp, true); pass(tmp, Hh, false) }
+    }
     for (let j = 0; j < outH; j++) {
       const lat = lat1 - ((j + 0.5) / outH) * (lat1 - lat0)
       const dxM = ((lon1 - lon0) / outW) * 111320 * Math.max(0.05, Math.cos(lat * DEG))
@@ -717,7 +737,8 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
         const sx = ((Hh[j * outW + iR] - Hh[j * outW + iL]) / ((iR - iL) * dxM)) * EXAG
         const sy = ((Hh[jU * outW + i] - Hh[jD * outW + i]) / ((jD - jU) * dyM)) * EXAG
         const o = (j * outW + i) * 4
-        od.data[o] = Math.round((0.5 + Math.atan(sx) / Math.PI) * 255); od.data[o + 1] = Math.round((0.5 + Math.atan(sy) / Math.PI) * 255); od.data[o + 2] = 0; od.data[o + 3] = 255
+        // 8비트 양자화 띠가 안 보이도록 반 칸 크기의 디더링
+        od.data[o] = Math.round((0.5 + Math.atan(sx) / Math.PI) * 255 + Math.random() - 0.5); od.data[o + 1] = Math.round((0.5 + Math.atan(sy) / Math.PI) * 255 + Math.random() - 0.5); od.data[o + 2] = 0; od.data[o + 3] = 255
       }
     }
     lruSet(terrResults, rkey, od, 8)
