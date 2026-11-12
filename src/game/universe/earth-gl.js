@@ -642,11 +642,28 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
   // ── 확대 지형: AWS Terrain Tiles(terrarium) → 화면 범위의 경사 지도 ──
   const TERR = (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`
   const hCanvas = document.createElement('canvas')
-  let hTex = null, hGen = 0, hBox = null
+  let hTex = null, hGen = 0, hBox = null, hDegPx = 0
+  // 한 번 만든 결과·받은 타일은 기억 → 축소했다가 다시 확대해도 다시 받거나 다시 계산하지 않음
+  const terrTiles = new Map(), terrResults = new Map()
+  const lruSet = (m, k, v, max) => { m.delete(k); m.set(k, v); if (m.size > max) m.delete(m.keys().next().value) }
+  const terrImg = (url) => { if (terrTiles.has(url)) { const v = terrTiles.get(url); lruSet(terrTiles, url, v, 200); return v } const pr = loadImg(url).catch(() => null); lruSet(terrTiles, url, pr, 200); return pr }
+  function useTerrain(box, data, w, h) {
+    hCanvas.width = w; hCanvas.height = h
+    hCanvas.getContext('2d').putImageData(data, 0, 0)
+    if (!hTex || hTex.userData.size !== `${w}x${h}`) { hTex?.dispose(); hTex = canvasTex(hCanvas); hTex.userData.size = `${w}x${h}`; uniforms.uHeightN.value = hTex }
+    hTex.needsUpdate = true
+    uniforms.uHeightBox.value.set(...box)
+    hBox = box; hDegPx = (box[2] - box[0]) / w; info.terrain = true
+  }
   async function planTerrain(c) {
     const my = ++hGen
     const [lon0, lat0, lon1, lat1] = c.box
-    const outW = Math.max(64, Math.min(1024, c.canvas.width >> 1)), outH = Math.max(64, Math.min(1024, c.canvas.height >> 1))
+    const outW = Math.max(64, Math.min(640, c.canvas.width >> 1)), outH = Math.max(64, Math.min(640, c.canvas.height >> 1))
+    // 지금 지형이 이 범위를 이미 충분한 해상도로 덮고 있으면 그대로
+    const need = (lon1 - lon0) / outW
+    if (hBox && lon0 >= hBox[0] && lon1 <= hBox[2] && lat0 >= hBox[1] && lat1 <= hBox[3] && hDegPx <= need * 2.2) return
+    const rkey = c.box.map((x) => x.toFixed(4)).join(',') + `|${outW}x${outH}`
+    if (terrResults.has(rkey)) { const r = terrResults.get(rkey); lruSet(terrResults, rkey, r, 8); useTerrain(c.box, r, outW, outH); return }
     const la0 = Math.max(-84, lat0), la1 = Math.min(84, lat1)
     if (la1 <= la0) return
     let z = Math.round(Math.log2(360 / (256 * ((lon1 - lon0) / outW))))
@@ -655,7 +672,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     let x0, x1, y0, y1
     for (; z >= 2; z--) { x0 = Math.floor(TX(lon0)); x1 = Math.floor(TX(lon1) - 1e-9); y0 = Math.floor(TY(la1)); y1 = Math.floor(TY(la0)); if ((x1 - x0 + 1) * (y1 - y0 + 1) <= 36) break }
     const nx = x1 - x0 + 1, ny = y1 - y0 + 1, n = 2 ** z
-    const imgs = await Promise.all(Array.from({ length: nx * ny }, (_, k) => { const tx = x0 + (k % nx), ty = y0 + Math.floor(k / nx); return loadImg(TERR(z, ((tx % n) + n) % n, Math.max(0, Math.min(n - 1, ty)))).catch(() => null) }))
+    const imgs = await Promise.all(Array.from({ length: nx * ny }, (_, k) => { const tx = x0 + (k % nx), ty = y0 + Math.floor(k / nx); return terrImg(TERR(z, ((tx % n) + n) % n, Math.max(0, Math.min(n - 1, ty)))) }))
     if (my !== hGen || dead || !imgs.some(Boolean)) return
     const mc = document.createElement('canvas'); mc.width = nx * 256; mc.height = ny * 256
     const mg = mc.getContext('2d', { willReadFrequently: true })
@@ -672,8 +689,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
         Hh[j * outW + i] = (hAt(fx, fy) * (1 - ax) + hAt(fx + 1, fy) * ax) * (1 - ay) + (hAt(fx, fy + 1) * (1 - ax) + hAt(fx + 1, fy + 1) * ax) * ay
       }
     }
-    hCanvas.width = outW; hCanvas.height = outH
-    const hg = hCanvas.getContext('2d'), od = hg.createImageData(outW, outH)
+    const od = new ImageData(outW, outH)
     const dyM = ((lat1 - lat0) / outH) * 110574, EXAG = 1.6
     for (let j = 0; j < outH; j++) {
       const lat = lat1 - ((j + 0.5) / outH) * (lat1 - lat0)
@@ -686,23 +702,28 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
         od.data[o] = Math.round((0.5 + Math.atan(sx) / Math.PI) * 255); od.data[o + 1] = Math.round((0.5 + Math.atan(sy) / Math.PI) * 255); od.data[o + 2] = 0; od.data[o + 3] = 255
       }
     }
-    hg.putImageData(od, 0, 0)
-    if (!hTex || hTex.image !== hCanvas || hTex.userData.size !== `${outW}x${outH}`) { hTex?.dispose(); hTex = canvasTex(hCanvas); hTex.userData.size = `${outW}x${outH}`; uniforms.uHeightN.value = hTex }
-    hTex.needsUpdate = true
-    uniforms.uHeightBox.value.set(lon0, lat0, lon1, lat1)
-    hBox = c.box; info.terrain = true
+    lruSet(terrResults, rkey, od, 8)
+    useTerrain(c.box, od, outW, outH)
   }
 
   // ── 확대 야경: NASA Black Marble(2016) — 화면 범위만 GIBS에서 받기 ──
   const nCanvas = document.createElement('canvas')
   let nTex = null, nGen = 0, nBox = null
+  const nightImgs = new Map()
   async function planNight(c) {
     const my = ++nGen
     const [lon0, lat0, lon1, lat1] = c.box
     if (lon0 < -180 || lon1 > 180) return // 날짜변경선 걸침은 생략
+    // 낮인 곳이면 받지 않음(야경은 밤쪽에서만 보임)
+    const cl = ((lat0 + lat1) / 2) * DEG, cn = ((lon0 + lon1) / 2) * DEG, S = uniforms.uSun.value
+    const ndc = Math.cos(cl) * Math.cos(cn) * S.x + Math.cos(cl) * Math.sin(cn) * S.y + Math.sin(cl) * S.z
+    if (ndc > 0.35) return
+    if (nBox && lon0 >= nBox[0] && lon1 <= nBox[2] && lat0 >= nBox[1] && lat1 <= nBox[3] && (nBox[2] - nBox[0]) < (lon1 - lon0) * 2.5) return
     const w = Math.min(1024, c.canvas.width), h = Math.max(32, Math.min(1024, Math.round((w * (lat1 - lat0)) / (lon1 - lon0))))
+    const url = GIBS('VIIRS_Black_Marble', [lon0, lat0, lon1, lat1], w, h, null, 'image/png')
     let im
-    try { im = await loadImg(GIBS('VIIRS_Black_Marble', [lon0, lat0, lon1, lat1], w, h, null, 'image/png')) } catch { return }
+    if (nightImgs.has(url)) im = nightImgs.get(url)
+    else { try { im = await loadImg(url) } catch { return } lruSet(nightImgs, url, im, 12) }
     if (my !== nGen || dead) return
     nCanvas.width = w; nCanvas.height = h
     nCanvas.getContext('2d').drawImage(im, 0, 0, w, h)

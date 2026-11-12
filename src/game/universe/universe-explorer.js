@@ -338,7 +338,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   let interacted = false;
   // ── 배터리 절약: 가만히 있으면 초당 15장, 느린 폰이면 해상도 자동 낮춤 ──
   let dprCap = 2, lastInput = performance.now(), lastDraw = 0;
-  const perf = { t0: performance.now(), n: 0, sum: 0, good: 0 };
+  const perf = { t0: performance.now(), n: 0, sum: 0, good: 0, lowered: 0 };
   for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchstart']) root.addEventListener(ev, () => { lastInput = performance.now(); }, { capture: true, passive: true });
 
   function resize() {
@@ -2252,8 +2252,9 @@ export function mountUniverseExplorer(container, opts = {}) {
       if (now - perf.t0 > 2000) {
         const avg = perf.sum / Math.max(1, perf.n);
         const maxDpr = Math.min(window.devicePixelRatio || 1, 2);
-        if (avg > 34 && dprCap > 1) { dprCap = Math.max(1, Math.min(dprCap, maxDpr) - 0.5); resize(); perf.good = 0; }
-        else if (avg < 18 && dprCap < maxDpr) { if (++perf.good >= 3) { dprCap = Math.min(maxDpr, dprCap + 0.5); resize(); perf.good = 0; } }
+        // 내린 뒤 1분은 다시 올리지 않음(오르락내리락하며 화면이 출렁이지 않게)
+        if (avg > 34 && dprCap > 1) { dprCap = Math.max(1, Math.min(dprCap, maxDpr) - 0.5); resize(); perf.good = 0; perf.lowered = now; }
+        else if (avg < 13 && dprCap < maxDpr && now - perf.lowered > 60000) { if (++perf.good >= 4) { dprCap = Math.min(maxDpr, dprCap + 0.5); resize(); perf.good = 0; } }
         else perf.good = 0;
         perf.t0 = now; perf.n = 0; perf.sum = 0;
       }
