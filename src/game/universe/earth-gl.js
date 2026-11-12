@@ -200,7 +200,7 @@ void main() {
     vec4 bm = texture(uNightDet, clamp(nuv, 0.0, 1.0));
     float nin = step(0.0, nuv.x) * step(nuv.x, 1.0) * step(0.0, nuv.y) * step(nuv.y, 1.0);
     float nedge = smoothstep(0.0, 0.04, min(min(nuv.x, 1.0 - nuv.x), min(nuv.y, 1.0 - nuv.y)));
-    float bml = smoothstep(0.06, 0.95, dot(bm.rgb, vec3(0.35, 0.45, 0.2)));
+    float bml = smoothstep(0.08, 1.0, dot(bm.rgb, vec3(0.35, 0.45, 0.2))) * 0.9;
     // Black Marble 한 칸은 약 500m — 많이 확대하면 뭉개진 얼룩이 되므로
     // 밝기 분포(어느 동네가 밝은지)만 쓰고, 모양은 위성 사진의 시가지 위치로 잘게 나눈다
     float bmPx = 1.0 / (max(fwidth(nuv.x * float(textureSize(uNightDet, 0).x)), fwidth(nuv.y * float(textureSize(uNightDet, 0).y))) + 1e-6);
@@ -758,7 +758,11 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     const ndc = Math.cos(cl) * Math.cos(cn) * S.x + Math.cos(cl) * Math.sin(cn) * S.y + Math.sin(cl) * S.z
     if (ndc > 0.35) return
     if (nBox && lon0 >= nBox[0] && lon1 <= nBox[2] && lat0 >= nBox[1] && lat1 <= nBox[3] && (nBox[2] - nBox[0]) < (lon1 - lon0) * 2.5) return
-    const w = Math.min(1024, c.canvas.width), h = Math.max(32, Math.min(1024, Math.round((w * (lat1 - lat0)) / (lon1 - lon0))))
+    // 원본 해상도(약 500m/칸)보다 크게 요청하면 서버가 '최근접'으로 늘려 네모 블록이 박혀 옴
+    // → 원본 크기로만 받고 확대는 GPU가 부드럽게(선형 보간)
+    const spanKm = (lon1 - lon0) * 111.32 * Math.cos(((lat0 + lat1) / 2) * DEG)
+    const w = Math.max(16, Math.min(1024, c.canvas.width, Math.ceil(spanKm / 0.5)))
+    const h = Math.max(16, Math.min(1024, Math.round((w * (lat1 - lat0)) / ((lon1 - lon0) * Math.cos(((lat0 + lat1) / 2) * DEG)))))
     const url = GIBS('VIIRS_Black_Marble', [lon0, lat0, lon1, lat1], w, h, null, 'image/png')
     let im
     if (nightImgs.has(url)) im = nightImgs.get(url)
