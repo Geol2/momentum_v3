@@ -57,6 +57,9 @@ uniform sampler2D uAurora;    // 오로라 확률(NOAA OVATION, 1° 격자)
 uniform float uAuroraA;
 uniform vec4 uNightBox;
 uniform float uNightA;
+uniform sampler2D uRoad;     // 내 주변 도로(OSM): r=큰길, g=작은길
+uniform vec4 uRoadBox;
+uniform float uRoadA;
 uniform vec2 uSdfSize;
 uniform float uSdfK;
 uniform vec3 uSun, uView;
@@ -182,7 +185,7 @@ void main() {
   // ── 도시 불빛 ──
   float litBoost = 1.35 + 1.6 * (1.0 - smoothstep(140.0, 700.0, uR));
   float lightDetail = smoothstep(3500.0, 16000.0, uR);
-  float li = 0.0;
+  float li = 0.0, bmEnv = 0.4;
   if (nightK > 0.001) {
   li = seamless(uBaseLights, u, u2, v).r * (1.0 - 0.6 * zoomDetail) + seamless(uCity, u, u2, v).r;
   li = min(li * litBoost, 1.0) * landA * nightK * (1.0 - ca * 0.6);
@@ -208,11 +211,25 @@ void main() {
     float grain = 0.55 + 0.9 * vnoise(P * fD * 23.0);
     float shaped = bml * mix(1.0, (0.08 + 1.25 * urban) * grain, fineK);
     li = mix(li, min(shaped * 1.1, 1.0) * nightK * (1.0 - ca * 0.6), uNightA * nin * nedge);
+    bmEnv = mix(bmEnv, bml, nin);
   }
   }
   col += li * vec3(1.1, 0.82, 0.4);
   // 확대한 밤: 완전히 까맣지 않게 지형이 아주 희미하게 (달빛·대기광 정도)
   col += detNight * vec3(0.05, 0.065, 0.1) * nightK * (1.0 - li);
+
+  // ── 도로 (OpenStreetMap) — 낮엔 은은한 네온 선, 밤엔 가로등 불빛 ──
+  if (uRoadA > 0.001) {
+    float lonR = u * 360.0 - 180.0;
+    if (lonR < uRoadBox.x) lonR += 360.0;
+    vec2 ruv = vec2((lonR - uRoadBox.x) / (uRoadBox.z - uRoadBox.x), (uRoadBox.w - latDeg) / (uRoadBox.w - uRoadBox.y));
+    if (ruv.x >= 0.0 && ruv.x <= 1.0 && ruv.y >= 0.0 && ruv.y <= 1.0) {
+      vec2 rr = texture(uRoad, ruv).rg * uRoadA;
+      float rd = min(rr.r + rr.g * 0.55, 1.0);
+      col = mix(col, vec3(0.42, 1.0, 0.72), rd * 0.3 * (1.0 - nightK));
+      col += rd * nightK * vec3(1.1, 0.8, 0.42) * (0.3 + 0.7 * bmEnv) * 0.75 * (1.0 - min(li, 1.0) * 0.6);
+    }
+  }
 
   float cl = 0.96 * (0.05 + dl * 1.05);
   col = mix(col, vec3(cl, cl, cl * 1.02), ca);
@@ -348,6 +365,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     uDetail: { value: blankT }, uDetailBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uDetailA: { value: 0 },
     uHeightN: { value: blankT }, uHeightBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uHeightA: { value: 0 },
     uNightDet: { value: blankT }, uNightBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uNightA: { value: 0 },
+    uRoad: { value: blankT }, uRoadBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uRoadA: { value: 0 },
     uAurora: { value: blankT }, uAuroraA: { value: 0 },
   }
   const earthMat = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms, vertexShader: EARTH_VERT, fragmentShader: EARTH_FRAG })
@@ -566,6 +584,15 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
   }
 
   function updateDetail(X, Y, R, W, H, ratio) {
+    // 도로는 화면 폭 약 90km 아래에서 서서히
+    const vKm = (W / Math.max(1, R)) * 6371
+    uniforms.uRoadA.value = rTex ? 1 - smoothstep01(45, 90, vKm) : 0
+    if (vKm < 90) {
+      // 확대·이동이 잠깐 멈췄을 때만 요청 (애니메이션 중간 단계마다 받지 않게)
+      const k = `${view.lat.toFixed(3)},${view.lon.toFixed(3)},${vKm.toPrecision(2)}`, now = performance.now()
+      if (k !== rViewKey) { rViewKey = k; rViewSince = now }
+      else if (now - rViewSince > 400) { rView = { lat: view.lat, lon: view.lon, km: vKm, kmH: (H / Math.max(1, R)) * 6371 }; planRoads() }
+    }
     const a = smoothstep01(900, 2500, R)
     uniforms.uDetailA.value = a
     if (a <= 0.001) return
@@ -776,6 +803,88 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     nBox = c.box; info.night = true
   }
 
+  // ── 내 주변 도로: OpenStreetMap(Overpass API)에서 화면 범위만 받아 텍스처로 그림 ──
+  // 화면 폭에 따라 받는 도로 등급을 나눔 (넓을수록 큰길만 — 데이터 양 제한)
+  const rCanvas = document.createElement('canvas')
+  let rTex = null, rGen = 0, rBox = null, rLvl = -1, rFailAt = -1e9
+  const roadData = new Map()
+  const ROAD_SETS = [
+    ['motorway|trunk|primary|motorway_link|trunk_link', null],
+    ['motorway|trunk|primary|secondary|motorway_link|trunk_link|primary_link|secondary_link', 'tertiary|tertiary_link'],
+    ['motorway|trunk|primary|secondary|motorway_link|trunk_link|primary_link|secondary_link', 'tertiary|tertiary_link|residential|unclassified|living_street'],
+  ]
+  const overpass = async (re, b) => {
+    const q = `[out:json][timeout:25];way["highway"~"^(${re})$"](${b[1]},${b[0]},${b[3]},${b[2]});out skel geom qt;`
+    const r = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: AbortSignal.timeout(30000) })
+    if (!r.ok) throw new Error('overpass ' + r.status)
+    const j = await r.json()
+    return (j.elements || []).filter((e) => e.geometry && e.geometry.length > 1).map((e) => { const a = new Float32Array(e.geometry.length * 2); e.geometry.forEach((g, k) => { a[k * 2] = g.lon; a[k * 2 + 1] = g.lat }); return a })
+  }
+  let rBusy = false, rView = null, rViewKey = '', rViewSince = 0
+  async function planRoads() {
+    if (rBusy || !rView || dead) return
+    // 실제로 보이는 화면 범위 기준 (타일 모자이크는 더 넓어서)
+    const { lat, lon, km, kmH } = rView
+    const cosL = Math.max(0.05, Math.cos(lat * DEG))
+    const spanKm = km
+    if (spanKm > 90) return
+    const lon0 = lon - km / 2 / (111.32 * cosL), lon1 = lon + km / 2 / (111.32 * cosL)
+    const lat0 = lat - kmH / 2 / 110.57, lat1 = lat + kmH / 2 / 110.57
+    if (lon0 < -180 || lon1 > 180) return
+    const lvl = spanKm > 30 ? 0 : spanKm > 9 ? 1 : 2
+    if (rBox && rLvl === lvl && lon0 >= rBox[0] && lon1 <= rBox[2] && lat0 >= rBox[1] && lat1 <= rBox[3]) return
+    if (performance.now() - rFailAt < 60000) return // 서버가 거절하면 1분 쉬기
+    const my = ++rGen
+    rBusy = true
+    try { await loadRoads(my, b0(), lvl, cosL) } finally { rBusy = false }
+    function b0() { return [lon0, lat0, lon1, lat1] }
+  }
+  async function loadRoads(my, [lon0, lat0, lon1, lat1], lvl, cosL) {
+    // 화면보다 조금 넓게, 격자에 맞춰 잘라 같은 구역은 다시 받지 않음
+    const g = [0.25, 0.1, 0.04][lvl], ex = (lon1 - lon0) * 0.25, ey = (lat1 - lat0) * 0.25
+    const b = [Math.floor((lon0 - ex) / g) * g, Math.floor((lat0 - ey) / g) * g, Math.ceil((lon1 + ex) / g) * g, Math.ceil((lat1 + ey) / g) * g]
+    const key = lvl + '|' + b.map((x) => x.toFixed(3)).join(',')
+    let ways = roadData.get(key)
+    if (!ways) {
+      try {
+        const [majRe, minRe] = ROAD_SETS[lvl]
+        const maj = await overpass(majRe, b)
+        const min = minRe ? await overpass(minRe, b) : []
+        ways = { maj, min }
+      } catch { rFailAt = performance.now(); return }
+      lruSet(roadData, key, ways, 6)
+    }
+    if (my !== rGen || dead) return
+    // 텍스처 해상도: 등급별로 한 칸 약 30m / 12m / 5m (최대 2048)
+    const wKm = (b[2] - b[0]) * 111.32 * cosL, hKm = (b[3] - b[1]) * 110.57
+    const mpp0 = [30, 12, 5][lvl]
+    const sc = Math.min(1, 2048 / Math.max((wKm * 1000) / mpp0, (hKm * 1000) / mpp0))
+    const W = Math.max(64, Math.round(((wKm * 1000) / mpp0) * sc)), H = Math.max(64, Math.round(((hKm * 1000) / mpp0) * sc))
+    const mpp = (wKm * 1000) / W
+    rCanvas.width = W; rCanvas.height = H
+    const g2 = rCanvas.getContext('2d')
+    g2.fillStyle = '#000'; g2.fillRect(0, 0, W, H)
+    g2.globalCompositeOperation = 'lighter'; g2.lineCap = 'round'; g2.lineJoin = 'round'
+    const draw = (list, style, widthM, minPx) => {
+      g2.strokeStyle = style; g2.lineWidth = Math.max(minPx, widthM / mpp)
+      g2.beginPath()
+      for (const a of list) {
+        for (let k = 0; k < a.length; k += 2) {
+          const x = ((a[k] - b[0]) / (b[2] - b[0])) * W, y = ((b[3] - a[k + 1]) / (b[3] - b[1])) * H
+          if (k) g2.lineTo(x, y); else g2.moveTo(x, y)
+        }
+      }
+      g2.stroke()
+    }
+    draw(ways.min, 'rgb(0,255,0)', 10, 1)
+    draw(ways.maj, 'rgb(255,0,0)', 22, 1.3)
+    g2.globalCompositeOperation = 'source-over'
+    if (!rTex || rTex.userData.size !== `${W}x${H}`) { rTex?.dispose(); rTex = canvasTex(rCanvas); rTex.userData.size = `${W}x${H}`; uniforms.uRoad.value = rTex }
+    rTex.needsUpdate = true
+    uniforms.uRoadBox.value.set(b[0], b[1], b[2], b[3])
+    rBox = b; rLvl = lvl; info.roads = true
+  }
+
   // ── 달 ──
   const moonUniforms = { uSun: uniforms.uSun, uMoonTex: { value: null }, uHasTex: { value: 0 }, uToEarth: { value: new THREE.Vector3(1, 0, 0) }, uNorth: { value: new THREE.Vector3(0, 0, 1) } }
   let moonAsked = false
@@ -926,7 +1035,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
       return toScreen([Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)], X, Y, R)
     },
     destroy() {
-      dead = true; hGen++; nGen++; clearInterval(auroraTimer); auroraT?.dispose()
+      dead = true; hGen++; nGen++; rGen++; clearInterval(auroraTimer); auroraT?.dispose(); rTex?.dispose(); nTex?.dispose()
       renderer.dispose()
       gen++; queue.length = 0
       ;[landT, oceanT, baseLightsT, cityT, cloudsT, blankT, detailTex, uniforms.uSdf.value, uniforms.uDay.value, uniforms.uRelief.value].forEach((t) => t.dispose?.())
