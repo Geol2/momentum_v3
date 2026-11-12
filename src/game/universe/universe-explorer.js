@@ -1951,7 +1951,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     }
     const i = b.ast, a = small.a[i], e = small.e[i], Hm = small.H[i] / 10, cls = classifyIdx(i);
     smallSel = null;
-    return [small.names[i] || `소행성 #${i + 1}`, `${CLASS_KO[cls]} · 지름 약 ${fmtD(diamKm(Hm))} · 궤도 ${a.toFixed(2)} AU`, `공전 ${Math.pow(a, 1.5).toFixed(1)}년 · 이심률 ${e.toFixed(2)} · 위치는 2013년 궤도 요소로 계산(대략)`];
+    return [small.names[i] || `소행성 #${i + 1}`, `${CLASS_KO[cls]} · 지름 약 ${fmtD(diamKm(Hm))} · 궤도 ${a.toFixed(2)} AU`, `공전 ${Math.pow(a, 1.5).toFixed(1)}년 · 이심률 ${e.toFixed(2)} · 위치: 행성 중력 반영해 2026년 11월로 갱신`];
   }
   const classifyIdx = (i) => small.cls[i];
 

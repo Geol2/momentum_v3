@@ -1,5 +1,5 @@
 // 태양계 작은 천체: 소행성(astorb, Lowell 천문대) 15만 개 · 근지구 소행성(JPL, 2026-07) · 혜성 · 성간 천체
-// 위치는 궤도 요소로 2체 문제(케플러) 계산 — 오래된 요소(2013)는 행성 섭동 때문에 몇 도 어긋날 수 있어요.
+// 위치는 궤도 요소로 2체 문제(케플러) 계산. 소행성 15만 개는 2013년 요소를 8개 행성 중력까지 넣은 N체 적분으로 2026-11-12까지 옮긴 값(scripts/propagate_asteroids.py).
 import binUrl from './small-bodies.bin?url';
 import jsonUrl from './small-bodies.json?url';
 

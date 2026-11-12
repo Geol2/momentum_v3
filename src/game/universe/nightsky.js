@@ -4,6 +4,7 @@ import linesUrl from './sky-lines.json?url';
 import { planetPositions } from './planets.js';
 import { sunDirection, moonState } from './astro.js';
 import { bvRgb } from './deep-stars.js';
+import { propagate as sgp4, gstime, eciToEcf } from 'satellite.js';
 
 const D = Math.PI / 180;
 const EPS = 23.4393 * D;
@@ -62,6 +63,9 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
   let W = 1, H = 1, dpr = 1;
   let az = 180, alt = 35, fov = 100; // 남쪽 하늘부터
   let tOff = 0, atmo = true, lines = null, gyro = false, showDeep = true, band = 'vis';
+  // 하늘 위 인공위성: 0 = 보이는 것만(햇빛 받는 위성 · 해 진 뒤), 1 = 머리 위 전부, 2 = 끄기
+  let satMode = 0, satCursor = 0, satStat = { up: 0, lit: 0 };
+  const satCand = new Map(); // 지평선 근처·위에 있는 위성 index → 마지막 확인 시각
   const lat = loc.lat * D, lon = loc.lon * D;
   const E = [-Math.sin(lon), Math.cos(lon), 0], N = [-Math.sin(lat) * Math.cos(lon), -Math.sin(lat) * Math.sin(lon), Math.cos(lat)], U = [Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat)];
   // 은하수: 윤곽 다각형을 적경·적위 지도(0.5°/px)에 겹쳐 칠하고 흐리게 → 화면 픽셀마다 거꾸로 찾아 부드럽게 그림
@@ -108,6 +112,8 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
   btn('m1', '-1시간', () => { tOff -= 3600000; });
   btn('now', '지금', () => { tOff = 0; });
   btn('p1', '+1시간', () => { tOff += 3600000; });
+  const satB = btn('sat', '위성: 보이는 것', (b) => { satMode = (satMode + 1) % 3; b.textContent = ['위성: 보이는 것', '위성: 전부', '위성 끄기'][satMode]; b.classList.toggle('on', satMode < 2); });
+  satB.classList.add('on');
   btn('atmo', '대기 끄기', (b) => { atmo = !atmo; b.classList.toggle('on', !atmo); });
   btn('deep', '어두운 별', (b) => { showDeep = !showDeep; b.classList.toggle('on', showDeep); }).classList.add('on');
   for (const [k, label, a0] of [['n', '북', 0], ['e', '동', 90], ['s', '남', 180], ['w', '서', 270]]) btn(k, label, () => { az = a0; gyro = false; gyroB.classList.remove('on'); });
@@ -297,14 +303,55 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
       const s = proj(sunEnu);
       if (s && (sunEnu[2] > -0.05 || (band !== 'vis' && band !== 'ir'))) { g.globalAlpha = 1; const gr = g.createRadialGradient(s[0], s[1], 0, s[0], s[1], 40); gr.addColorStop(0, '#fffbe8'); gr.addColorStop(0.2, 'rgba(255,240,180,.8)'); gr.addColorStop(1, 'rgba(255,220,150,0)'); g.fillStyle = gr; g.beginPath(); g.arc(s[0], s[1], 40, 0, Math.PI * 2); g.fill(); }
     }
-    // 국제우주정거장
-    if (sats && sats.count) {
-      const i = sats.sats.findIndex((q) => /^ISS/.test(q.name));
-      if (i >= 0 && sats.ok[i]) {
-        const P = sats.pos, t = [P[i * 3] - U[0], P[i * 3 + 1] - U[1], P[i * 3 + 2] - U[2]], tl = Math.hypot(...t);
-        const enu = enuOf(t.map((x) => x / tl));
-        if (enu[2] > 0) { const p = proj(enu); if (p) { g.globalAlpha = 1; g.fillStyle = '#3dff8f'; g.beginPath(); g.arc(p[0], p[1], 3, 0, Math.PI * 2); g.fill(); g.fillText('ISS', p[0] + 6, p[1] - 4); picks.push({ p, kind: 'iss', alt: Math.asin(enu[2]) / D, az: (Math.atan2(enu[0], enu[1]) / D + 360) % 360, km: tl * 6371 }); } }
+    // 인공위성: 지금(또는 이동한 시각) 내 하늘 위에 있는 것 — SGP4로 직접 계산
+    if (sats && sats.count && satMode < 2) {
+      const list = sats.sats, n = list.length, RE = 6378.137;
+      const gm = gstime(date), sunE = sunDirection(date);
+      const look = (i, d) => {
+        const pv = sgp4(list[i].satrec, d);
+        if (!pv || !pv.position || typeof pv.position === 'boolean') return null;
+        const e = eciToEcf(pv.position, gm), r = [e.x / RE, e.y / RE, e.z / RE];
+        const t = [r[0] - U[0], r[1] - U[1], r[2] - U[2]], tl = Math.hypot(...t);
+        return { r, t, tl, enu: enuOf([t[0] / tl, t[1] / tl, t[2] / tl]), v: pv.velocity };
+      };
+      // 전체를 조금씩 훑어 지평선 위(또는 곧 뜰) 위성을 후보로
+      const now = performance.now();
+      for (let k = 0; k < Math.min(n, 400); k++) {
+        const i = satCursor; satCursor = (satCursor + 1) % n;
+        const L = look(i, date);
+        if (L && L.enu[2] > -0.12) satCand.set(i, now); else satCand.delete(i);
       }
+      let up = 0, lit = 0;
+      const night = sunAlt < -6;
+      for (const [i, seen] of satCand) {
+        if (now - seen > 6000) { satCand.delete(i); continue; }
+        const L = look(i, date);
+        if (!L || L.enu[2] <= 0) continue;
+        up++;
+        // 지구 그림자(원통 근사): 해 반대쪽이고 지구 반지름 안이면 그림자
+        const sd = L.r[0] * sunE[0] + L.r[1] * sunE[1] + L.r[2] * sunE[2];
+        const perp = Math.hypot(L.r[0] - sd * sunE[0], L.r[1] - sd * sunE[1], L.r[2] - sd * sunE[2]);
+        const sunlit = sd > 0 || perp > 1;
+        const visible = night && sunlit;
+        const hKm = (Math.hypot(...L.r) - 1) * RE;
+        if (visible && hKm < 2000 && list[i].kind !== 'debris') lit++; // 맨눈 후보: 낮은 궤도 + 햇빛
+        if (satMode === 0 && !visible) continue;
+        const p = proj(L.enu); if (!p) continue;
+        const q = list[i], st = q.kind === 'station';
+        // 움직임 꼬리: 20초 전 위치(관성 속도 근사)
+        const vx = L.v.x, vy = L.v.y, vz = L.v.z, gc = Math.cos(gm), gs = Math.sin(gm);
+        const ve = [(vx * gc + vy * gs) / RE, (-vx * gs + vy * gc) / RE, vz / RE];
+        const tb = [L.t[0] - ve[0] * 20, L.t[1] - ve[1] * 20, L.t[2] - ve[2] * 20], tbl = Math.hypot(...tb);
+        const pb = proj(enuOf([tb[0] / tbl, tb[1] / tbl, tb[2] / tbl]));
+        const col = st ? '#3dff8f' : q.kind === 'debris' ? '#b9a98a' : q.kind === 'starlink' ? '#cfe3ff' : '#ffffff';
+        g.globalAlpha = visible ? 1 : 0.4;
+        if (pb) { const gr = g.createLinearGradient(pb[0], pb[1], p[0], p[1]); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(1, col); g.strokeStyle = gr; g.lineWidth = st ? 2 : 1; g.beginPath(); g.moveTo(pb[0], pb[1]); g.lineTo(p[0], p[1]); g.stroke(); }
+        g.fillStyle = col; g.beginPath(); g.arc(p[0], p[1], st ? 3.2 : q.kind === 'debris' ? 1.2 : 1.8, 0, Math.PI * 2); g.fill();
+        if (st) { g.font = '700 11px "SF Mono",Menlo,Consolas,"Apple SD Gothic Neo","Noto Sans KR",monospace'; g.fillText(/^ISS/.test(q.name) ? 'ISS' : q.name.replace(/ \(.*\)/, ''), p[0] + 6, p[1] - 4); }
+        picks.push({ p, kind: 'sat', i, sunlit, night, alt: Math.asin(L.enu[2]) / D, az: (Math.atan2(L.enu[0], L.enu[1]) / D + 360) % 360, km: L.tl * RE, h: (Math.hypot(...L.r) - 1) * RE });
+      }
+      g.globalAlpha = 1;
+      satStat = { up, lit, night };
     }
     // 땅: 입체 투영에서 지평선은 원(또는 직선) → 세 점으로 원을 구해 칠함
     g.globalAlpha = 1;
@@ -335,7 +382,7 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
     }
     // 상단 설명
     const hh = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-    root.querySelector('.ns-top p').textContent = (BB.note ? `[${BB.ko}] ${BB.note} — ` : '') + `${loc.label} ${loc.lat.toFixed(2)}°, ${loc.lon.toFixed(2)}° · ${date.getMonth() + 1}월 ${date.getDate()}일 ${hh}${tOff ? ' (시간 이동 중)' : ''} · 해 고도 ${sunAlt.toFixed(0)}° · 달 ${ms.phase} · 보는 방향 ${dirKo(az)} ${alt.toFixed(0)}° · 시야 ${fov.toFixed(0)}°${day > 0.5 && atmo ? ' · 낮이라 별이 안 보여요 — 「대기 끄기」' : ''}`;
+    root.querySelector('.ns-top p').textContent = (BB.note ? `[${BB.ko}] ${BB.note} — ` : '') + `${loc.label} ${loc.lat.toFixed(2)}°, ${loc.lon.toFixed(2)}° · ${date.getMonth() + 1}월 ${date.getDate()}일 ${hh}${tOff ? ' (시간 이동 중)' : ''} · 해 고도 ${sunAlt.toFixed(0)}° · 달 ${ms.phase} · 보는 방향 ${dirKo(az)} ${alt.toFixed(0)}° · 시야 ${fov.toFixed(0)}°${sats && sats.count && satMode < 2 ? ` · 머리 위 위성 ${satStat.up}개(맨눈 후보 ${satStat.lit}개${satStat.night ? '' : ' — 해가 떠 있어서 안 보여요'})` : ''}${day > 0.5 && atmo ? ' · 낮이라 별이 안 보여요 — 「대기 끄기」' : ''}`;
     // 호버·탭 정보
     const pt = hover || tap;
     let best = null, bd = 14 * 14;
@@ -347,7 +394,13 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
       else if (best.kind === 'planet') lab = [best.name, `지구에서 ${best.dist.toFixed(2)} AU · 빛으로 ${(best.dist * 8.317).toFixed(0)}분`, ''];
       else if (best.kind === 'src') lab = [best.name, `${BB.ko}으로 밝은 천체`, ''];
       else if (best.kind === 'moon') lab = ['달', `${ms.phase} · 밝은 면 ${(ms.illum * 100).toFixed(0)}%`, ''];
-      else lab = ['국제우주정거장 ISS', `거리 약 ${Math.round(best.km).toLocaleString('ko-KR')}km`, '맨눈으로 빠르게 움직이는 밝은 점'];
+      else if (best.kind === 'sat') {
+        const q = sats.sats[best.i];
+        const kindKo = q.kind === 'station' ? '우주정거장' : q.kind === 'starlink' ? '스타링크 위성' : q.kind === 'debris' ? '우주쓰레기(파편)' : '인공위성';
+        const seeTxt = !best.night ? '해가 떠 있어 맨눈으론 안 보여요' : best.sunlit ? (q.kind === 'station' ? '맨눈으로 빠르게 움직이는 밝은 점' : q.kind === 'debris' ? '햇빛은 받지만 작아서 망원경 필요' : best.h > 2000 ? '햇빛은 받지만 멀어서 망원경 필요(정지궤도 등)' : '햇빛을 받아 맨눈·쌍안경으로 보일 수 있어요') : '지구 그림자 속이라 안 보여요';
+        lab = [q.name, `${kindKo} · 고도 ${Math.round(best.h).toLocaleString('ko-KR')}km · 거리 ${Math.round(best.km).toLocaleString('ko-KR')}km`, seeTxt];
+      }
+      else lab = ['', '', ''];
       info.children[0].textContent = lab[0]; info.children[1].textContent = [lab[1], where].filter(Boolean).join(' · '); info.children[2].textContent = lab[2] || '';
       info.style.display = 'block';
       const x = Math.min(W - info.offsetWidth - 8, best.p[0] + 14), y = Math.max(8, best.p[1] - info.offsetHeight - 10);
