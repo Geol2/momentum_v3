@@ -35,7 +35,7 @@ export function sunDirection(date = new Date()) {
 
 /** 달 위치(지구 고정, 지구 반지름 단위)와 위상 */
 // 달 황경·황위·거리 (주요 섭동항 포함, 오차 약 0.2° · 수백 km)
-function moonEcl(n) {
+export function moonEcl(n) {
   const L = 218.316 + 13.176396 * n
   const M = (134.963 + 13.064993 * n) * DEG        // 달 평균 근점 이각
   const Ms = (357.529 + 0.98560028 * n) * DEG      // 태양 평균 근점 이각
