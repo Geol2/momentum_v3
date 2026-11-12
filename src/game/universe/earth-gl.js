@@ -53,6 +53,8 @@ uniform sampler2D uHeightN;   // 확대 지형: 경사(동·북) — atan 인코
 uniform vec4 uHeightBox;
 uniform float uHeightA;
 uniform sampler2D uNightDet;  // 확대 야경: NASA Black Marble
+uniform sampler2D uAurora;    // 오로라 확률(NOAA OVATION, 1° 격자)
+uniform float uAuroraA;
 uniform vec4 uNightBox;
 uniform float uNightA;
 uniform vec2 uSdfSize;
@@ -197,6 +199,17 @@ void main() {
   float cl = 0.96 * (0.05 + dl * 1.05);
   col = mix(col, vec3(cl, cl, cl * 1.02), ca);
 
+  // ── 오로라 (NOAA SWPC 30분 예보) — 밤쪽에서 초록, 강하면 위쪽 붉은빛 ──
+  if (uAuroraA > 0.001) {
+    float au = texture(uAurora, vec2(u, v)).r;
+    float ak = smoothstep(0.04, 0.95, au) * uAuroraA;
+    float darkA = 1.0 - smoothstep(-0.18, 0.05, nd);
+    // 커튼처럼 경도 방향으로 잘게 갈라진 줄무늬
+    float curtain = 0.35 + 0.65 * smoothstep(0.35, 0.8, vnoise(vec3(u * 1400.0, v * 60.0, 3.0)));
+    float k = ak * darkA * curtain;
+    col = col * (1.0 - 0.25 * k) + (vec3(0.16, 1.0, 0.5) * k + vec3(0.85, 0.12, 0.3) * k * ak * 0.5) * 0.7;
+  }
+
   // ── 대기 테두리 ──
   float t = clamp(1.0 - dot(P, uView), 0.0, 1.0); // 화면 정중앙에서 dot이 1을 살짝 넘으면 sqrt(음수)=NaN → 흰 점
   float rm = t * t * sqrt(t) * (0.12 + 0.88 * smoothstep(-0.3, 0.3, nd));
@@ -317,6 +330,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     uDetail: { value: blankT }, uDetailBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uDetailA: { value: 0 },
     uHeightN: { value: blankT }, uHeightBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uHeightA: { value: 0 },
     uNightDet: { value: blankT }, uNightBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uNightA: { value: 0 },
+    uAurora: { value: blankT }, uAuroraA: { value: 0 },
   }
   const earthMat = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms, vertexShader: EARTH_VERT, fragmentShader: EARTH_FRAG })
   const earth = new THREE.Mesh(new THREE.SphereGeometry(1, 256, 128), earthMat)
@@ -552,7 +566,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
   const loadImg = (url) => new Promise((res, rej) => { const im = new Image(); im.crossOrigin = 'anonymous'; im.decoding = 'async'; im.onload = () => res(im); im.onerror = rej; im.src = url })
   const canvasTex = (cv) => { const t = new THREE.CanvasTexture(cv); t.flipY = false; t.colorSpace = THREE.NoColorSpace; t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; return t }
   const GIBS = (layer, box, w, h, date, fmt = 'image/jpeg') => `https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=${layer}&STYLES=&SRS=EPSG:4326&BBOX=${box.join(',')}&WIDTH=${w}&HEIGHT=${h}&FORMAT=${encodeURIComponent(fmt)}&TRANSPARENT=FALSE${date ? `&TIME=${date}` : ''}`
-  const info = { cloudDate: null, terrain: false, night: false }
+  const info = { cloudDate: null, terrain: false, night: false, aurora: null }
   let dead = false
 
   // ── 오늘의 실제 구름: NASA GIBS VIIRS 어제 영상과 구름 없는 지구 사진을 비교해 구름만 뽑기 ──
@@ -594,6 +608,36 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
       info.cloudDate = date
     } catch { /* 실패하면 기존(분위기용) 구름 유지 */ }
   })()
+
+  // ── 오로라: NOAA SWPC OVATION 30분 예보(1° 격자, %) + Kp 지수 — 30분마다 새로 ──
+  let auroraT = null
+  async function loadAurora() {
+    try {
+      const [ov, kp] = await Promise.all([
+        fetch('https://services.swpc.noaa.gov/json/ovation_aurora_latest.json').then((r) => r.json()),
+        fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json').then((r) => r.json()).catch(() => null),
+      ])
+      if (dead || !ov || !ov.coordinates) return
+      const A = new Uint8Array(360 * 181)
+      for (const [lon, lat, val] of ov.coordinates) {
+        // 텍스처 x: 경도 -180→0, 행 0 = 북위 90°
+        const x = Math.round(((lon + 180) % 360 + 360) % 360) % 360, y = 90 - Math.round(lat)
+        if (y >= 0 && y <= 180) A[y * 360 + x] = Math.min(255, Math.round(val * 2.55 * 2.5))
+      }
+      const t = new THREE.DataTexture(A, 360, 181, THREE.RedFormat, THREE.UnsignedByteType)
+      t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping; t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.flipY = false; t.unpackAlignment = 1; t.needsUpdate = true
+      auroraT?.dispose(); auroraT = t; uniforms.uAurora.value = t
+      let kpVal = null, kpTime = null
+      if (Array.isArray(kp) && kp.length > 1) { const last = kp[kp.length - 1]; kpVal = parseFloat(last[1] ?? last.Kp ?? last.kp_index); kpTime = last[0] }
+      // 오로라가 보일 만한 가장 낮은 위도(북반구, 확률 10% 이상)
+      let edge = 90
+      for (const [lon, lat, val] of ov.coordinates) if (lat > 0 && val >= 10 && lat < edge) edge = lat
+      info.aurora = { kp: Number.isFinite(kpVal) ? kpVal : null, kpTime, forecast: ov['Forecast Time'], edgeLat: edge < 90 ? edge : null }
+      fades.push({ u: uniforms.uAuroraA, t0: performance.now() })
+    } catch { /* 연결 안 되면 오로라 없이 */ }
+  }
+  loadAurora()
+  const auroraTimer = setInterval(loadAurora, 30 * 60 * 1000)
 
   // ── 확대 지형: AWS Terrain Tiles(terrarium) → 화면 범위의 경사 지도 ──
   const TERR = (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`
@@ -817,7 +861,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
       return toScreen([Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)], X, Y, R)
     },
     destroy() {
-      dead = true; hGen++; nGen++
+      dead = true; hGen++; nGen++; clearInterval(auroraTimer); auroraT?.dispose()
       renderer.dispose()
       gen++; queue.length = 0
       ;[landT, oceanT, baseLightsT, cityT, cloudsT, blankT, detailTex, uniforms.uSdf.value, uniforms.uDay.value, uniforms.uRelief.value].forEach((t) => t.dispose?.())

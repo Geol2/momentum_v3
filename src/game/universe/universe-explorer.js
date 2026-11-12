@@ -1214,6 +1214,12 @@ export function mountUniverseExplorer(container, opts = {}) {
       const phase = elev > 0 ? '낮' : elev > -6 ? '해질녘·새벽' : elev > -18 ? '어스름' : '밤';
       const hhmm = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
       locLine = ` · ${myLoc.label}${myLoc.approx ? '(기본값)' : ''} ${fmtCoord(myLoc.lat, 'N', 'S')}, ${fmtCoord(myLoc.lon, 'E', 'W')} · ${hhmm} ${phase} (태양 고도 ${elev.toFixed(0)}°)`;
+      const au = earth.sources?.aurora;
+      if (au && au.kp !== null) {
+        const kp = au.kp, mood = kp < 4 ? '조용' : kp < 5 ? '활발' : kp < 7 ? '자기 폭풍' : '강한 자기 폭풍';
+        const where = au.edgeLat ? (au.edgeLat <= Math.abs(myLoc.lat) + 2 ? ` · 지금 ${myLoc.label}에서도 북쪽 하늘에 보일 수 있어요!` : ` · 북위 약 ${Math.round(au.edgeLat)}° 위에서 보여요`) : '';
+        locLine += ` · 오로라 Kp ${kp.toFixed(1)}(${mood})${where}`;
+      }
     }
     const showCredit = !!earth.detailActive;
     if (hudCache.credit !== showCredit) { hudCache.credit = showCredit; ui.credit.hidden = !showCredit; }
