@@ -861,11 +861,15 @@ export function mountUniverseExplorer(container, opts = {}) {
   let W = 0, H = 0, dpr = 1;
   let raf = 0, last = performance.now();
   let interacted = false;
+  // ── 배터리 절약: 가만히 있으면 초당 15장, 느린 폰이면 해상도 자동 낮춤 ──
+  let dprCap = 2, lastInput = performance.now(), lastDraw = 0;
+  const perf = { t0: performance.now(), n: 0, sum: 0, good: 0 };
+  for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchstart']) root.addEventListener(ev, () => { lastInput = performance.now(); }, { capture: true, passive: true });
 
   function resize() {
     const r = root.getBoundingClientRect();
     W = Math.max(1, r.width); H = Math.max(1, r.height);
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    dpr = Math.min(window.devicePixelRatio || 1, dprCap);
     canvas.width = overlay.width = Math.round(W * dpr);
     canvas.height = overlay.height = Math.round(H * dpr);
   }
@@ -2738,6 +2742,24 @@ export function mountUniverseExplorer(container, opts = {}) {
 
   // ───────────── 루프 ─────────────
   function frame(now) {
+    // 움직임이 없고 2.5초간 손대지 않았으면 초당 약 15장만 그림
+    const moving = pointers.size > 0 || zoomVel || Math.abs(targetS - s) > 1e-3 || (Math.abs(spin.vx) + Math.abs(spin.vy)) > 1e-5
+      || (Math.abs(panVel[0]) + Math.abs(panVel[1])) > 0 || (focus && Math.abs((focus.on ? 1 : 0) - focus.blend) > 0.01) || !!warping || !!anchor;
+    const idle = !moving && now - lastInput > 2500;
+    if (idle && now - lastDraw < 66) { raf = requestAnimationFrame(frame); return; }
+    if (!idle && lastDraw) {
+      // 움직이는 동안 프레임 간격으로 폰 성능 판단 → 해상도 조절
+      perf.n++; perf.sum += now - lastDraw;
+      if (now - perf.t0 > 2000) {
+        const avg = perf.sum / Math.max(1, perf.n);
+        const maxDpr = Math.min(window.devicePixelRatio || 1, 2);
+        if (avg > 34 && dprCap > 1) { dprCap = Math.max(1, Math.min(dprCap, maxDpr) - 0.5); resize(); perf.good = 0; }
+        else if (avg < 18 && dprCap < maxDpr) { if (++perf.good >= 3) { dprCap = Math.min(maxDpr, dprCap + 0.5); resize(); perf.good = 0; } }
+        else perf.good = 0;
+        perf.t0 = now; perf.n = 0; perf.sum = 0;
+      }
+    } else { perf.t0 = now; perf.n = 0; perf.sum = 0; }
+    lastDraw = now;
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     if (zoomVel) setTarget(targetS + zoomVel * dt);

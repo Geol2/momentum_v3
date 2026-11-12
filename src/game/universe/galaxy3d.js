@@ -802,7 +802,13 @@ export function openGalaxy3D(host, opts = {}) {
   }
 
   let raf = 0, last = performance.now(), destroyed = false, lastPickT = 0, hoverHit = null;
+  // 배터리 절약: 2.5초간 손대지 않으면 초당 약 15장
+  const __busy = () => !!goal;
+  let __lastIn = performance.now(), __lastDraw = 0;
+  for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchstart']) root.addEventListener(ev, () => { __lastIn = performance.now(); }, { capture: true, passive: true });
   function frame(now) {
+    {const __n = performance.now(); if (__n - __lastIn > 2500 && __n - __lastDraw < 66 && !__busy()) { if (!destroyed) raf = requestAnimationFrame(frame); return; } __lastDraw = __n;}
+
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     if (goal) {
       const k = Math.min(1, dt * 2.6);

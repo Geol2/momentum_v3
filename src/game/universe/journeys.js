@@ -133,7 +133,13 @@ export function openJourneys(host, { start = 'v1', sound, onClose } = {}) {
   function showEv(txt) { evEl.textContent = txt; evEl.classList.add('show'); clearTimeout(evTimer); evTimer = setTimeout(() => evEl.classList.remove('show'), 4200); }
   let raf = 0, dead = false, last = performance.now();
   pick(start);
+  // 배터리 절약: 2.5초간 손대지 않으면 초당 약 15장
+  const __busy = () => playing;
+  let __lastIn = performance.now(), __lastDraw = 0;
+  for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchstart']) root.addEventListener(ev, () => { __lastIn = performance.now(); }, { capture: true, passive: true });
   function frame(now) {
+    {const __n = performance.now(); if (__n - __lastIn > 2500 && __n - __lastDraw < 66 && !__busy()) { if (!dead) raf = requestAnimationFrame(frame); return; } __lastDraw = __n;}
+
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     if (playing) { t += dt * SPEEDS[speedIdx][1] * 86400000; if (t >= Date.now()) { t = Date.now(); playing = false; upd(); } }
     slider.value = String(Math.round(((t - path.pts[0].t) / (Date.now() - path.pts[0].t)) * 1000));

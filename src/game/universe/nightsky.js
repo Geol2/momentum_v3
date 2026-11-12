@@ -154,7 +154,13 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
   const ro = new ResizeObserver(resize); ro.observe(root); resize();
 
   let raf = 0, dead = false;
+  // 배터리 절약: 2.5초간 손대지 않으면 초당 약 15장
+  const __busy = () => gyro;
+  let __lastIn = performance.now(), __lastDraw = 0;
+  for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchstart']) root.addEventListener(ev, () => { __lastIn = performance.now(); }, { capture: true, passive: true });
   function frame() {
+    {const __n = performance.now(); if (__n - __lastIn > 2500 && __n - __lastDraw < 66 && !__busy()) { if (!dead) raf = requestAnimationFrame(frame); return; } __lastDraw = __n;}
+
     const date = new Date(Date.now() + tOff);
     const th = gmst(date) * D, ct = Math.cos(th), st = Math.sin(th);
     // 적도 → ECEF → ENU 결합 행렬
