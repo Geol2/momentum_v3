@@ -1,6 +1,7 @@
 // 가까이 보기: (1) 외계 행성계 3D — 별 표면·행성 생김새(관측값 기반 상상도)·궤도·생명 가능 지대
 //               (2) 인공위성·우주정거장·로켓 잔해·파편의 생김새(종류별 대표 모형)
 import * as THREE from 'three';
+import { exoStates } from './exoplanets.js';
 
 const CSS = `
 .cu-root{position:absolute;inset:0;z-index:30;background:#000;touch-action:none;overflow:hidden}
@@ -219,7 +220,7 @@ function planetMaterial(cls, name, starRgb) {
  * 외계 행성계 3D
  * @param sys catalogToSystem / SYSTEMS 모양 { name, distLy, star:{type,radiusSun,tempK,color}, hz, planets:[{name,au,days,re,reKnown,teq,method,note}] }
  */
-export function openSystem3D(host, { sys, focusPlanet = null, phases = null, onClose } = {}) {
+export function openSystem3D(host, { sys, focusPlanet = null, toEarth = 0, startDate = new Date(), onClose } = {}) {
   const S = makeShell(host, 'sys', onClose);
   const { scene, st } = S;
   const planets = sys.planets.slice().sort((a, b) => a.au - b.au);
@@ -262,8 +263,13 @@ export function openSystem3D(host, { sys, focusPlanet = null, phases = null, onC
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(vis[i], 64, 48), mat);
     mesh.rotation.z = 0.1 + hash(full + 'tilt') * 0.4;
     const pivot = new THREE.Object3D(); pivot.add(mesh); scene.add(pivot);
-    const orbit = new THREE.Line(new THREE.BufferGeometry().setFromPoints(Array.from({ length: 161 }, (_, k) => { const a = (k / 160) * Math.PI * 2; return new THREE.Vector3(Math.cos(a) * R[i], 0, -Math.sin(a) * R[i]); })),
-      new THREE.LineBasicMaterial({ color: cls.type === 3 ? 0x7ee0c3 : 0x8fa0d8, transparent: true, opacity: 0.35 }));
+    // 타원 궤도(별이 초점) — 위치를 모르는 행성은 점선
+    const st0 = exoStates(sys, startDate, toEarth).find((q) => q.name === full || q.short === p.name) || { ecc: 0, periDir: 0, exact: false };
+    const ee = st0.ecc || 0, kk = R[i] / p.au;
+    const orbitPts = Array.from({ length: 181 }, (_, k) => { const E = (k / 180) * Math.PI * 2; const nu = 2 * Math.atan2(Math.sqrt(1 + ee) * Math.sin(E / 2), Math.sqrt(1 - ee) * Math.cos(E / 2)); const r = p.au * (1 - ee * Math.cos(E)) * kk, a = st0.periDir + nu; return new THREE.Vector3(Math.cos(a) * r, 0, -Math.sin(a) * r); });
+    const orbit = new THREE.Line(new THREE.BufferGeometry().setFromPoints(orbitPts),
+      st0.exact ? new THREE.LineBasicMaterial({ color: cls.type === 3 ? 0x7ee0c3 : 0x8fa0d8, transparent: true, opacity: 0.35 }) : new THREE.LineDashedMaterial({ color: 0x8fa0d8, transparent: true, opacity: 0.35, dashSize: R[i] * 0.04, gapSize: R[i] * 0.04 }));
+    if (!st0.exact) orbit.computeLineDistances();
     scene.add(orbit); orbitLines.push(orbit);
     // 고리: 차가운 가스 거인에 가끔(상상)
     if (cls.type === 0 && hash(full + 'ring') > 0.6) {
@@ -272,8 +278,7 @@ export function openSystem3D(host, { sys, focusPlanet = null, phases = null, onC
     }
     const lab = S.addLabel(mesh, p.name.length <= 3 ? p.name : full.replace(sys.name, '').trim() || full, cls.type === 3 ? '#9ff0d6' : '#dfe6ff');
     lab.rad = vis[i];
-    const phase0 = phases?.[p.name] ?? hash(full) * Math.PI * 2;
-    return { p, i, cls, full, mesh, pivot, mat, lab, phase: phase0, lock: p.days < 10 };
+    return { p, i, cls, full, mesh, pivot, mat, lab, kk, exact: st0.exact, src: st0.src, ecc: ee, lock: p.days < 10 };
   });
   let simDays = 0, sel = null, speedIdx = 1;
   const SPEEDS = [0, 1, 4, 16];
@@ -291,6 +296,8 @@ export function openSystem3D(host, { sys, focusPlanet = null, phases = null, onC
       `별에서 ${p.au} AU · 공전 ${fmtDays(p.days)} · 크기 ${size}`,
       c.T ? `온도 약 ${Math.round(c.T - 273).toLocaleString('ko-KR')}°C${c.est ? ' (별 밝기로 추정)' : ''}` : '온도 모름',
       o.lock ? '조석 고정 추정: 늘 같은 면이 별을 봐요(영원한 낮·밤)' : '자전 주기는 아직 몰라요',
+      o.ecc > 0.02 ? `타원 궤도 · 이심률 ${o.ecc.toFixed(2)} (별에 가장 가까울 때 ${(p.au * (1 - o.ecc)).toFixed(3)} AU, 멀 때 ${(p.au * (1 + o.ecc)).toFixed(3)} AU)` : '거의 원 궤도',
+      o.src === 'transit' ? '궤도 위 위치: 실제(별 앞을 지난 기록으로 계산)' : o.src === 'periastron' ? '궤도 위 위치: 실제(근점 통과 기록으로 계산)' : '궤도 위 위치: 추정(아직 몰라서 임의로 둠 · 점선 궤도)',
       ...(p.note ? [p.note] : []),
       ...(p.year ? [`${p.year}년 발견`] : []),
     ]);
@@ -315,9 +322,11 @@ export function openSystem3D(host, { sys, focusPlanet = null, phases = null, onC
     simDays += dt * rate * SPEEDS[speedIdx];
     const t = now / 1000;
     starMat.uniforms.uTime.value = t;
+    const sts = exoStates(sys, new Date(startDate.getTime() + simDays * 86400000), toEarth);
     for (const o of objs) {
-      const a = o.phase + (2 * Math.PI * simDays) / o.p.days;
-      o.mesh.position.set(Math.cos(a) * R[o.i], 0, -Math.sin(a) * R[o.i]);
+      const q = sts[sys.planets.indexOf(o.p)] || sts[o.i];
+      const a = q.angle, rr = q.rAU * o.kk;
+      o.mesh.position.set(Math.cos(a) * rr, 0, -Math.sin(a) * rr);
       o.mesh.rotation.y = o.lock ? a + Math.PI : t * 0.15 + o.i;
       o.mat.uniforms.uTime.value = t; o.mat.uniforms.uLightPos.value.set(0, 0, 0);
     }

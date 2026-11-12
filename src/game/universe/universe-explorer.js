@@ -501,7 +501,7 @@ export function mountUniverseExplorer(container, opts = {}) {
         openSys3D(pl ? pl.name : null);
       } else if (hit && hit.kind === 'exo') {
         const size = hit.reKnown ? `지구 크기의 ${hit.re}배` : `크기 추정 지구의 ${hit.re}배`;
-        toast(`${hit.name} · 별에서 ${hit.au} AU · 공전 ${fmtPeriod(hit.periodDays)} · ${size}${hit.teq ? ` · 약 ${Math.round(hit.teq - 273)}°C` : ''}${hit.note ? ' · ' + hit.note : ''}${hit.exact ? ' · 📍실제 위치' : ''}`);
+        toast(`${hit.name} · 별에서 ${hit.au} AU · 공전 ${fmtPeriod(hit.periodDays)} · ${size}${hit.teq ? ` · 약 ${Math.round(hit.teq - 273)}°C` : ''}${hit.note ? ' · ' + hit.note : ''} · ${hit.exact ? '위치 실제' : '위치 추정'}`);
       } else if (hit) {
         toast(`${hit.name} · ${focus.name}에서 ${fmtKo(hit.distKm)} km · 공전 ${fmtPeriod(hit.periodDays)}${hit.retro ? ' (역행)' : ''}`);
       }
@@ -538,7 +538,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   function bodyInfo(hit) {
     if (hit.kind === 'exo') {
       const size = hit.reKnown ? `지구 크기의 ${hit.re}배` : `크기 추정 지구의 ${hit.re}배`;
-      return `${hit.name} · 별에서 ${hit.au} AU · 공전 ${fmtPeriod(hit.periodDays)} · ${size}${hit.teq ? ` · 약 ${Math.round(hit.teq - 273)}°C` : ''}${hit.note ? ' · ' + hit.note : ''}${hit.exact ? ' · 📍실제 위치' : ''}`;
+      return `${hit.name} · 별에서 ${hit.au} AU · 공전 ${fmtPeriod(hit.periodDays)} · ${size}${hit.teq ? ` · 약 ${Math.round(hit.teq - 273)}°C` : ''}${hit.note ? ' · ' + hit.note : ''} · ${hit.exact ? '위치 실제' : '위치 추정'}`;
     }
     return `${hit.name} · ${hit.parent}에서 ${fmtKo(hit.distKm)} km · 공전 ${fmtPeriod(hit.periodDays)}${hit.retro ? ' (역행)' : ''}`;
   }
@@ -548,13 +548,14 @@ export function mountUniverseExplorer(container, opts = {}) {
   let holdTimer = 0;
   function hoverLabel(t) {
     if (t.kind === 'exo') {
+      const srcKo = (t) => t.src === 'transit' ? '위치 실제(별 앞 통과 기록으로 계산)' : t.src === 'periastron' ? '위치 실제(근점 통과 기록으로 계산)' : '위치 추정(궤도 위 어디인지 아직 모름)';
       // 평형 온도: 목록 값, 없으면 별 온도·반지름·거리로 추정 (반사율 0.3)
       let T = t.teq, est = false;
       if (!T && t.starT && t.au) { T = t.starT * Math.sqrt(((t.starR || 1) * 6.957e8) / (2 * t.au * 1.496e11)) * 0.915; est = true; }
       const tTxt = T ? `온도 약 ${Math.round(T - 273)}°C${est ? ' (추정)' : ''}` : '온도 미상';
       const size = t.reKnown && t.re ? (t.re > 6 ? `목성의 ${(t.re / 11.21).toFixed(1)}배 크기` : `지구의 ${t.re.toFixed(1)}배 크기`) : '크기 미상';
       const spin = t.periodDays < 10 ? '자전 = 공전 (조석 고정 추정 · 한쪽만 낮)' : '자전 주기 미상';
-      return [t.name, `공전 ${fmtPeriod(t.periodDays)} · 별에서 ${t.au} AU · ${size}`, `${tTxt} · ${spin}`, focus && focus.on ? '탭하면 3D로 가까이' : ''];
+      return [t.name, `공전 ${fmtPeriod(t.periodDays)} · 별에서 ${t.au} AU${t.ecc > 0.02 ? ` (타원 궤도 · 이심률 ${t.ecc.toFixed(2)} · 지금 ${t.rAU.toFixed(t.rAU < 0.1 ? 4 : 2)} AU)` : ''} · ${size}`, `${tTxt} · ${spin}`, srcKo(t), focus && focus.on ? '탭하면 3D로 가까이' : ''];
     }
     if (t.kind === 'moon') {
       const temp = MOON_TEMP[t.name];
@@ -1004,9 +1005,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   function openSys3D(planetName = null) {
     if (!focus || focus.kind !== 'star') return;
     const sys = focus.sys;
-    const st = exoStates(sys, simDate(), focus.toEarth || 0);
-    const phases = {}; sys.planets.forEach((p, i) => { phases[p.name] = st[i].angle; });
-    openCloseup('openSystem3D', { sys, focusPlanet: planetName, phases });
+    openCloseup('openSystem3D', { sys, focusPlanet: planetName, toEarth: focus.toEarth || 0, startDate: simDate() });
   }
   function openSat3D(i) {
     const q = satSys.sats[i];
@@ -1994,8 +1993,12 @@ export function mountUniverseExplorer(container, opts = {}) {
       for (const p of planets) {
         const orr = p.au * AUpx;
         if (orr < 3 || orr > 3e5) continue;
+        // 타원 궤도: 별이 초점, 근점 방향 periDir (위치를 모르는 행성은 점선)
         ctx.globalAlpha = fa * 0.3; ctx.strokeStyle = '#9fb0e0'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.arc(X, Y, orr, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash(p.exact ? [] : [4, 4]);
+        const bb = orr * Math.sqrt(1 - p.ecc * p.ecc), cxo = X - orr * p.ecc * Math.cos(p.periDir), cyo = Y + orr * p.ecc * Math.sin(p.periDir);
+        ctx.beginPath(); ctx.ellipse(cxo, cyo, orr, bb, -p.periDir, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
       }
       // 별
       const starR = Math.max(8, (sys.star.radiusSun * 6.957e8) / mpp);
@@ -2008,7 +2011,7 @@ export function mountUniverseExplorer(container, opts = {}) {
       ctx.font = '600 11px -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif';
       ctx.textAlign = 'left';
       for (const p of planets) {
-        const orr = p.au * AUpx;
+        const orr = p.rAU * AUpx;
         if (orr < starR + 2) continue;
         const mx = X + orr * Math.cos(p.angle), my = Y - orr * Math.sin(p.angle);
         if (mx < -30 || mx > W + 30 || my < -30 || my > H + 30) continue;
@@ -2022,9 +2025,10 @@ export function mountUniverseExplorer(container, opts = {}) {
         lastMoonScreen.push({ ...p, kind: 'exo', parent: sys.name, starT: sys.star.tempK, starR: sys.star.radiusSun, x: mx, y: my });
         if (orr > 16) {
           ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)';
-          ctx.strokeText(p.short, mx + pr + 4, my + 4);
+          const lt = p.exact ? p.short : `${p.short} · 추정`;
+          ctx.strokeText(lt, mx + pr + 4, my + 4);
           ctx.fillStyle = p.color === '#6fc3a8' ? '#9ff0d6' : '#dfe6ff';
-          ctx.fillText(p.short, mx + pr + 4, my + 4);
+          ctx.fillText(lt, mx + pr + 4, my + 4);
         }
       }
     };

@@ -127,8 +127,8 @@ function spectralKo(sp, t) {
 export function catalogToSystem(row) {
   const [name, ra, dec, distLy, teff, rSun, sp, pls] = row
   const hz = habitableZone(teff, rSun)
-  const planets = pls.map(([suf, au, days, re, t0, m, yr, teq]) => {
-    const p = { name: suf, au, days, re: re || 1, reKnown: !!re, t0, method: m, year: yr, teq }
+  const planets = pls.map(([suf, au, days, re, t0, m, yr, teq, ecc, peri, tperi]) => {
+    const p = { name: suf, au, days, re: re || 1, reKnown: !!re, t0, method: m, year: yr, teq, ecc: ecc || 0, peri, tperi }
     p.color = planetColor(p, hz)
     return p
   })
@@ -160,6 +160,7 @@ export function linkFeatured(byName) {
       const suf = p.name.replace(/^.*\s/, '')
       const hit = row[7].find(([s]) => s === p.name || s === suf || s.endsWith(' ' + suf))
       if (hit && hit[4]) p.t0 = hit[4]
+      if (hit) { p.ecc = hit[8] || 0; p.peri = hit[9]; p.tperi = hit[10] }
     }
   }
 }
@@ -172,13 +173,27 @@ export function exoStates(sys, date = new Date(), toEarth = 0) {
   const jd = date.getTime() / 86400000 + 2440587.5
   const days = jd - 2451545.0
   return sys.planets.map((p) => {
-    const exact = !!p.t0
-    const angle = exact ? toEarth + (2 * Math.PI * (jd - p.t0)) / p.days : hashPhase(sys.id + p.name) + (2 * Math.PI * days) / p.days
+    // 타원 궤도: 이심률 e, 근점 인수 ω(시선 기준). ω를 모르면 90°(통과 순간 = 근점)로 둠
+    const e = Math.min(0.95, p.ecc || 0)
+    const w = (p.peri ?? 90) * Math.PI / 180
+    const nuTr = Math.PI / 2 - w // 별 앞을 지나는(지구 쪽) 순간의 진근점 이각
+    const n = (2 * Math.PI) / p.days
+    const nuToM = (nu) => { const E = 2 * Math.atan2(Math.sqrt(1 - e) * Math.sin(nu / 2), Math.sqrt(1 + e) * Math.cos(nu / 2)); return E - e * Math.sin(E) }
+    let M, periDir, src
+    if (p.t0) { M = nuToM(nuTr) + n * (jd - p.t0); periDir = toEarth - nuTr; src = 'transit' }
+    else if (p.tperi) { M = n * (jd - p.tperi); periDir = toEarth - nuTr; src = 'periastron' }
+    else { M = hashPhase(sys.id + p.name) + n * days; periDir = p.peri != null ? toEarth - nuTr : hashPhase(sys.id + p.name + 'w'); src = 'estimate' }
+    M = ((M % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
+    let E = e < 0.8 ? M : Math.PI
+    for (let k = 0; k < 30; k++) { const d = (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E)); E -= d; if (Math.abs(d) < 1e-10) break }
+    const nu = 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(E / 2), Math.sqrt(1 - e) * Math.cos(E / 2))
+    const rAU = p.au * (1 - e * Math.cos(E))
+    const exact = src !== 'estimate'
     const full = p.name.length <= 3 ? `${sys.name} ${p.name}` : p.name
     return {
       name: full, short: p.name.length <= 3 ? p.name : p.name.replace(sys.name, '').trim() || p.name,
-      distKm: p.au * 1.495978707e8, au: p.au, radiusKm: (p.re || 1) * 6371, re: p.re, reKnown: p.reKnown !== false,
-      color: p.color, note: p.note, angle, periodDays: p.days, exact, teq: p.teq,
+      distKm: rAU * 1.495978707e8, au: p.au, rAU, ecc: e, periDir, radiusKm: (p.re || 1) * 6371, re: p.re, reKnown: p.reKnown !== false,
+      color: p.color, note: p.note, angle: periDir + nu, periodDays: p.days, exact, src, teq: p.teq,
     }
   })
 }
