@@ -34,14 +34,22 @@ export function sunDirection(date = new Date()) {
 }
 
 /** 달 위치(지구 고정, 지구 반지름 단위)와 위상 */
+// 달 황경·황위·거리 (주요 섭동항 포함, 오차 약 0.2° · 수백 km)
+function moonEcl(n) {
+  const L = 218.316 + 13.176396 * n
+  const M = (134.963 + 13.064993 * n) * DEG        // 달 평균 근점 이각
+  const Ms = (357.529 + 0.98560028 * n) * DEG      // 태양 평균 근점 이각
+  const D = (297.850 + 12.190749 * n) * DEG        // 평균 이각
+  const F = (93.272 + 13.22935 * n) * DEG          // 승교점 인수
+  const lam = L + 6.289 * Math.sin(M) + 1.274 * Math.sin(2 * D - M) + 0.658 * Math.sin(2 * D) + 0.214 * Math.sin(2 * M)
+    - 0.186 * Math.sin(Ms) - 0.114 * Math.sin(2 * F) + 0.059 * Math.sin(2 * D - 2 * M) + 0.057 * Math.sin(2 * D - Ms - M)
+  const beta = 5.128 * Math.sin(F) + 0.281 * Math.sin(M + F) + 0.278 * Math.sin(M - F) + 0.173 * Math.sin(2 * D - F)
+  const distKm = 385001 - 20905 * Math.cos(M) - 3699 * Math.cos(2 * D - M) - 2956 * Math.cos(2 * D) - 570 * Math.cos(2 * M)
+  return { lam, beta, distKm }
+}
 export function moonState(date = new Date()) {
   const n = daysJ2000(date)
-  const L = 218.316 + 13.176396 * n
-  const M = (134.963 + 13.064993 * n) * DEG
-  const F = (93.272 + 13.22935 * n) * DEG
-  const lam = L + 6.289 * Math.sin(M)
-  const beta = 5.128 * Math.sin(F)
-  const distKm = 385001 - 20905 * Math.cos(M)
+  const { lam, beta, distKm } = moonEcl(n)
   const u = eclToEcef(lam, beta, n)
   const k = distKm / EARTH_RADIUS_KM
   // 위상: 태양과의 황경 차(이각)
@@ -49,13 +57,13 @@ export function moonState(date = new Date()) {
   const illum = (1 - Math.cos(elong * DEG)) / 2
   const names = ['삭(신월)', '초승달', '상현달', '차오르는 달', '보름달', '기우는 달', '하현달', '그믐달']
   const phase = names[Math.floor(((elong + 22.5) % 360) / 45)]
-  // 궤도선: 현재 위치에서 황경을 한 바퀴 돌리며 β 변화 반영
+  // 궤도선: 앞으로 한 달(27.32일) 동안 달이 실제로 지나갈 길 — 지구 자전은 지금 시각으로 고정
   const orbit = []
   for (let i = 0; i <= 128; i++) {
-    const dl = (i / 128) * 360
-    const b = 5.128 * Math.sin(F + dl * DEG)
-    const p = eclToEcef(lam + dl, b, n)
-    orbit.push(p[0] * 60.27, p[1] * 60.27, p[2] * 60.27)
+    const e = moonEcl(n + (i / 128) * 27.3217)
+    const p = eclToEcef(e.lam, e.beta, n)
+    const r = e.distKm / EARTH_RADIUS_KM
+    orbit.push(p[0] * r, p[1] * r, p[2] * r)
   }
   return { pos: [u[0] * k, u[1] * k, u[2] * k], distKm, illum, phase, elong, orbit }
 }
