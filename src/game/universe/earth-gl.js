@@ -165,7 +165,8 @@ void main() {
   col += vec3(1.0, 1.0, 0.95) * pow(max(dot(P, H), 0.0), 48.0) * smoothstep(-0.05, 0.2, nd) * 0.86 * wet;
 
   // ── 구름 ──
-  float cloudFade = 1.0 - 0.75 * smoothstep(1500.0, 9000.0, uR);
+  // 구름 텍스처는 한 칸이 약 18km라 확대하면 얼룩처럼 보임 → 지역 단위로 들어가면 거의 지움
+  float cloudFade = 1.0 - 0.95 * smoothstep(1100.0, 4000.0, uR);
   float cu = u - uCloudShift;
   float ca = seamless(uClouds, fract(cu), fract(cu + 0.5) - 0.5, v).r * cloudFade * (0.45 + 0.55 * smoothstep(-0.15, 0.1, nd));
 
@@ -527,7 +528,6 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
       const px = (im) => { if (!im) return null; const cv = document.createElement('canvas'); cv.width = CW2; cv.height = CH2; const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0, CW2, CH2); return g.getImageData(0, 0, CW2, CH2).data }
       const A = px(a), B = px(b), Bs = px(base)
       const out = new Uint8Array(CW2 * CH2)
-      const proc = tex.clouds
       const cloudOf = (d, i) => {
         const r = d[i] / 255, g = d[i + 1] / 255, bl = d[i + 2] / 255
         const mx = Math.max(r, g, bl), mn = Math.min(r, g, bl)
@@ -535,7 +535,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
         const lum = 0.3 * r + 0.59 * g + 0.11 * bl, sat = (mx - mn) / mx
         let lb = 0.12, sb = 0.5
         if (Bs) { const R2 = Bs[i] / 255, G2 = Bs[i + 1] / 255, B2 = Bs[i + 2] / 255; lb = 0.3 * R2 + 0.59 * G2 + 0.11 * B2; const m2 = Math.max(R2, G2, B2); sb = m2 > 0 ? (m2 - Math.min(R2, G2, B2)) / m2 : 0 }
-        let c = Math.min(1, Math.max(0, (lum - lb * 0.9 - 0.1) / 0.35)) * (1 - Math.min(1, Math.max(0, (sat - 0.12) / 0.25)))
+        let c = Math.min(1, Math.max(0, (lum - lb * 0.9 - 0.15) / 0.35)) * (1 - Math.min(1, Math.max(0, (sat - 0.12) / 0.25)))
         if (lb > 0.55 && sb < 0.15) c *= 0.3 // 원래 하얀 곳(얼음·눈)
         return c
       }
@@ -543,7 +543,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
         const k = y * CW2 + x, i = k * 4
         let c = cloudOf(A, i)
         if (c < 0 && B) c = cloudOf(B, i)
-        if (c < 0) c = proc[Math.min(CH - 1, (y * CH / CH2) | 0) * CW + Math.min(CW - 1, (x * CW / CW2) | 0)] / 255 * 0.8
+        if (c < 0) c = 0 // 관측 빈틈은 구름 없음(가짜 구름으로 채우지 않음)
         out[k] = Math.round(c * 255)
       }
       const t = dataTex(out, CW2, CH2, THREE.RedFormat)
