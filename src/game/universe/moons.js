@@ -4,6 +4,7 @@
  *  - 목성 갈릴레이 위성 4개는 Meeus『Astronomical Algorithms』44장 저정밀 식으로 실제 위치(±1° 수준)
  *  - 나머지는 위상 근사(주기는 실제) — 화면에 "위치는 근사"로 안내
  */
+import { tass17, TASS17_INDEX } from './tass17.js'
 import { planetPositions } from './planets.js'
 
 const DEG = Math.PI / 180
@@ -97,7 +98,14 @@ export function moonStates(planet, date = new Date()) {
     const toEarth = Math.atan2(e[1] - j[1], e[0] - j[0]) // 목성에서 지구 방향
     galilean = galileanU(date).map((u) => toEarth + u * DEG)
   }
+  const jd = days + 2451545.0
   return list.map(([name, distKm, period, radiusKm, color], i) => {
+    // 토성 큰 위성 8개: TASS 1.7 이론으로 실제 위치
+    const ti = planet === '토성' ? TASS17_INDEX[name] : undefined
+    if (ti !== undefined) {
+      const p = tass17(jd, ti)
+      return { name, distKm, radiusKm, color, angle: Math.atan2(p[1], p[0]), periodDays: Math.abs(period), retro: period < 0, exact: true, pos3: p }
+    }
     const exact = !!galilean
     const angle = exact ? galilean[i] : hashPhase(name) + (2 * Math.PI * days) / period
     return { name, distKm, radiusKm, color, angle, periodDays: Math.abs(period), retro: period < 0, exact }

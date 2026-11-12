@@ -332,7 +332,7 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
         }
         g.stroke();
       };
-      g.globalAlpha = hzA * 0.85; g.strokeStyle = 'rgba(225,205,160,0.75)'; g.lineWidth = Math.max(1, R * 0.05);
+      g.globalAlpha = hzA * (b.ringThin ? 0.3 : 0.85); g.strokeStyle = 'rgba(225,205,160,0.75)'; g.lineWidth = Math.max(1, R * 0.05);
       ring(1.8, false); ring(2.2, false);
       g.globalAlpha = hzA * (dirE[2] < 0 ? 0.35 : 1);
       g.fillStyle = '#10131a'; g.beginPath(); g.arc(p[0], p[1], R, 0, Math.PI * 2); g.fill();
@@ -347,12 +347,12 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
       g.save(); g.translate(p[0], p[1]); g.rotate(ang);
       g.fillStyle = b.name === '지구' ? '#5f97e8' : b.col;
       g.beginPath(); g.arc(0, 0, R, -Math.PI / 2, Math.PI / 2); g.ellipse(0, 0, R * Math.abs(kk), R, 0, Math.PI / 2, -Math.PI / 2, kk > 0); g.fill();
-      if (b.name !== '지구') { // 줄무늬
+      if (b.name === '목성' || b.name === '토성') { // 줄무늬
         g.globalAlpha *= 0.25; g.strokeStyle = '#8a6a44'; g.lineWidth = Math.max(1, R * 0.06);
         for (const yy of [-0.55, -0.25, 0.1, 0.4]) { g.beginPath(); g.moveTo(-R, yy * R); g.lineTo(R, yy * R); g.stroke(); }
       }
       g.restore();
-      g.globalAlpha = hzA * 0.9; g.strokeStyle = 'rgba(225,205,160,0.85)'; g.lineWidth = Math.max(1, R * 0.05);
+      g.globalAlpha = hzA * (b.ringThin ? 0.35 : 0.9); g.strokeStyle = 'rgba(225,205,160,0.85)'; g.lineWidth = Math.max(1, R * 0.05);
       ring(1.8, true); ring(2.2, true);
       g.globalAlpha = Math.max(0.35, hzA); g.fillStyle = '#e8ecff'; g.font = '700 11px "SF Mono",Menlo,Consolas,"Apple SD Gothic Neo","Noto Sans KR",monospace'; g.textAlign = 'left';
       g.fillText(`${b.name} ${(angR * 2 / D).toFixed(1)}°`, p[0] + R * 0.72 + 6, p[1] - R * 0.72);
@@ -465,7 +465,7 @@ export function openNightSky(host, { sky, deep, loc, sats, onClose, describeStar
     const hh = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
     if (F) {
       root.querySelector('.ns-top h3').textContent = `${F.site.name}에서 본 하늘`;
-      root.querySelector('.ns-top p').textContent = `${F.site.site} · 지구 시각 ${date.getMonth() + 1}월 ${date.getDate()}일 ${hh}${tOff ? ' (시간 이동 중)' : ''} · 해 고도 ${sunAlt.toFixed(0)}° · 보는 방향 ${dirKo(az)} ${alt.toFixed(0)}° · ${F.site.note}`;
+      root.querySelector('.ns-top p').textContent = `${F.site.site} · 지구 시각 ${date.getMonth() + 1}월 ${date.getDate()}일 ${hh}${tOff ? ' (시간 이동 중)' : ''} · 해 고도 ${sunAlt.toFixed(0)}° · 보는 방향 ${dirKo(az)} ${alt.toFixed(0)}° · ${F.site.note}${F.site.approx ? ' · 이 위성의 궤도 위치(모행성 위상)는 대략' : ''}`;
     } else root.querySelector('.ns-top h3').textContent = '밤하늘 모드';
     if (!F) root.querySelector('.ns-top p').textContent = (BB.note ? `[${BB.ko}] ${BB.note} — ` : '') + `${loc.label} ${loc.lat.toFixed(2)}°, ${loc.lon.toFixed(2)}° · ${date.getMonth() + 1}월 ${date.getDate()}일 ${hh}${tOff ? ' (시간 이동 중)' : ''} · 해 고도 ${sunAlt.toFixed(0)}° · 달 ${ms.phase} · 보는 방향 ${dirKo(az)} ${alt.toFixed(0)}° · 시야 ${fov.toFixed(0)}°${sats && sats.count && satMode < 2 ? ` · 머리 위 위성 ${satStat.up}개(맨눈 후보 ${satStat.lit}개${satStat.night ? '' : ' — 해가 떠 있어서 안 보여요'})` : ''}${day > 0.5 && atmo ? ' · 낮이라 별이 안 보여요 — 「대기 끄기」' : ''}`;
     // 호버·탭 정보
