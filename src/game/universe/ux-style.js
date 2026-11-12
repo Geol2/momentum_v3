@@ -90,6 +90,9 @@ const CSS = `
 .mu-lv.found{background:rgba(61,255,143,.16);color:var(--g);border-color:var(--g2)}
 .mu-lv.cur{background:rgba(61,255,143,.42);color:#eafff2;border-color:var(--g);box-shadow:0 0 8px rgba(61,255,143,.6);text-shadow:0 0 3px #000}
 .mu-lvmark{position:absolute;top:0;left:0;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid var(--g);filter:drop-shadow(0 0 3px var(--g));transform:translateX(-5px);transition:left .12s linear}
+.mu-scalebar{position:absolute;left:14px;bottom:100%;margin-bottom:8px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;pointer-events:none;
+  font-size:10px;color:#cfffe2;text-shadow:0 0 3px #000,0 0 6px #000;font-variant-numeric:tabular-nums}
+.mu-sb-bar{display:block;height:5px;border:1.5px solid var(--g);border-top:0;box-shadow:0 2px 4px rgba(0,0,0,.6);transition:width .12s linear}
 .mu-lvtext{max-width:440px;margin:0 auto 5px;font-size:10px;text-align:center;color:var(--gd);letter-spacing:.03em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mu-lvtext b{color:var(--g)}
 .mu-progress{position:relative;max-width:400px;margin:10px auto 0;height:16px;border:1px solid var(--g2);background:rgba(1,18,9,.7);overflow:hidden}

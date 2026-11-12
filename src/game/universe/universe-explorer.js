@@ -71,6 +71,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     <div class="mu-toast mu-frame"></div>
     <div class="mu-hint mu-frame">드래그로 이동 · 핀치·휠로 가리킨 곳 확대 · 두 번 탭하면 그곳으로</div>
     <div class="mu-bottom">
+      <div class="mu-scalebar" aria-label="축척"><span class="mu-sb-lab"></span><span class="mu-sb-bar"></span></div>
       <div class="mu-focusbar" hidden>
         <button class="mu-back">← 태양계로</button>
         <button class="mu-speed">SPD · 1초=1시간</button>
@@ -105,7 +106,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   let ctx = baseCtx; // 지구보다 위에 그릴 것은 octx 로 바꿔서 그린다
   const ui = {
     step: $('.mu-step'), name: $('.mu-name'), desc: $('.mu-desc'),
-    ladder: $('.mu-ladder'), lvMark: $('.mu-lvmark'), lvText: $('.mu-lvtext'), where: $('.mu-where'),
+    ladder: $('.mu-ladder'), lvMark: $('.mu-lvmark'), lvText: $('.mu-lvtext'), sbBar: $('.mu-sb-bar'), sbLab: $('.mu-sb-lab'), sb: $('.mu-scalebar'), where: $('.mu-where'),
     credit: $('.mu-credit'), toast: $('.mu-toast'), focusbar: $('.mu-focusbar'), speed: $('.mu-speed'), hint: $('.mu-hint'), modal: $('.mu-modal'), time: $('.mu-time'), addr: $('.mu-addr'),
   };
 
@@ -1181,6 +1182,19 @@ export function mountUniverseExplorer(container, opts = {}) {
     ladDrag = null;
   };
   ui.ladder.addEventListener('pointerup', ladUp); ui.ladder.addEventListener('pointercancel', () => { ladDrag = null; });
+  // 축척 막대: 화면에서 이 길이가 실제로 얼마인지 (1·2·5 단위로 딱 떨어지게)
+  function updateScaleBar() {
+    const mpp = mppAt(s);
+    const want = mpp * 90; // 약 90px
+    const unit = want < 5e11 ? [1000, 'km'] : want < 3e15 ? [AU, 'AU'] : [LY, '광년'];
+    let v = want / unit[0];
+    const p10 = Math.pow(10, Math.floor(Math.log10(v)));
+    const nice = [5, 2, 1].map((k) => k * p10).find((x) => x <= v) || p10;
+    const px = (nice * unit[0]) / mpp;
+    const lab = `${fmtKo(nice)} ${unit[1]}`;
+    const key = lab + '|' + px.toFixed(0);
+    if (hudCache.sb !== key) { hudCache.sb = key; ui.sbBar.style.width = `${px.toFixed(1)}px`; ui.sbLab.textContent = lab; }
+  }
   function updateHud() {
     if (s > 10.5 || focus) loadCatalogs();
     btn3d.hidden = s < 16.5;
@@ -1275,6 +1289,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     const lvName = hud && hud.kind === 'star' ? `${hud.sys.name} 행성계` : hud ? hud.name : `${String(idx + 1).padStart(2, '0')} ${LEVELS[idx].name}`;
     setText('lv', ui.lvText, `<b>${lvName}</b> · 폭 <b>${fmtLength(span)}</b> · 빛으로 ${fmtLightTime(span)} · 발견 ${found.size}/${LEVELS.length}`, true);
     setText('where', ui.where, whereLine(), true);
+    updateScaleBar();
     watchTools();
   }
 
