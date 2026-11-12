@@ -79,6 +79,9 @@ void main() {
   float u2 = fract(u + 0.5) - 0.5;
   float v = 0.5 - lat / PI;
 
+  float nd = dot(P, uSun);
+  // 완전한 밤(태양 고도 약 -7° 아래): 낮 표면 색은 어차피 0이 되므로 계산을 건너뜀(밤쪽이 느리던 원인)
+  bool fullNight = nd < -0.12;
   // ── 해안선 (SDF + 확대 시 프랙탈) ──
   float unit = 127.0 / uSdfK;
   float d = seamless(uSdf, u, u2, v).r * 255.0;
@@ -94,11 +97,14 @@ void main() {
   float landA = clamp((d - 128.0) / edgeW + 0.5, 0.0, 1.0);
 
   // ── 지표·바다 색 ──
-  vec4 land = seamless(uLand, u, u2, v);   // rgb: 육지색, a: 해안 근접도
-  vec4 ocean = seamless(uOcean, u, u2, v); // rgb: 바다색, a: 해빙
-  float ice = ocean.a;
   float climatePx = 1.0 / (max(fwidth(u2 * ${TW}.0), fwidth(v * ${TH}.0)) + 1e-6);
   float zoomDetail = smoothstep(2.0, 10.0, climatePx);
+  vec3 col = vec3(0.0);
+  float ice = 0.0;
+  if (!fullNight) {
+  vec4 land = seamless(uLand, u, u2, v);   // rgb: 육지색, a: 해안 근접도
+  vec4 ocean = seamless(uOcean, u, u2, v); // rgb: 바다색, a: 해빙
+  ice = ocean.a;
   float shallow = max(smoothstep(30.0, 128.0, d) * 0.85, smoothstep(0.04, 0.5, land.a) * 0.55) * (1.0 - ice);
   vec3 oc = mix(ocean.rgb, vec3(30.0, 104.0, 146.0) / 255.0, shallow);
   // NASA Blue Marble 위성 사진 (로드되면 서서히 교체)
@@ -114,7 +120,8 @@ void main() {
   float tex1 = 1.0 + (nfine - 0.5) * 0.5 * zoomDetail;
   float field = (nfine - 0.5) * 46.0 / 255.0 * zoomDetail * (1.0 - 0.6 * uHasDay);
   vec3 lc = lc0 * tex1 + vec3(field, field * 0.6, 0.0);
-  vec3 col = mix(oc, lc, landA);
+  col = mix(oc, lc, landA);
+  }
 
   // ── 확대 시 고해상도 위성 타일(Sentinel-2 cloudless) ──
   float urbanW = 0.0, urban = 0.0;
@@ -127,7 +134,7 @@ void main() {
     float inside = step(0.0, duv.x) * step(duv.x, 1.0) * step(0.0, duv.y) * step(duv.y, 1.0);
     float edge = smoothstep(0.0, 0.03, min(min(duv.x, 1.0 - duv.x), min(duv.y, 1.0 - duv.y)));
     float wD = det.a * inside * edge * uDetailA;
-    col = mix(col, det.rgb * 1.12, wD);
+    if (!fullNight) col = mix(col, det.rgb * 1.12, wD);
     // 시가지 추정: 채도 낮고 밝은 회색 지역 = 도시
     float mx = max(det.r, max(det.g, det.b)), mn = min(det.r, min(det.g, det.b));
     float sat = (mx - mn) / max(mx, 1e-3);
@@ -140,7 +147,7 @@ void main() {
 
   // ── 확대 지형 음영: 실제 고도 자료로 만든 경사 × 실제 태양 방향 ──
   float latDeg = lat * 180.0 / PI;
-  if (uHeightA > 0.001) {
+  if (uHeightA > 0.001 && !fullNight) {
     float lonH = u * 360.0 - 180.0;
     if (lonH < uHeightBox.x) lonH += 360.0;
     vec2 huv = vec2((lonH - uHeightBox.x) / (uHeightBox.z - uHeightBox.x), (uHeightBox.w - latDeg) / (uHeightBox.w - uHeightBox.y));
@@ -158,13 +165,11 @@ void main() {
   }
 
   // ── 조명 (실제 태양 방향) ──
-  float nd = dot(P, uSun);
   float dl = smoothstep(-0.1, 0.2, nd) * (0.22 + 0.78 * max(nd, 0.0));
   float nightK = 1.0 - smoothstep(-0.12, 0.03, nd);
   col *= dl;
   float wet = (1.0 - landA) * (1.0 - ice);
-  vec3 H = normalize(uSun + uView);
-  col += vec3(1.0, 1.0, 0.95) * pow(max(dot(P, H), 0.0), 48.0) * smoothstep(-0.05, 0.2, nd) * 0.86 * wet;
+  if (!fullNight) { vec3 H = normalize(uSun + uView); col += vec3(1.0, 1.0, 0.95) * pow(max(dot(P, H), 0.0), 48.0) * smoothstep(-0.05, 0.2, nd) * 0.86 * wet; }
 
   // ── 구름 ──
   // 구름 텍스처는 한 칸이 약 18km라 확대하면 얼룩처럼 보임 → 지역 단위로 들어가면 거의 지움
@@ -175,7 +180,9 @@ void main() {
   // ── 도시 불빛 ──
   float litBoost = 1.35 + 1.6 * (1.0 - smoothstep(140.0, 700.0, uR));
   float lightDetail = smoothstep(3500.0, 16000.0, uR);
-  float li = seamless(uBaseLights, u, u2, v).r * (1.0 - 0.6 * zoomDetail) + seamless(uCity, u, u2, v).r;
+  float li = 0.0;
+  if (nightK > 0.001) {
+  li = seamless(uBaseLights, u, u2, v).r * (1.0 - 0.6 * zoomDetail) + seamless(uCity, u, u2, v).r;
   li = min(li * litBoost, 1.0) * landA * nightK * (1.0 - ca * 0.6);
   float nlit = n2 * 0.7 + vnoise(P * fD * 7.3) * 0.3;
   li *= 1.0 - lightDetail + lightDetail * (0.25 + smoothstep(0.42, 0.7, nlit) * 1.35);
@@ -194,13 +201,14 @@ void main() {
     float bml = smoothstep(0.1, 0.85, dot(bm.rgb, vec3(0.35, 0.45, 0.2)));
     li = mix(li, min(bml * 1.25, 1.0) * nightK * (1.0 - ca * 0.6), uNightA * nin * nedge);
   }
+  }
   col += li * vec3(1.1, 0.82, 0.4);
 
   float cl = 0.96 * (0.05 + dl * 1.05);
   col = mix(col, vec3(cl, cl, cl * 1.02), ca);
 
   // ── 오로라 (NOAA SWPC 30분 예보) — 밤쪽에서 초록, 강하면 위쪽 붉은빛 ──
-  if (uAuroraA > 0.001) {
+  if (uAuroraA > 0.001 && nd < 0.05) {
     float au = texture(uAurora, vec2(u, v)).r;
     float ak = smoothstep(0.04, 0.95, au) * uAuroraA;
     float darkA = 1.0 - smoothstep(-0.18, 0.05, nd);
@@ -827,7 +835,8 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
      */
     draw(glowCtx, X, Y, R, time, ratio = 1, w = 1, h = 1, _moving = false, opts = {}) {
       updateAstro()
-      resize(w, h, Math.min(ratio, 2))
+      // 지표를 확대해 화면을 꽉 채우면 1.5배로(위성 사진은 어차피 늘려 보는 중) — 픽셀 수 약 44% 감소
+      resize(w, h, Math.min(ratio, R > Math.max(w, h) * 0.9 ? 1.5 : 2))
       if (glowCtx && R < Math.max(w, h) * 2) {
         const g = glowCtx.createRadialGradient(X, Y, R * 0.98, X, Y, R * 1.12)
         g.addColorStop(0, 'rgba(110,170,255,0.55)')
