@@ -125,6 +125,7 @@ void main() {
 
   // ── 확대 시 고해상도 위성 타일(Sentinel-2 cloudless) ──
   float urbanW = 0.0, urban = 0.0;
+  vec3 detNight = vec3(0.0);
   if (uDetailA > 0.001) {
     float lonD = u * 360.0 - 180.0;
     if (lonD < uDetailBox.x) lonD += 360.0;
@@ -135,6 +136,7 @@ void main() {
     float edge = smoothstep(0.0, 0.03, min(min(duv.x, 1.0 - duv.x), min(duv.y, 1.0 - duv.y)));
     float wD = det.a * inside * edge * uDetailA;
     if (!fullNight) col = mix(col, det.rgb * 1.12, wD);
+    detNight = det.rgb * wD;
     // 시가지 추정: 채도 낮고 밝은 회색 지역 = 도시
     float mx = max(det.r, max(det.g, det.b)), mn = min(det.r, min(det.g, det.b));
     float sat = (mx - mn) / max(mx, 1e-3);
@@ -198,11 +200,19 @@ void main() {
     vec4 bm = texture(uNightDet, clamp(nuv, 0.0, 1.0));
     float nin = step(0.0, nuv.x) * step(nuv.x, 1.0) * step(0.0, nuv.y) * step(nuv.y, 1.0);
     float nedge = smoothstep(0.0, 0.04, min(min(nuv.x, 1.0 - nuv.x), min(nuv.y, 1.0 - nuv.y)));
-    float bml = smoothstep(0.1, 0.85, dot(bm.rgb, vec3(0.35, 0.45, 0.2)));
-    li = mix(li, min(bml * 1.25, 1.0) * nightK * (1.0 - ca * 0.6), uNightA * nin * nedge);
+    float bml = smoothstep(0.06, 0.95, dot(bm.rgb, vec3(0.35, 0.45, 0.2)));
+    // Black Marble 한 칸은 약 500m — 많이 확대하면 뭉개진 얼룩이 되므로
+    // 밝기 분포(어느 동네가 밝은지)만 쓰고, 모양은 위성 사진의 시가지 위치로 잘게 나눈다
+    float bmPx = 1.0 / (max(fwidth(nuv.x * float(textureSize(uNightDet, 0).x)), fwidth(nuv.y * float(textureSize(uNightDet, 0).y))) + 1e-6);
+    float fineK = smoothstep(2.5, 10.0, bmPx) * urbanW;
+    float grain = 0.55 + 0.9 * vnoise(P * fD * 23.0);
+    float shaped = bml * mix(1.0, (0.08 + 1.25 * urban) * grain, fineK);
+    li = mix(li, min(shaped * 1.1, 1.0) * nightK * (1.0 - ca * 0.6), uNightA * nin * nedge);
   }
   }
   col += li * vec3(1.1, 0.82, 0.4);
+  // 확대한 밤: 완전히 까맣지 않게 지형이 아주 희미하게 (달빛·대기광 정도)
+  col += detNight * vec3(0.05, 0.065, 0.1) * nightK * (1.0 - li);
 
   float cl = 0.96 * (0.05 + dl * 1.05);
   col = mix(col, vec3(cl, cl, cl * 1.02), ca);
