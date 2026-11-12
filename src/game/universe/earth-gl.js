@@ -49,6 +49,12 @@ uniform float uHasDay, uHasRelief;
 uniform sampler2D uDetail;
 uniform vec4 uDetailBox; // lon0, lat0(남), lon1, lat1(북) — 도
 uniform float uDetailA;
+uniform sampler2D uHeightN;   // 확대 지형: 경사(동·북) — atan 인코딩
+uniform vec4 uHeightBox;
+uniform float uHeightA;
+uniform sampler2D uNightDet;  // 확대 야경: NASA Black Marble
+uniform vec4 uNightBox;
+uniform float uNightA;
 uniform vec2 uSdfSize;
 uniform float uSdfK;
 uniform vec3 uSun, uView;
@@ -130,6 +136,25 @@ void main() {
     urbanW = wD;
   }
 
+  // ── 확대 지형 음영: 실제 고도 자료로 만든 경사 × 실제 태양 방향 ──
+  float latDeg = lat * 180.0 / PI;
+  if (uHeightA > 0.001) {
+    float lonH = u * 360.0 - 180.0;
+    if (lonH < uHeightBox.x) lonH += 360.0;
+    vec2 huv = vec2((lonH - uHeightBox.x) / (uHeightBox.z - uHeightBox.x), (uHeightBox.w - latDeg) / (uHeightBox.w - uHeightBox.y));
+    vec4 hs4 = texture(uHeightN, clamp(huv, 0.0, 1.0));
+    float hin = step(0.0, huv.x) * step(huv.x, 1.0) * step(0.0, huv.y) * step(huv.y, 1.0) * hs4.a;
+    float hedge = smoothstep(0.0, 0.04, min(min(huv.x, 1.0 - huv.x), min(huv.y, 1.0 - huv.y)));
+    vec2 sl = tan((clamp(hs4.rg, 0.02, 0.98) - 0.5) * PI);
+    vec3 Ev = normalize(vec3(-P.y, P.x, 0.0) + vec3(1e-6, 0.0, 0.0));
+    vec3 Nv = cross(P, Ev);
+    vec3 sL = vec3(dot(uSun, Ev), dot(uSun, Nv), dot(uSun, P));
+    vec3 tn = normalize(vec3(-sl.x, -sl.y, 1.0));
+    float flatL = max(sL.z, 0.1);
+    float shade = clamp(max(dot(tn, sL), 0.0) / flatL, 0.25, 1.9);
+    col *= mix(1.0, shade, uHeightA * hin * hedge * smoothstep(-0.05, 0.15, sL.z));
+  }
+
   // ── 조명 (실제 태양 방향) ──
   float nd = dot(P, uSun);
   float dl = smoothstep(-0.1, 0.2, nd) * (0.22 + 0.78 * max(nd, 0.0));
@@ -155,6 +180,17 @@ void main() {
   float metro = seamless(uCity, u, u2, v).r;
   float liUrban = urban * clamp(0.35 + metro * 2.5, 0.0, 1.0) * (0.75 + 0.5 * vnoise(P * fD * 9.0)) * landA * nightK;
   li = mix(li, liUrban, urbanW);
+  // 확대 시 실제 야간 위성 사진(Black Marble)으로 도시 불빛
+  if (uNightA > 0.001) {
+    float lonN = u * 360.0 - 180.0;
+    if (lonN < uNightBox.x) lonN += 360.0;
+    vec2 nuv = vec2((lonN - uNightBox.x) / (uNightBox.z - uNightBox.x), (uNightBox.w - latDeg) / (uNightBox.w - uNightBox.y));
+    vec4 bm = texture(uNightDet, clamp(nuv, 0.0, 1.0));
+    float nin = step(0.0, nuv.x) * step(nuv.x, 1.0) * step(0.0, nuv.y) * step(nuv.y, 1.0);
+    float nedge = smoothstep(0.0, 0.04, min(min(nuv.x, 1.0 - nuv.x), min(nuv.y, 1.0 - nuv.y)));
+    float bml = smoothstep(0.1, 0.85, dot(bm.rgb, vec3(0.35, 0.45, 0.2)));
+    li = mix(li, min(bml * 1.25, 1.0) * nightK * (1.0 - ca * 0.6), uNightA * nin * nedge);
+  }
   col += li * vec3(1.1, 0.82, 0.4);
 
   float cl = 0.96 * (0.05 + dl * 1.05);
@@ -262,6 +298,8 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
     uR: { value: 100 }, uCloudShift: { value: 0 },
     uDay: { value: landT }, uRelief: { value: landT }, uHasDay: { value: 0 }, uHasRelief: { value: 0 },
     uDetail: { value: landT }, uDetailBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uDetailA: { value: 0 },
+    uHeightN: { value: landT }, uHeightBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uHeightA: { value: 0 },
+    uNightDet: { value: landT }, uNightBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uNightA: { value: 0 },
   }
   const earthMat = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms, vertexShader: EARTH_VERT, fragmentShader: EARTH_FRAG })
   const earth = new THREE.Mesh(new THREE.SphereGeometry(1, 256, 128), earthMat)
@@ -449,6 +487,8 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
     jobs.sort((a, b) => a.d - b.d)
     queue.push(...jobs)
     pump()
+    planTerrain(cur)
+    planNight(cur)
   }
 
   function updateDetail(X, Y, R, W, H, ratio) {
@@ -465,6 +505,127 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
     if (now - wantSince > 180) applyPlan(want) // 줌·회전이 잠깐 멈추면 갱신
   }
   const smoothstep01 = (e0, e1, x) => { const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t) }
+
+  // ── 공용: 외부 이미지 → 캔버스 ──
+  const loadImg = (url) => new Promise((res, rej) => { const im = new Image(); im.crossOrigin = 'anonymous'; im.decoding = 'async'; im.onload = () => res(im); im.onerror = rej; im.src = url })
+  const canvasTex = (cv) => { const t = new THREE.CanvasTexture(cv); t.flipY = false; t.colorSpace = THREE.NoColorSpace; t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; return t }
+  const GIBS = (layer, box, w, h, date, fmt = 'image/jpeg') => `https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&LAYERS=${layer}&STYLES=&SRS=EPSG:4326&BBOX=${box.join(',')}&WIDTH=${w}&HEIGHT=${h}&FORMAT=${encodeURIComponent(fmt)}&TRANSPARENT=FALSE${date ? `&TIME=${date}` : ''}`
+  const info = { cloudDate: null, terrain: false, night: false }
+  let dead = false
+
+  // ── 오늘의 실제 구름: NASA GIBS VIIRS 어제 영상과 구름 없는 지구 사진을 비교해 구름만 뽑기 ──
+  ;(async () => {
+    try {
+      const date = new Date(Date.now() - 30 * 3600000).toISOString().slice(0, 10)
+      const CW2 = 2048, CH2 = 1024, box = [-180, -90, 180, 90]
+      const [a, b, base] = await Promise.all([
+        loadImg(GIBS('VIIRS_SNPP_CorrectedReflectance_TrueColor', box, CW2, CH2, date)),
+        loadImg(GIBS('VIIRS_NOAA20_CorrectedReflectance_TrueColor', box, CW2, CH2, date)).catch(() => null),
+        dayUrl ? loadImg(dayUrl) : Promise.resolve(null),
+      ])
+      if (dead) return
+      const px = (im) => { if (!im) return null; const cv = document.createElement('canvas'); cv.width = CW2; cv.height = CH2; const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0, CW2, CH2); return g.getImageData(0, 0, CW2, CH2).data }
+      const A = px(a), B = px(b), Bs = px(base)
+      const out = new Uint8Array(CW2 * CH2)
+      const proc = tex.clouds
+      const cloudOf = (d, i) => {
+        const r = d[i] / 255, g = d[i + 1] / 255, bl = d[i + 2] / 255
+        const mx = Math.max(r, g, bl), mn = Math.min(r, g, bl)
+        if (mx < 0.03) return -1 // 관측 빈틈(검은 띠)·극야
+        const lum = 0.3 * r + 0.59 * g + 0.11 * bl, sat = (mx - mn) / mx
+        let lb = 0.12, sb = 0.5
+        if (Bs) { const R2 = Bs[i] / 255, G2 = Bs[i + 1] / 255, B2 = Bs[i + 2] / 255; lb = 0.3 * R2 + 0.59 * G2 + 0.11 * B2; const m2 = Math.max(R2, G2, B2); sb = m2 > 0 ? (m2 - Math.min(R2, G2, B2)) / m2 : 0 }
+        let c = Math.min(1, Math.max(0, (lum - lb * 0.9 - 0.1) / 0.35)) * (1 - Math.min(1, Math.max(0, (sat - 0.12) / 0.25)))
+        if (lb > 0.55 && sb < 0.15) c *= 0.3 // 원래 하얀 곳(얼음·눈)
+        return c
+      }
+      for (let y = 0; y < CH2; y++) for (let x = 0; x < CW2; x++) {
+        const k = y * CW2 + x, i = k * 4
+        let c = cloudOf(A, i)
+        if (c < 0 && B) c = cloudOf(B, i)
+        if (c < 0) c = proc[Math.min(CH - 1, (y * CH / CH2) | 0) * CW + Math.min(CW - 1, (x * CW / CW2) | 0)] / 255 * 0.8
+        out[k] = Math.round(c * 255)
+      }
+      const t = dataTex(out, CW2, CH2, THREE.RedFormat)
+      const old = uniforms.uClouds.value
+      uniforms.uClouds.value = t
+      old.dispose?.()
+      info.cloudDate = date
+    } catch { /* 실패하면 기존(분위기용) 구름 유지 */ }
+  })()
+
+  // ── 확대 지형: AWS Terrain Tiles(terrarium) → 화면 범위의 경사 지도 ──
+  const TERR = (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`
+  const hCanvas = document.createElement('canvas')
+  let hTex = null, hGen = 0, hBox = null
+  async function planTerrain(c) {
+    const my = ++hGen
+    const [lon0, lat0, lon1, lat1] = c.box
+    const outW = Math.max(64, Math.min(1024, c.canvas.width >> 1)), outH = Math.max(64, Math.min(1024, c.canvas.height >> 1))
+    const la0 = Math.max(-84, lat0), la1 = Math.min(84, lat1)
+    if (la1 <= la0) return
+    let z = Math.round(Math.log2(360 / (256 * ((lon1 - lon0) / outW))))
+    z = Math.max(2, Math.min(14, z))
+    const TX = (lon) => ((lon + 180) / 360) * 2 ** z, TY = (lat) => ((1 - Math.log(Math.tan(Math.PI / 4 + (lat * DEG) / 2)) / Math.PI) / 2) * 2 ** z
+    let x0, x1, y0, y1
+    for (; z >= 2; z--) { x0 = Math.floor(TX(lon0)); x1 = Math.floor(TX(lon1) - 1e-9); y0 = Math.floor(TY(la1)); y1 = Math.floor(TY(la0)); if ((x1 - x0 + 1) * (y1 - y0 + 1) <= 36) break }
+    const nx = x1 - x0 + 1, ny = y1 - y0 + 1, n = 2 ** z
+    const imgs = await Promise.all(Array.from({ length: nx * ny }, (_, k) => { const tx = x0 + (k % nx), ty = y0 + Math.floor(k / nx); return loadImg(TERR(z, ((tx % n) + n) % n, Math.max(0, Math.min(n - 1, ty)))).catch(() => null) }))
+    if (my !== hGen || dead || !imgs.some(Boolean)) return
+    const mc = document.createElement('canvas'); mc.width = nx * 256; mc.height = ny * 256
+    const mg = mc.getContext('2d', { willReadFrequently: true })
+    imgs.forEach((im, k) => { if (im) mg.drawImage(im, (k % nx) * 256, Math.floor(k / nx) * 256) })
+    const md = mg.getImageData(0, 0, mc.width, mc.height).data, MW = mc.width, MH = mc.height
+    const hAt = (px, py) => { px = Math.max(0, Math.min(MW - 1, px)); py = Math.max(0, Math.min(MH - 1, py)); const i = (py * MW + px) * 4; return md[i + 3] ? Math.max(0, md[i] * 256 + md[i + 1] + md[i + 2] / 256 - 32768) : 0 }
+    const Hh = new Float32Array(outW * outH)
+    for (let j = 0; j < outH; j++) {
+      const lat = lat1 - ((j + 0.5) / outH) * (lat1 - lat0)
+      const py = (TY(Math.max(-84, Math.min(84, lat))) - y0) * 256
+      for (let i = 0; i < outW; i++) {
+        const px = (TX(lon0 + ((i + 0.5) / outW) * (lon1 - lon0)) - x0) * 256
+        const fx = Math.floor(px - 0.5), fy = Math.floor(py - 0.5), ax = px - 0.5 - fx, ay = py - 0.5 - fy
+        Hh[j * outW + i] = (hAt(fx, fy) * (1 - ax) + hAt(fx + 1, fy) * ax) * (1 - ay) + (hAt(fx, fy + 1) * (1 - ax) + hAt(fx + 1, fy + 1) * ax) * ay
+      }
+    }
+    hCanvas.width = outW; hCanvas.height = outH
+    const hg = hCanvas.getContext('2d'), od = hg.createImageData(outW, outH)
+    const dyM = ((lat1 - lat0) / outH) * 110574, EXAG = 1.6
+    for (let j = 0; j < outH; j++) {
+      const lat = lat1 - ((j + 0.5) / outH) * (lat1 - lat0)
+      const dxM = ((lon1 - lon0) / outW) * 111320 * Math.max(0.05, Math.cos(lat * DEG))
+      for (let i = 0; i < outW; i++) {
+        const iL = Math.max(0, i - 1), iR = Math.min(outW - 1, i + 1), jU = Math.max(0, j - 1), jD = Math.min(outH - 1, j + 1)
+        const sx = ((Hh[j * outW + iR] - Hh[j * outW + iL]) / ((iR - iL) * dxM)) * EXAG
+        const sy = ((Hh[jU * outW + i] - Hh[jD * outW + i]) / ((jD - jU) * dyM)) * EXAG
+        const o = (j * outW + i) * 4
+        od.data[o] = Math.round((0.5 + Math.atan(sx) / Math.PI) * 255); od.data[o + 1] = Math.round((0.5 + Math.atan(sy) / Math.PI) * 255); od.data[o + 2] = 0; od.data[o + 3] = 255
+      }
+    }
+    hg.putImageData(od, 0, 0)
+    if (!hTex || hTex.image !== hCanvas || hTex.userData.size !== `${outW}x${outH}`) { hTex?.dispose(); hTex = canvasTex(hCanvas); hTex.userData.size = `${outW}x${outH}`; uniforms.uHeightN.value = hTex }
+    hTex.needsUpdate = true
+    uniforms.uHeightBox.value.set(lon0, lat0, lon1, lat1)
+    hBox = c.box; info.terrain = true
+  }
+
+  // ── 확대 야경: NASA Black Marble(2016) — 화면 범위만 GIBS에서 받기 ──
+  const nCanvas = document.createElement('canvas')
+  let nTex = null, nGen = 0, nBox = null
+  async function planNight(c) {
+    const my = ++nGen
+    const [lon0, lat0, lon1, lat1] = c.box
+    if (lon0 < -180 || lon1 > 180) return // 날짜변경선 걸침은 생략
+    const w = Math.min(1024, c.canvas.width), h = Math.max(32, Math.min(1024, Math.round((w * (lat1 - lat0)) / (lon1 - lon0))))
+    let im
+    try { im = await loadImg(GIBS('VIIRS_Black_Marble', [lon0, lat0, lon1, lat1], w, h, null, 'image/png')) } catch { return }
+    if (my !== nGen || dead) return
+    nCanvas.width = w; nCanvas.height = h
+    nCanvas.getContext('2d').drawImage(im, 0, 0, w, h)
+    if (!nTex || nTex.userData.size !== `${w}x${h}`) { nTex?.dispose(); nTex = canvasTex(nCanvas); nTex.userData.size = `${w}x${h}`; uniforms.uNightDet.value = nTex }
+    nTex.needsUpdate = true
+    uniforms.uNightBox.value.set(lon0, lat0, lon1, lat1)
+    nBox = c.box; info.night = true
+  }
 
   // ── 달 ──
   const moonUniforms = { uSun: uniforms.uSun, uMoonTex: { value: null }, uHasTex: { value: 0 }, uToEarth: { value: new THREE.Vector3(1, 0, 0) }, uNorth: { value: new THREE.Vector3(0, 0, 1) } }
@@ -544,6 +705,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
       updateBasis()
     },
     get moon() { updateAstro(); return moonInfo },
+    get sources() { return info },
     /** 고해상도 위성 타일이 화면에 쓰이는 중인지 (출처 표시용) */
     get detailActive() { return uniforms.uDetailA.value > 0.05 && detailDrawn },
     /** 달의 화면 위치·반지름 */
@@ -590,7 +752,9 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
       updateDetail(X, Y, R, w, h, Math.min(ratio, 2))
       if (texDirty && performance.now() - lastUpload > 150) { detailTex.needsUpdate = true; texDirty = false; lastUpload = performance.now() }
       uniforms.uR.value = R
-      uniforms.uCloudShift.value = ((Math.floor(time / 10) * 10) / CLOUD_PERIOD) % 1
+      uniforms.uCloudShift.value = info.cloudDate ? 0 : ((Math.floor(time / 10) * 10) / CLOUD_PERIOD) % 1 // 실제 구름은 제자리
+      uniforms.uHeightA.value = hBox ? uniforms.uDetailA.value : 0
+      uniforms.uNightA.value = nBox ? uniforms.uDetailA.value : 0
       orbitMat.opacity = opts.moonAlpha ?? 0
       orbit.visible = orbitMat.opacity > 0.01
       moon.visible = (opts.moonAlpha ?? 0) > 0.01 || (1737.4 / 6371) * R > 1.5
@@ -608,6 +772,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
       return toScreen([Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)], X, Y, R)
     },
     destroy() {
+      dead = true; hGen++; nGen++
       renderer.dispose()
       gen++; queue.length = 0
       ;[landT, oceanT, baseLightsT, cityT, cloudsT, detailTex, uniforms.uSdf.value, uniforms.uDay.value, uniforms.uRelief.value].forEach((t) => t.dispose?.())

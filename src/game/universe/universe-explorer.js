@@ -39,7 +39,7 @@ const C = 2.998e8;             // 빛의 속도
 const DEG = Math.PI / 180;
 
 // s = log10(화면 짧은 변이 담는 실제 길이, m)
-const S_MIN = 5.0;   // 약 100 km (지구 표면 확대)
+const S_MIN = 3.8;   // 약 6 km (동네까지 확대 — 위성 타일 10m 해상도)
 const S_MAX = 27.35; // 관측 가능한 우주 지름의 약 2.5배
 const S_START = 7.45;
 
@@ -600,7 +600,7 @@ export function mountUniverseExplorer(container, opts = {}) {
         <button class="mu-speed">SPD · 1초=1시간</button>
         <button class="mu-sys3d" hidden>3D로 보기</button>
       </div>
-      <div class="mu-credit" hidden>위성 영상: <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless - https://s2maps.eu</a> by <a href="https://eox.at" target="_blank" rel="noopener">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2016 &amp; 2017)</div>
+      <div class="mu-credit" hidden>위성 영상: <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless - https://s2maps.eu</a> by <a href="https://eox.at" target="_blank" rel="noopener">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2016 &amp; 2017) · 지형 음영: AWS Terrain Tiles (SRTM 등) · 야경: NASA Black Marble · 구름: NASA GIBS VIIRS (어제 영상)</div>
       <div class="mu-lvtext"></div>
       <div class="mu-controls">
         <button data-zoom="-1" aria-label="가까이">＋</button>
