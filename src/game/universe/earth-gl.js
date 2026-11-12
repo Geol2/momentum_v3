@@ -180,7 +180,16 @@ void main() {
   // 구름 텍스처는 한 칸이 약 18km라 확대하면 얼룩처럼 보임 → 지역 단위로 들어가면 거의 지움
   float cloudFade = 1.0 - 0.95 * smoothstep(1100.0, 4000.0, uR);
   float cu = u - uCloudShift;
-  float ca = seamless(uClouds, fract(cu), fract(cu + 0.5) - 0.5, v).r * cloudFade * (0.45 + 0.55 * smoothstep(-0.15, 0.1, nd));
+  float caRaw = seamless(uClouds, fract(cu), fract(cu + 0.5) - 0.5, v).r;
+  // 날짜변경선(경도 180°) 양쪽은 위성 촬영 날짜가 달라 구름이 칼로 자른 듯 끊김
+  // → 선 근처(±4°)에서 반대편을 거울처럼 섞어 이음매를 없앰
+  float dSeam = min(fract(cu), 1.0 - fract(cu));
+  if (dSeam < 0.011) {
+    float um = 1.0 - fract(cu);
+    float other = seamless(uClouds, um, fract(um + 0.5) - 0.5, v).r;
+    caRaw = mix(caRaw, other, 0.5 * (1.0 - smoothstep(0.0, 0.011, dSeam)));
+  }
+  float ca = caRaw * cloudFade * (0.45 + 0.55 * smoothstep(-0.15, 0.1, nd));
 
   // ── 도시 불빛 ──
   float litBoost = 1.35 + 1.6 * (1.0 - smoothstep(140.0, 700.0, uR));
