@@ -267,7 +267,23 @@ export function canUseWebGL() {
  * @param {HTMLElement} host  — 캔버스를 넣을 부모
  * @param {Element} before    — 이 요소 앞에 캔버스를 끼워 넣음(2D 오버레이 아래)
  */
-export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before } = {}) {
+// 기본 텍스처는 결정적(같은 결과)이라 한 번 만들면 다시 쓴다 — 웹 워커에서 생성
+let texPromise = null
+function getTextures() {
+  if (texPromise) return texPromise
+  texPromise = new Promise((resolve) => {
+    const sync = () => setTimeout(() => resolve(buildTextures()), 30)
+    let w = null
+    try { w = new Worker(new URL('./earth-tex.worker.js', import.meta.url), { type: 'module' }) } catch { w = null }
+    if (!w) { sync(); return }
+    w.onmessage = (e) => { resolve(e.data); w.terminate() }
+    w.onerror = (e) => { e.preventDefault?.(); w.terminate(); sync() }
+    w.postMessage(0)
+  })
+  return texPromise
+}
+
+export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relief2kUrl, moonUrl, before } = {}) {
   const canvas = document.createElement('canvas')
   canvas.className = 'mu-gl'
   canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none'
@@ -282,32 +298,52 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
   scene.add(group)
 
   // ── 텍스처 ──
-  const tex = buildTextures()
+  // 처음엔 1픽셀 임시 텍스처로 바로 그리고, 워커가 만든 텍스처가 오면 교체
+  const px = (arr, fmt) => dataTex(new Uint8Array(arr), 1, 1, fmt)
+  const blankT = px([0, 0, 0, 0], THREE.RGBAFormat)
+  let landT = px([46, 84, 52, 255], THREE.RGBAFormat)
+  let oceanT = px([10, 38, 84, 0], THREE.RGBAFormat)
+  let baseLightsT = px([0], THREE.RedFormat), cityT = px([0], THREE.RedFormat), cloudsT = px([0], THREE.RedFormat)
+  let lowSdfT = px([0], THREE.RedFormat)
   const N = TW * TH
-  const landT = dataTex(packRGBA(tex.landCol, tex.nearTex, N), TW, TH, THREE.RGBAFormat)
-  const oceanT = dataTex(packRGBA(tex.oceanCol, tex.ice, N), TW, TH, THREE.RGBAFormat)
-  const baseLightsT = dataTex(tex.lights, TW, TH, THREE.RedFormat)
-  const cityT = dataTex(tex.cityLights, LW, LH, THREE.RedFormat)
-  const cloudsT = dataTex(tex.clouds, CW, CH, THREE.RedFormat)
-  const lowSdfT = dataTex(tex.sdf.data, tex.sdf.w, tex.sdf.h, THREE.RedFormat)
 
   const uniforms = {
-    uSdf: { value: lowSdfT }, uSdfSize: { value: new THREE.Vector2(tex.sdf.w, tex.sdf.h) }, uSdfK: { value: tex.sdf.K },
+    uSdf: { value: lowSdfT }, uSdfSize: { value: new THREE.Vector2(TW, TH) }, uSdfK: { value: 1.6 },
     uHiSdf: { value: 0 },
     uLand: { value: landT }, uOcean: { value: oceanT }, uBaseLights: { value: baseLightsT }, uCity: { value: cityT }, uClouds: { value: cloudsT },
     uSun: { value: new THREE.Vector3(1, 0, 0) }, uView: { value: new THREE.Vector3(0, 0, 1) },
     uR: { value: 100 }, uCloudShift: { value: 0 },
-    uDay: { value: landT }, uRelief: { value: landT }, uHasDay: { value: 0 }, uHasRelief: { value: 0 },
-    uDetail: { value: landT }, uDetailBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uDetailA: { value: 0 },
-    uHeightN: { value: landT }, uHeightBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uHeightA: { value: 0 },
-    uNightDet: { value: landT }, uNightBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uNightA: { value: 0 },
+    uDay: { value: blankT }, uRelief: { value: blankT }, uHasDay: { value: 0 }, uHasRelief: { value: 0 },
+    uDetail: { value: blankT }, uDetailBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uDetailA: { value: 0 },
+    uHeightN: { value: blankT }, uHeightBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uHeightA: { value: 0 },
+    uNightDet: { value: blankT }, uNightBox: { value: new THREE.Vector4(0, 0, 1, 1) }, uNightA: { value: 0 },
   }
   const earthMat = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms, vertexShader: EARTH_VERT, fragmentShader: EARTH_FRAG })
   const earth = new THREE.Mesh(new THREE.SphereGeometry(1, 256, 128), earthMat)
   group.add(earth)
 
-  // 고해상도 해안선 SDF(이미지) 로드
-  if (sdfUrl) {
+  let texReady = false
+  getTextures().then((tex) => {
+    if (dead) return
+    const swap = (key, t, old) => { if (uniforms[key].value === old) uniforms[key].value = t; old.dispose() }
+    const nL = dataTex(packRGBA(tex.landCol, tex.nearTex, N), TW, TH, THREE.RGBAFormat); swap('uLand', nL, landT); landT = nL
+    const nO = dataTex(packRGBA(tex.oceanCol, tex.ice, N), TW, TH, THREE.RGBAFormat); swap('uOcean', nO, oceanT); oceanT = nO
+    const nB = dataTex(tex.lights, TW, TH, THREE.RedFormat); swap('uBaseLights', nB, baseLightsT); baseLightsT = nB
+    const nC = dataTex(tex.cityLights, LW, LH, THREE.RedFormat); swap('uCity', nC, cityT); cityT = nC
+    const nCl = dataTex(tex.clouds, CW, CH, THREE.RedFormat)
+    if (uniforms.uClouds.value === cloudsT) uniforms.uClouds.value = nCl // 실제 구름이 먼저 왔으면 그대로
+    cloudsT.dispose(); cloudsT = nCl
+    if (!uniforms.uHiSdf.value) {
+      const nS = dataTex(tex.sdf.data, tex.sdf.w, tex.sdf.h, THREE.RedFormat)
+      uniforms.uSdf.value = nS; uniforms.uSdfSize.value.set(tex.sdf.w, tex.sdf.h); uniforms.uSdfK.value = tex.sdf.K
+      lowSdfT.dispose(); lowSdfT = nS
+    }
+    texReady = true
+  })
+
+  // 고해상도 해안선 SDF(이미지): 확대할 때 로드
+  let hiSdfAsked = false
+  const loadHiSdf = () => { if (hiSdfAsked || !sdfUrl) return; hiSdfAsked = true
     new THREE.TextureLoader().load(sdfUrl, (t) => {
       t.wrapS = THREE.RepeatWrapping
       t.wrapT = THREE.ClampToEdgeWrapping
@@ -321,7 +357,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
       uniforms.uSdfSize.value.set(t.image.width, t.image.height)
       uniforms.uSdfK.value = 6
       uniforms.uHiSdf.value = 1
-      lowSdfT.dispose()
+      if (lowSdfT !== t) lowSdfT.dispose()
     })
   }
 
@@ -341,8 +377,13 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
       onReady(t)
     })
   }
-  loadImageTex(dayUrl, (t) => { uniforms.uDay.value = t; fades.push({ u: uniforms.uHasDay, t0: performance.now() }) })
-  loadImageTex(reliefUrl, (t) => { uniforms.uRelief.value = t; fades.push({ u: uniforms.uHasRelief, t0: performance.now() }) })
+  // 처음엔 2K(약 0.2MB씩), 확대하면 4K로 교체
+  const setDay = (t) => { const old = uniforms.uDay.value; uniforms.uDay.value = t; if (old !== blankT) old.dispose(); if (!uniforms.uHasDay.value) fades.push({ u: uniforms.uHasDay, t0: performance.now() }) }
+  const setRelief = (t) => { const old = uniforms.uRelief.value; uniforms.uRelief.value = t; if (old !== blankT) old.dispose(); if (!uniforms.uHasRelief.value) fades.push({ u: uniforms.uHasRelief, t0: performance.now() }) }
+  loadImageTex(day2kUrl || dayUrl, setDay)
+  loadImageTex(relief2kUrl || reliefUrl, setRelief)
+  let hiAsked = !day2kUrl
+  const loadHi = () => { if (hiAsked) return; hiAsked = true; loadImageTex(dayUrl, setDay); loadImageTex(reliefUrl, setRelief) }
 
   // ── 고해상도 위성 타일 (EOX Sentinel-2 cloudless 2024 — CC BY-NC-SA 4.0, 비상업 이용 · EPSG:4326 WMTS) ──
   // 2024판이 없는 타일은 2016판(CC BY 4.0)으로 대신. 레벨 z: 타일 1장 = 180/2^z 도, 256px. 레벨 13 ≈ 10m/px
@@ -522,7 +563,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
       const [a, b, base] = await Promise.all([
         loadImg(GIBS('VIIRS_SNPP_CorrectedReflectance_TrueColor', box, CW2, CH2, date)),
         loadImg(GIBS('VIIRS_NOAA20_CorrectedReflectance_TrueColor', box, CW2, CH2, date)).catch(() => null),
-        dayUrl ? loadImg(dayUrl) : Promise.resolve(null),
+        (day2kUrl || dayUrl) ? loadImg(day2kUrl || dayUrl) : Promise.resolve(null), // 같은 2K 사진(이미 받은 것) 재사용
       ])
       if (dead) return
       const px = (im) => { if (!im) return null; const cv = document.createElement('canvas'); cv.width = CW2; cv.height = CH2; const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0, CW2, CH2); return g.getImageData(0, 0, CW2, CH2).data }
@@ -629,7 +670,8 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
 
   // ── 달 ──
   const moonUniforms = { uSun: uniforms.uSun, uMoonTex: { value: null }, uHasTex: { value: 0 }, uToEarth: { value: new THREE.Vector3(1, 0, 0) }, uNorth: { value: new THREE.Vector3(0, 0, 1) } }
-  if (moonUrl) {
+  let moonAsked = false
+  const loadMoonTex = () => { if (moonAsked || !moonUrl) return; moonAsked = true
     new THREE.TextureLoader().load(moonUrl, (t) => {
       t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping; t.colorSpace = THREE.NoColorSpace
       t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.needsUpdate = true
@@ -749,6 +791,9 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
         fades[i].u.value = k
         if (k >= 1) fades.splice(i, 1)
       }
+      if (R > 220) loadHiSdf()
+      if (R > 450) loadHi()
+      if ((opts.moonAlpha ?? 0) > 0.01 || (1737.4 / 6371) * R > 1.5) loadMoonTex()
       updateDetail(X, Y, R, w, h, Math.min(ratio, 2))
       if (texDirty && performance.now() - lastUpload > 150) { detailTex.needsUpdate = true; texDirty = false; lastUpload = performance.now() }
       uniforms.uR.value = R
@@ -775,7 +820,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, moonUrl, before
       dead = true; hGen++; nGen++
       renderer.dispose()
       gen++; queue.length = 0
-      ;[landT, oceanT, baseLightsT, cityT, cloudsT, detailTex, uniforms.uSdf.value, uniforms.uDay.value, uniforms.uRelief.value].forEach((t) => t.dispose?.())
+      ;[landT, oceanT, baseLightsT, cityT, cloudsT, blankT, detailTex, uniforms.uSdf.value, uniforms.uDay.value, uniforms.uRelief.value].forEach((t) => t.dispose?.())
       canvas.remove()
     },
   }

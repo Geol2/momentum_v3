@@ -27,6 +27,8 @@ export default function UniverseGame() {
     document.body.style.overflow = 'hidden'
 
     setPhase('loading')
+    // 별·지구 자료를 폰에 저장해 두는 서비스 워커(알림용과 같은 파일) — 두 번째 진입부터 바로 열림
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {})
     const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
     import('./universe-explorer.js')
       .then(async ({ mountUniverseExplorer }) => {

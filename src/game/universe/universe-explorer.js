@@ -28,6 +28,8 @@ import { loadSmallBodies, CLASS_KO, CLASS_COL, diamKm, orbitLine, jdNow } from '
 import { plutoHelio, DWARFS, PROBES, probeDistanceAU } from './outer.js';
 import dayUrl from './earth-day.webp';
 import reliefUrl from './earth-relief.webp';
+import day2kUrl from './earth-day-2k.webp';
+import relief2kUrl from './earth-relief-2k.webp';
 import moonUrl from './moon-map.webp';
 
 // ───────────────────────── 단위 / 상수 ─────────────────────────
@@ -638,6 +640,11 @@ export function mountUniverseExplorer(container, opts = {}) {
   let catalog = null; // { rows, x, y, groups: Map(color → idx[]) }
   const sysCache = new Map(); // 카탈로그 행성계 모델 캐시
   let nearCtx = null; // 자동 상세 보기 중인(화면 중앙 근처) 행성/행성계
+  // 별·외계 행성 목록은 지구가 먼저 뜬 뒤(또는 멀리 나갈 때) 받는다 — 첫 화면을 빠르게
+  let catalogsAsked = false;
+  let sky = null; // 실제 별 목록(아래 loadCatalogs에서 채움)
+  function loadCatalogs() {
+  if (catalogsAsked) return; catalogsAsked = true;
   fetch(catalogUrl).then((r) => r.json()).then((rows) => {
     if (destroyed) return;
     const byName = new Map(rows.map((r) => [r[0], r]));
@@ -656,7 +663,6 @@ export function mountUniverseExplorer(container, opts = {}) {
     catalog = { rows, x, y, groups, featuredNames, nPlanets };
   }).catch(() => { /* 오프라인 등 — 추천 행성계 5곳만 표시 */ });
   // 실제 별(AT-HYG v3.2 · Gaia DR3 거리) + 성운·성단·블랙홀·펄서
-  let sky = null;
   fetch(skyUrl).then((r) => r.json()).then((d) => {
     if (destroyed) return;
     const n = d.stars.length;
@@ -676,6 +682,8 @@ export function mountUniverseExplorer(container, opts = {}) {
     const dso = d.dso.map(([name, kind, ra, dec, ly, desc]) => ({ name, kind, ly, desc, radec: [ra, dec], pos: skyPosM(ra, dec, ly * LY) }));
     sky = { rows: d.stars, con: d.con, conKeys: d.conKeys || Object.keys(d.con), x, y, buckets: [...buckets].map(([k, idx]) => { const [rgb, sz] = k.split('|'); return { rgb, size: +sz, idx }; }), dso };
   }).catch(() => {});
+  }
+  setTimeout(() => { if (!destroyed) loadCatalogs(); }, 1500);
   // 맨눈 밖의 별: 기본 약 11만 개(이웃 별 단계에서 자동) + Gaia DR3 약 985만 개(보이는 구역만 받기)
   const starLayers = []; // { d, x, y (광년, 월드), cb, box? }
   let deepReq = false, deepA = 0, layerVer = 0, gaiaOn = false;
@@ -810,7 +818,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   // 3D(WebGL2) 지구 — 안 되면 2D 지구로 자동 전환
   let earth = null;
   if (canUseWebGL()) {
-    try { earth = createEarthGL(root, { sdfUrl, dayUrl, reliefUrl, moonUrl, before: overlay }); } catch (err) { console.warn('3D 지구 초기화 실패, 2D로 전환', err); }
+    try { earth = createEarthGL(root, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relief2kUrl, moonUrl, before: overlay }); } catch (err) { console.warn('3D 지구 초기화 실패, 2D로 전환', err); }
   }
   if (!earth) earth = createEarthRenderer({ sdfUrl });
 
@@ -1696,6 +1704,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   };
   ui.ladder.addEventListener('pointerup', ladUp); ui.ladder.addEventListener('pointercancel', () => { ladDrag = null; });
   function updateHud() {
+    if (s > 10.5 || focus) loadCatalogs();
     btn3d.hidden = s < 16.5;
     btnSky.hidden = s > 12.5;
     btnTrip.hidden = s < 10.5 || s > 17.5;
