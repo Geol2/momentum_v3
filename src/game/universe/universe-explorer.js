@@ -60,6 +60,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     </div>
     <button class="mu-close" aria-label="닫기">✕</button>
     <button class="mu-3d mu-g3" hidden aria-label="3D로 은하 보기">3D</button>
+    <button class="mu-3d mu-plan" aria-label="비행 계획" title="행성에서 행성으로 — 출발일·연료 계산과 스윙바이">PLAN</button>
     <button class="mu-3d mu-trip" hidden aria-label="탐사선 여행" title="보이저·뉴호라이즌스가 실제로 날아간 길">TRIP</button>
     <button class="mu-3d mu-today" aria-label="오늘의 우주" title="오늘의 천문 사진 · 우주 뉴스 · 오늘 밤 하늘">NEWS</button>
     <button class="mu-3d mu-find" aria-label="천체 찾기" title="이름으로 천체 찾기">찾기</button>
@@ -941,7 +942,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   const menuBtn = document.createElement('button');
   menuBtn.className = 'mu-menu'; menuBtn.textContent = '≡'; menuBtn.setAttribute('aria-label', '메뉴 열기');
   const tools = document.createElement('div'); tools.className = 'mu-tools';
-  const TOOL_LABEL = [['.mu-find', ''], ['.mu-g3', '은하 보기'], ['.mu-sky', '밤하늘'], ['.mu-more', 'Gaia 별'], ['.mu-trip', '탐사선 여행'], ['.mu-today', '오늘의 우주'], ['.mu-snd', '소리']];
+  const TOOL_LABEL = [['.mu-find', ''], ['.mu-g3', '은하 보기'], ['.mu-sky', '밤하늘'], ['.mu-more', 'Gaia 별'], ['.mu-trip', '탐사선 여행'], ['.mu-plan', '비행 계획'], ['.mu-today', '오늘의 우주'], ['.mu-snd', '소리']];
   for (const [sel, lab] of TOOL_LABEL) { const b = root.querySelector(sel); if (!b) continue; b.dataset.label = lab; tools.appendChild(b); }
   root.querySelector('.mu-close').after(menuBtn, tools);
   const setMenu = (open) => { tools.classList.toggle('open', open); menuBtn.classList.toggle('on', open); menuBtn.textContent = '≡'; menuBtn.setAttribute('aria-label', open ? '메뉴 닫기' : '메뉴 열기'); if (open) menuBtn.classList.remove('ping'); };
@@ -958,6 +959,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     if (!c) return;
     openCloseup('openCity3D', { lat: c.lat, lon: c.lon, my: myLoc.approx ? null : myLoc, date: new Date() });
   });
+  $('.mu-plan').addEventListener('click', () => openCloseup('openMission', {}));
   const btnTrip = $('.mu-trip');
   let tripView = null;
   async function openTrip(id = 'v1') {
@@ -1004,7 +1006,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     if (cuView || bhView) return;
     cuView = 'loading';
     try {
-      const mod = fn === 'openCity3D' ? await import('./city3d.js') : await import('./closeup.js');
+      const mod = fn === 'openCity3D' ? await import('./city3d.js') : fn === 'openMission' ? await import('./mission.js') : await import('./closeup.js');
       if (destroyed) return;
       const paused = !g3;
       if (paused) cancelAnimationFrame(raf);

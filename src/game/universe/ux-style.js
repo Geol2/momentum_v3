@@ -38,6 +38,7 @@ const CSS = `
 .mu-snd{top:102px;animation:none;font-size:12px;opacity:.6}
 .mu-sky{top:194px;animation:none;font-size:10px;letter-spacing:.02em}
 .mu-trip{top:240px;animation:none;font-size:10px;letter-spacing:0}
+.mu-plan{animation:none;font-size:10px;letter-spacing:0}
 .mu-today{top:286px;animation:none;font-size:10px;letter-spacing:0}
 .mu-find{top:332px;animation:none;font-size:10px;letter-spacing:0}
 .mu-menu{position:absolute;top:56px;right:10px;width:38px;height:38px;z-index:7;border:1px solid var(--g2);padding:0;

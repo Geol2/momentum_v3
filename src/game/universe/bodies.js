@@ -65,7 +65,7 @@ export const SITES = [
 ];
 
 /** 명왕성 태양 중심 위치(황도, AU) — JPL 근사 궤도 요소 */
-function plutoHelio3(date) {
+export function plutoHelio3(date) {
   const T = (date.getTime() / 86400000 + 2440587.5 - 2451545.0) / 36525;
   const a = 39.48211675 - 0.00031596 * T, e = 0.2488273 + 0.0000517 * T, I = (17.14001206 + 0.00004818 * T) * D;
   const L = 238.92903833 + 145.20780515 * T, wbar = 224.06891629 - 0.04062942 * T, O = (110.30393684 - 0.01183482 * T) * D;
