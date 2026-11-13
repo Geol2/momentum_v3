@@ -414,6 +414,41 @@ export function openGalaxy3D(host, opts = {}) {
   addLabel([0, 0, 0], '우리은하', '#ffe8c0', 400000, 1.5e7, 9, true);
   addPick(SUN, '태양 (우리 태양계)', '은하 중심에서 약 2만 6,670광년', '오리온 돌기(국부 팔) 안쪽 · 은하를 한 바퀴 도는 데 약 2억 3천만 년');
   addPick([0, 0, 0], '궁수자리 A*', '태양 질량 430만 배 블랙홀 · 탭하면 블랙홀 체험', '주위를 S2 별이 16년마다 공전 · 2022년 EHT가 그림자 촬영', 0, 400000, 'sgra');
+  // ── 태양 이웃: 가장 가까운 별들 (거리는 시차 측정값) — 아주 가까이 확대했을 때 ──
+  const NEAR = [
+    ['프록시마 센타우리', 217.43, -62.68, 4.24, '가장 가까운 별 · 적색 왜성 · 생명 가능 지대 행성 프록시마 b'],
+    ['알파 센타우리 A·B', 219.90, -60.83, 4.37, '태양과 비슷한 쌍성 · 남쪽 하늘에서 세 번째로 밝은 별'],
+    ['바너드별', 269.45, 4.69, 5.96, '하늘에서 가장 빨리 움직이는 별(1년에 보름달 지름의 1/180)'],
+    ['볼프 359', 164.12, 7.01, 7.86, '아주 어두운 적색 왜성'],
+    ['랄랑드 21185', 165.83, 35.97, 8.31, '적색 왜성 · 행성 2개 확인'],
+    ['시리우스', 101.29, -16.72, 8.60, '밤하늘에서 가장 밝은 별 · 백색 왜성 짝별'],
+    ['루이텐 726-8', 24.76, -17.95, 8.73, '플레어가 잦은 적색 왜성 쌍성'],
+    ['로스 154', 282.46, -23.84, 9.69, '적색 왜성'],
+    ['엡실론 에리다니', 53.23, -9.46, 10.47, '어린 주황색 별 · 먼지 원반과 행성'],
+    ['라카유 9352', 346.47, -35.85, 10.72, '적색 왜성 · 행성 2개'],
+    ['로스 128', 176.94, 0.80, 11.01, '조용한 적색 왜성 · 지구형 행성 로스 128 b'],
+    ['61 시그니', 316.73, 38.75, 11.40, '처음으로 거리를 잰 별(1838, 베셀)'],
+    ['프로키온', 114.83, 5.22, 11.46, '작은개자리 1등성 · 백색 왜성 짝별'],
+    ['타우 세티', 26.02, -15.94, 11.91, '태양과 닮은 별 · 외계 문명 탐색(오즈마 계획) 대상'],
+    ['알타이르', 297.70, 8.87, 16.7, '견우성 · 빠르게 자전해 납작한 별'],
+    ['베가', 279.23, 38.78, 25.0, '직녀성 · 거리 기준이 되는 표준 별'],
+  ]
+  for (const [nm, ra, dec, ly, d] of NEAR) {
+    const P = eqTo3(ra, dec, ly)
+    addLabel(P, nm, '#ffe7b0', 0, 80, 6)
+    addPick(P, nm, `태양에서 ${ly}광년 · 빛으로 ${ly}년`, d, 0, 200)
+  }
+  // 오르트 구름: 태양을 감싼 얼음 천체 껍질 (약 0.03~1.6광년, 모형)
+  {
+    const ob = new PointBuf(), rr = rng(77)
+    for (let i = 0; i < 2500; i++) {
+      const u = rr() * 2 - 1, th = rr() * Math.PI * 2, r = 0.05 + Math.pow(rr(), 0.6) * 1.55, q = Math.sqrt(1 - u * u)
+      ob.add(SUN[0] + r * q * Math.cos(th), SUN[1] + r * q * Math.sin(th), SUN[2] + r * u, 0.35, 0.6, 1.0, 0.04)
+    }
+    addPoints(ob, { opacity: 0.9, minPx: 1.6, maxPx: 4 })
+    addLabel([SUN[0], SUN[1], SUN[2] + 1.6], '오르트 구름 (모형, 약 1.6광년까지)', '#8fb8e8', 0, 12, 4)
+    addPick([SUN[0], SUN[1], SUN[2] + 1.0], '오르트 구름', '혜성의 고향으로 생각되는 얼음 천체 껍질 · 약 2천 AU~10만 AU', '직접 관측된 적은 없고, 긴 주기 혜성의 궤도로 존재를 추정 · 보이저 1호도 300년 뒤에야 안쪽 경계에 닿음', 0, 15)
+  }
   // 팔 이름
   const tanP = Math.tan((12 * Math.PI) / 180);
   const armPt = (r0, r) => { const th = Math.PI + Math.log(r / r0) / tanP; return gal3(r * Math.cos(th), r * Math.sin(th), 0); };
@@ -664,6 +699,7 @@ export function openGalaxy3D(host, opts = {}) {
     mw: { t: [0, 0, 0], d: 95000, pitch: 0.95, title: '우리은하 3D', desc: '막대 나선 은하 · 지름 약 10만 광년 · 별 1000억~4000억 개. 드래그로 돌리고, 휠·핀치로 확대. 점 위에 올리거나 탭하면 정보.' },
     side: { t: [0, 0, 0], d: 80000, pitch: 0.04, title: '옆에서 본 우리은하', desc: '원반 두께는 약 1천 광년(얇은 원반)으로 지름의 1%. 가운데가 땅콩 모양 팽대부, 위아래 보라색은 페르미 거품.' },
     gc: { t: [0, 0, 0], d: 16000, pitch: 0.55, title: '은하 중심부', desc: '중심 막대와 팽대부의 늙은 별들, 붉은 중심 분자대, 그 한가운데 블랙홀 궁수자리 A*. 아치스·5중 성단은 여기서 가장 무거운 젊은 별들의 무리.' },
+    near: { t: SUN, d: 30, pitch: 0.5, title: '태양 이웃 별', desc: '태양에서 25광년 안의 이름난 별들. 가장 가까운 프록시마 센타우리도 빛으로 4.2년 · 지금 가장 빠른 탐사선으로 약 7만 년. 더 확대하면 태양을 감싼 오르트 구름(모형).' },
     sun: { t: SUN, d: 2600, pitch: 0.6, title: '태양 주변 (실제 별)', desc: '실제 별 약 11만 9천 개(Gaia DR3 거리 · 맨눈 별 9,105개 + 망원경 별 11만 개)와 외계 행성계 3,688곳(초록). 은하 전체에 비하면 아주 작은 동네예요.' },
     lmc: { t: LMC, d: 60000, ...vLMC, title: '대마젤란 은하', desc: '우리은하의 가장 큰 위성은하. 한쪽으로 치우친 막대와 거대한 별 탄생 구역 타란툴라 성운(분홍).' },
     m31: { t: M31, d: 270000, ...vM31, title: '안드로메다 은하', desc: '국부은하군에서 가장 큰 은하. 큰 팽대부와 1만 광년대 먼지 고리. 지금도 초속 약 110km로 다가오는 중.' },
@@ -672,7 +708,7 @@ export function openGalaxy3D(host, opts = {}) {
     virgo: { t: VC.toArray(), d: 1.7e7, pitch: 0.35, title: '처녀자리 은하단 내부', desc: '약 5,400만 광년, 가장 가까운 큰 은하단 · 은하 1,300~2,000개(여기엔 거리를 잰 밝은 은하와 이름난 은하). 파란 안개 = X선으로 보이는 수천만 도 가스, 보라 안개 = 암흑물질(모형). 깊이는 줄여서 배치했어요.' },
     cosmos: { t: SUN, d: 1.45e9, pitch: 0.42, yaw: 0.35, frame: 'sg', title: '근처 우주 · 초은하단 지도', desc: '2MASS 적외선 하늘 탐사(2MRS)로 거리를 잰 실제 은하 약 4만 3천 개. 파란 원반은 초은하면(1억~5억 광년), 하늘색=초은하단 · 노랑=은하 벽 · 빨강=보이드. 가운데 빈 띠는 은하수에 가려 못 보는 곳(회피 영역).' },
   };
-  const ORDER = [['mw', '우리은하'], ['side', '옆모습'], ['gc', '은하 중심'], ['sun', '태양 주변'], ['lmc', '대마젤란'], ['m31', '안드로메다'], ['m33', '삼각형자리'], ['lg', '국부은하군'], ['virgo', '처녀자리 은하단'], ['cosmos', '근처 우주'], ['bh', '블랙홀 체험'], ['gaia', 'Gaia 별 985만'], ['rot', '자동회전']];
+  const ORDER = [['mw', '우리은하'], ['side', '옆모습'], ['gc', '은하 중심'], ['sun', '태양 주변'], ['near', '이웃 별'], ['lmc', '대마젤란'], ['m31', '안드로메다'], ['m33', '삼각형자리'], ['lg', '국부은하군'], ['virgo', '처녀자리 은하단'], ['cosmos', '근처 우주'], ['bh', '블랙홀 체험'], ['gaia', 'Gaia 별 985만'], ['rot', '자동회전']];
   const bar = $('.g3-bar');
   for (const [k, name] of ORDER) {
     const b = document.createElement('button'); b.textContent = name; b.dataset.k = k;
@@ -734,7 +770,7 @@ export function openGalaxy3D(host, opts = {}) {
   cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
   cv.addEventListener('pointerleave', () => { hoverPt = null; });
   cv.addEventListener('wheel', (e) => { e.preventDefault(); zoomBy(Math.exp(e.deltaY * 0.0015)); autoRotPause = performance.now(); }, { passive: false });
-  function zoomBy(k) { dist = Math.max(25, Math.min(6e9, dist * k)); if (goal) goal.dist = undefined; }
+  function zoomBy(k) { dist = Math.max(1.5, Math.min(6e9, dist * k)); if (goal) goal.dist = undefined; }
 
   // 화면 투영
   const v = new THREE.Vector3();
@@ -826,7 +862,7 @@ export function openGalaxy3D(host, opts = {}) {
     virgoOn = dist < 4.5e7 && target.distanceTo(VC) < 2e7;
     virgo.visible = virgoOn; vbar.style.display = virgoOn ? '' : 'none';
     cosmos.visible = dist > 2e7 && !virgoOn;
-    camera.near = Math.max(0.5, dist * 0.002); camera.far = dist * 60 + 3e7;
+    camera.near = Math.max(0.0005, dist * 0.002); camera.far = dist * 60 + 3e7;
     camera.updateProjectionMatrix();
     camera.lookAt(target);
     if (gaia?.on && now - lastGaiaT > 300 && dist < 40000) { // 보는 곳 주변의 Gaia 칸 요청
