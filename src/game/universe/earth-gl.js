@@ -236,12 +236,14 @@ void main() {
     if (ruv.x >= 0.0 && ruv.x <= 1.0 && ruv.y >= 0.0 && ruv.y <= 1.0) {
       vec3 rr3 = texture(uRoad, ruv).rgb * uRoadA;
       vec2 rr = rr3.rg;
-      // 지하철(땅밑) — 보라색 네온, 낮·밤 모두
-      col = mix(col, vec3(0.78, 0.45, 1.0), rr3.b * 0.8);
-      col += vec3(0.5, 0.25, 0.9) * rr3.b * 0.25 * nightK;
       float rd = min(rr.r + rr.g * 0.6, 1.0);
       col = mix(col, vec3(0.42, 1.0, 0.72), min(rr.r * 0.7 + rr.g * 0.5, 0.75) * (1.0 - nightK));
       col += rd * nightK * vec3(1.1, 0.8, 0.42) * (0.3 + 0.7 * bmEnv) * 0.75 * (1.0 - min(li, 1.0) * 0.6);
+      // 지하철(땅밑) — 도로 위에 덮어 그림: 어두운 테두리 + 보라색 심 (겹쳐도 구분되게)
+      float halo = smoothstep(0.25, 0.42, rr3.b), core = smoothstep(0.62, 0.9, rr3.b);
+      col = mix(col, col * 0.18, halo * 0.85);
+      col = mix(col, vec3(0.8, 0.48, 1.0), core * 0.95);
+      col += vec3(0.45, 0.2, 0.9) * core * 0.3 * nightK;
     }
   }
 
@@ -915,7 +917,8 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     }
     draw(ways.min, 'rgb(0,255,0)', 8, 1.4)
     draw(ways.maj, 'rgb(255,0,0)', 20, 2.4)
-    if (ways.rail?.length) draw(ways.rail, 'rgb(0,0,255)', 10, 2.2) // 지하철 (파랑 채널)
+    // 지하철 (파랑 채널): 넓은 테두리(약 110) + 가는 심(합쳐 255) — 셰이더가 테두리/심을 구분
+    if (ways.rail?.length) { draw(ways.rail, 'rgb(0,0,110)', 24, 5.5); draw(ways.rail, 'rgb(0,0,145)', 10, 2.2) }
     g2.globalCompositeOperation = 'source-over'
     if (!rTex || rTex.userData.size !== `${W}x${H}`) { rTex?.dispose(); rTex = canvasTex(rCanvas); rTex.userData.size = `${W}x${H}`; uniforms.uRoad.value = rTex }
     rTex.needsUpdate = true
