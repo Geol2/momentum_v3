@@ -77,6 +77,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     <div class="mu-bottom">
       <div class="mu-scalebar" aria-label="축척"><span class="mu-sb-lab"></span><span class="mu-sb-bar"></span></div>
       <button class="mu-citybtn" hidden aria-label="3D 건물 보기">3D 건물</button>
+      <button class="mu-tiltbtn" hidden aria-label="지구 기울여 보기">2D</button>
       <div class="mu-focusbar" hidden>
         <button class="mu-back">← 태양계로</button>
         <button class="mu-speed">SPD · 1초=1시간</button>
@@ -959,6 +960,16 @@ export function mountUniverseExplorer(container, opts = {}) {
   // 새 버튼(3D·밤하늘 등)이 생기면 메뉴에 점 표시
   let toolSig = '';
   const watchTools = () => { const sig = [...tools.children].filter((b) => !b.hidden).map((b) => b.className).join('|'); if (toolSig && sig !== toolSig && sig.length > toolSig.length && !tools.classList.contains('open')) menuBtn.classList.add('ping'); toolSig = sig; };
+  // 지구 3D 기울기: 처음부터 3D(비스듬히)로, 버튼으로 2D(위에서) ↔ 3D 전환
+  const btnTilt = $('.mu-tiltbtn');
+  const TILT_3D = 0.62;
+  if (earth.setTilt) earth.setTilt(store.earth2D ? 0 : TILT_3D);
+  const tiltLabel = () => { btnTilt.textContent = earth.tilt > 0 ? '2D로' : '3D로'; };
+  tiltLabel();
+  btnTilt.addEventListener('click', () => {
+    earth.setTilt(earth.tilt > 0 ? 0 : TILT_3D);
+    store.earth2D = earth.tilt === 0; save(); tiltLabel();
+  });
   // 3D 동네 (지표를 최대로 확대했을 때)
   const btnCity = $('.mu-citybtn');
   btnCity.addEventListener('click', () => {
@@ -1232,6 +1243,8 @@ export function mountUniverseExplorer(container, opts = {}) {
     if (idx < 2 && !focus && Math.hypot(pan[0], pan[1]) > mppAt(s) * Math.min(W, H) * 0.6) idx = 2;
     const lv = LEVELS[idx];
     btnCity.hidden = !(earth.gl && s < 3.75 && idx === 0 && !focus);
+    btnTilt.hidden = !(earth.gl && earth.setTilt && idx === 0 && !focus);
+    btnTilt.style.marginBottom = btnCity.hidden ? '8px' : '46px';
     const fmtCoord = (v, pos, neg) => `${Math.abs(v).toFixed(2)}°${v >= 0 ? pos : neg}`;
     let locLine = '';
     if (idx === 0) {

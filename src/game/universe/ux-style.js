@@ -98,6 +98,9 @@ const CSS = `
 .mu-citybtn{position:absolute;right:14px;bottom:100%;margin-bottom:8px;height:30px;padding:0 12px;border:1px solid var(--g2);background:rgba(1,22,11,.82);color:var(--g);
   font-family:inherit;font-weight:700;font-size:11px;letter-spacing:.04em;cursor:pointer;box-shadow:0 0 10px rgba(61,255,143,.35);text-shadow:var(--glow)}
 .mu-citybtn[hidden]{display:none}
+.mu-tiltbtn{position:absolute;right:14px;bottom:100%;margin-bottom:8px;height:30px;padding:0 12px;border:1px solid var(--g2);background:rgba(1,22,11,.82);color:var(--g);
+  font-family:inherit;font-weight:700;font-size:11px;cursor:pointer;text-shadow:var(--glow)}
+.mu-tiltbtn[hidden]{display:none}
 .mu-scalebar{position:absolute;left:14px;bottom:100%;margin-bottom:8px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;pointer-events:none;
   font-size:10px;color:#cfffe2;text-shadow:0 0 3px #000,0 0 6px #000;font-variant-numeric:tabular-nums}
 .mu-sb-bar{display:block;height:5px;border:1.5px solid var(--g);border-top:0;box-shadow:0 2px 4px rgba(0,0,0,.6);transition:width .12s linear}
