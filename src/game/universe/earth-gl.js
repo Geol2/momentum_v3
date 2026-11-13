@@ -234,7 +234,11 @@ void main() {
     if (lonR < uRoadBox.x) lonR += 360.0;
     vec2 ruv = vec2((lonR - uRoadBox.x) / (uRoadBox.z - uRoadBox.x), (uRoadBox.w - latDeg) / (uRoadBox.w - uRoadBox.y));
     if (ruv.x >= 0.0 && ruv.x <= 1.0 && ruv.y >= 0.0 && ruv.y <= 1.0) {
-      vec2 rr = texture(uRoad, ruv).rg * uRoadA;
+      vec3 rr3 = texture(uRoad, ruv).rgb * uRoadA;
+      vec2 rr = rr3.rg;
+      // 지하철(땅밑) — 보라색 네온, 낮·밤 모두
+      col = mix(col, vec3(0.78, 0.45, 1.0), rr3.b * 0.8);
+      col += vec3(0.5, 0.25, 0.9) * rr3.b * 0.25 * nightK;
       float rd = min(rr.r + rr.g * 0.6, 1.0);
       col = mix(col, vec3(0.42, 1.0, 0.72), min(rr.r * 0.7 + rr.g * 0.5, 0.75) * (1.0 - nightK));
       col += rd * nightK * vec3(1.1, 0.8, 0.42) * (0.3 + 0.7 * bmEnv) * 0.75 * (1.0 - min(li, 1.0) * 0.6);
@@ -823,7 +827,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
   // ── 내 주변 도로: OpenStreetMap 데이터(OpenFreeMap 벡터 타일, 안 되면 Overpass)를 화면 범위만 받아 텍스처로 그림 ──
   // 화면 폭에 따라 받는 도로 등급을 나눔 (넓을수록 큰길만 — 데이터 양 제한)
   const rCanvas = document.createElement('canvas')
-  let rTex = null, rGen = 0, rBox = null, rLvl = -1, rFailAt = -1e9
+  let rTex = null, rGen = 0, rBox = null, rLvl = -1, rFailAt = -1e9, rStations = []
   const roadData = new Map()
   const ROAD_SETS = [
     ['motorway|trunk|primary|motorway_link|trunk_link', null],
@@ -911,11 +915,15 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     }
     draw(ways.min, 'rgb(0,255,0)', 8, 1.4)
     draw(ways.maj, 'rgb(255,0,0)', 20, 2.4)
+    if (ways.rail?.length) draw(ways.rail, 'rgb(0,0,255)', 10, 2.2) // 지하철 (파랑 채널)
     g2.globalCompositeOperation = 'source-over'
     if (!rTex || rTex.userData.size !== `${W}x${H}`) { rTex?.dispose(); rTex = canvasTex(rCanvas); rTex.userData.size = `${W}x${H}`; uniforms.uRoad.value = rTex }
     rTex.needsUpdate = true
     uniforms.uRoadBox.value.set(b[0], b[1], b[2], b[3])
     rBox = b; rLvl = lvl; info.roads = true
+    // 역 (중복 제거) — 화면 라벨·가까운 역 계산용
+    const seen = new Set()
+    rStations = (ways.stations || []).filter((st) => { const k = st.name + '|' + st.lat.toFixed(3) + '|' + st.lon.toFixed(3); if (seen.has(k)) return false; seen.add(k); return true })
   }
 
   // ── 달 ──
@@ -998,6 +1006,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     },
     get moon() { updateAstro(); return moonInfo },
     get sources() { return info },
+    get stations() { return rStations },
     /** 고해상도 위성 타일이 화면에 쓰이는 중인지 (출처 표시용) */
     get detailActive() { return uniforms.uDetailA.value > 0.05 && detailDrawn },
     /** 달의 화면 위치·반지름 */

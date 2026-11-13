@@ -4,7 +4,8 @@
 
 const td = new TextDecoder()
 
-// 필요한 레이어(transportation)의 선만 [x,y,...] (타일 좌표)로 꺼냄
+// transportation 레이어의 선(도로·철도)과 poi 레이어의 역(점)을 타일 좌표로 꺼냄
+// 선: { cls, sub, tunnel, pts, extent } / 역: { station: true, name, sub, pts:[x,y], extent }
 export function readRoadLines(buf, layerName = 'transportation') {
   const d = new Uint8Array(buf)
   let p = 0
@@ -42,8 +43,10 @@ export function readRoadLines(buf, layerName = 'transportation') {
       } else if (lf === 5) extent = varint()
       else skip(lw)
     }
-    if (name === layerName) {
-      const save = end, ci = keys.indexOf('class')
+    const isPoi = name === 'poi'
+    if (name === layerName || isPoi) {
+      const save = end, ci = keys.indexOf('class'), si = keys.indexOf('subclass'), bi = keys.indexOf('brunnel')
+      const ni = keys.indexOf('name:ko'), n0 = keys.indexOf('name')
       for (const [s, e] of feats) {
         p = s
         let tags = [], type = 0, geom = null
@@ -54,9 +57,19 @@ export function readRoadLines(buf, layerName = 'transportation') {
           else if (ff === 4 && fw === 2) geom = packed(varint() + p)
           else skip(fw)
         }
-        if (type !== 2 || !geom) continue
-        let cls = null
-        for (let k = 0; k < tags.length; k += 2) if (tags[k] === ci) { cls = vals[tags[k + 1]]; break }
+        if (!geom || (isPoi ? type !== 1 : type !== 2)) continue
+        let cls = null, sub = null, br = null, nm = null, nm0 = null
+        for (let k = 0; k < tags.length; k += 2) {
+          const kk = tags[k], vv = vals[tags[k + 1]]
+          if (kk === ci) cls = vv; else if (kk === si) sub = vv; else if (kk === bi) br = vv
+          else if (kk === ni) nm = vv; else if (kk === n0) nm0 = vv
+        }
+        if (isPoi) {
+          // 지하철·전철역만
+          if (cls !== 'railway' || !/^(subway|station|halt|light_rail)$/.test(sub || '') || geom.length < 3) continue
+          out.push({ station: true, name: nm || nm0, sub, pts: [zz(geom[1]), zz(geom[2])], extent })
+          continue
+        }
         // 선 꺼내기 (MoveTo=1, LineTo=2, ClosePath=7, 지그재그 부호)
         let x = 0, y = 0, line = null, i = 0
         while (i < geom.length) {
@@ -64,11 +77,11 @@ export function readRoadLines(buf, layerName = 'transportation') {
           if (cmd === 7) continue
           for (let k = 0; k < cnt; k++) {
             x += zz(geom[i++]); y += zz(geom[i++])
-            if (cmd === 1) { if (line && line.length > 2) out.push({ cls, pts: line, extent }); line = [x, y] }
+            if (cmd === 1) { if (line && line.length > 2) out.push({ cls, sub, tunnel: br === 'tunnel', pts: line, extent }); line = [x, y] }
             else line.push(x, y)
           }
         }
-        if (line && line.length > 2) out.push({ cls, pts: line, extent })
+        if (line && line.length > 2) out.push({ cls, sub, tunnel: br === 'tunnel', pts: line, extent })
       }
       p = save
     }
@@ -116,7 +129,7 @@ export async function fetchRoads(b, lvl, isDead) {
   const n = 2 ** z
   const jobs = []
   for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) jobs.push([x, y])
-  const res = { maj: [], min: [] }
+  const res = { maj: [], min: [], rail: [], stations: [] }
   const majS = new Set(L.maj), minS = new Set(L.min)
   let ok = 0
   const one = async ([x, y]) => {
@@ -130,17 +143,22 @@ export async function fetchRoads(b, lvl, isDead) {
       cachePut(key, lines)
     }
     ok++
-    for (const { cls, pts, extent } of lines) {
-      const c = cls && cls.replace(/_construction$/, '')
-      const dst = majS.has(c) ? res.maj : minS.has(c) ? res.min : null
-      if (!dst) continue
+    const toLL = (pts, extent) => {
       const a = new Float32Array(pts.length)
       for (let k = 0; k < pts.length; k += 2) {
         a[k] = ((x + pts[k] / extent) / n) * 360 - 180
         const yy = (y + pts[k + 1] / extent) / n
         a[k + 1] = (Math.atan(Math.sinh(Math.PI * (1 - 2 * yy))) * 180) / Math.PI
       }
-      dst.push(a)
+      return a
+    }
+    for (const L of lines) {
+      if (L.station) { if (L.name) { const a = toLL(L.pts, L.extent); res.stations.push({ name: L.name, sub: L.sub, lon: a[0], lat: a[1] }) } continue }
+      const c = L.cls && L.cls.replace(/_construction$/, '')
+      // 지하철(지하 구간) — 지하세계 표시용
+      if ((c === 'transit' || c === 'rail') && (L.sub === 'subway' || L.tunnel)) { res.rail.push(toLL(L.pts, L.extent)); continue }
+      const dst = majS.has(c) ? res.maj : minS.has(c) ? res.min : null
+      if (dst) dst.push(toLL(L.pts, L.extent))
     }
   }
   // 동시에 6개씩

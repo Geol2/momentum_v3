@@ -31,6 +31,7 @@ import reliefUrl from './earth-relief.webp';
 import day2kUrl from './earth-day-2k.webp';
 import relief2kUrl from './earth-relief-2k.webp';
 import moonUrl from './moon-map.webp';
+import { loadDepth, nearestStation, drawStations } from './ux-subway.js';
 import { LY, AU, MLY, R_OBS, C, DEG, S_MIN, S_MAX, S_START, clamp, smooth, band, P, TODAY, SUN, skyPosM, MOON, GC, ANDROMEDA, M33, LMC, SMC, LG_CENTER, VIRGO, GA, LANI, camAt, LEVELS } from './ux-consts.js';
 import { buildWorld } from './ux-world.js';
 import { fmtKo, fmtLy, fmtMly, PLANET_PHYS, MOON_TEMP, DSO_KO, DEEP_KO, starTypeKo, fmtLength, fmtLightTime, fmtDuration } from './ux-format.js';
@@ -77,7 +78,7 @@ export function mountUniverseExplorer(container, opts = {}) {
         <button class="mu-speed">SPD · 1초=1시간</button>
         <button class="mu-sys3d" hidden>3D로 보기</button>
       </div>
-      <div class="mu-credit" hidden>위성 영상: <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless - https://s2maps.eu</a> by <a href="https://eox.at" target="_blank" rel="noopener">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2024, 일부 2016) · CC BY-NC-SA 4.0 · 지형 음영: AWS Terrain Tiles (SRTM 등) · 야경: NASA Black Marble · 구름: NASA GIBS VIIRS (어제 영상) · 도로: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> 기여자</div>
+      <div class="mu-credit" hidden>위성 영상: <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless - https://s2maps.eu</a> by <a href="https://eox.at" target="_blank" rel="noopener">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2024, 일부 2016) · CC BY-NC-SA 4.0 · 지형 음영: AWS Terrain Tiles (SRTM 등) · 야경: NASA Black Marble · 구름: NASA GIBS VIIRS (어제 영상) · 도로: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> 기여자 · 지하철역 깊이: 서울교통공사(공공누리 1유형)</div>
       <div class="mu-lvtext"></div>
       <div class="mu-controls">
         <button data-zoom="-1" aria-label="가까이">＋</button>
@@ -1219,6 +1220,11 @@ export function mountUniverseExplorer(container, opts = {}) {
         const where = au.edgeLat ? (au.edgeLat <= Math.abs(myLoc.lat) + 2 ? ` · 지금 ${myLoc.label}에서도 북쪽 하늘에 보일 수 있어요!` : ` · 북위 약 ${Math.round(au.edgeLat)}° 위에서 보여요`) : '';
         locLine += ` · 오로라 Kp ${kp.toFixed(1)}(${mood})${where}`;
       }
+      if (Math.pow(10, s) < 30000) {
+        loadDepth();
+        const ns = nearestStation(myLoc.lat, myLoc.lon, earth.stations);
+        if (ns) locLine += ` · ${ns}`;
+      }
     }
     const showCredit = !!earth.detailActive;
     if (hudCache.credit !== showCredit) { hudCache.credit = showCredit; ui.credit.hidden = !showCredit; }
@@ -2179,6 +2185,9 @@ export function mountUniverseExplorer(container, opts = {}) {
           if (!earth.gl) earth.draw(ctx, X, Y, er, time, dpr, W, H, Math.abs(targetS - s) > 0.003 || zoomVel !== 0);
           ctx = octx;
           drawCities(X, Y, er);
+          // 땅밑: 지하철역과 깊이 (화면 폭 20km 이하)
+          const vKm = Math.pow(10, s) / 1000;
+          if (earth.gl && vKm < 20) { loadDepth(); drawStations(ctx, earth, X, Y, er, W, H, vKm, 1 - smooth(10, 20, vKm)); }
           // 📍 내 위치 핀
           const p = earth.project(myLoc.lat, myLoc.lon, X, Y, er);
           const pa = smooth(-0.02, 0.18, p.z);
