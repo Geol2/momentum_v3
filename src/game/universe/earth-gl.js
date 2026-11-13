@@ -865,6 +865,35 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     }).catch(() => { metroP = null })
     return metroP
   }
+  let rRail = null, rOffM = 0
+  const rOffCache = new Map()
+  // 지하철 선을 옆으로 비켜 그린 만큼 (동쪽 m, 남쪽 m) — 역 동그라미를 선 위에 맞추기용
+  function railOffset(lat, lon) {
+    if (!rRail || !rOffM) return null
+    const key = lat.toFixed(5) + ',' + lon.toFixed(5)
+    if (rOffCache.has(key)) return rOffCache.get(key)
+    const c = Math.cos(lat * DEG), px = lon * 111320 * c, py = -lat * 110574
+    let best = null, bd = 250 * 250
+    for (const a of rRail) {
+      const n = a.length / 2
+      if (n < 2) continue
+      const X = (i) => a[i * 2] * 111320 * c, Y = (i) => -a[i * 2 + 1] * 110574
+      for (let i = 0; i + 1 < n; i++) {
+        const x0 = X(i), y0 = Y(i), x1 = X(i + 1), y1 = Y(i + 1), dx = x1 - x0, dy = y1 - y0, L2 = dx * dx + dy * dy || 1
+        const t = Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / L2))
+        const ex = x0 + dx * t - px, ey = y0 + dy * t - py, d2 = ex * ex + ey * ey
+        if (d2 < bd) {
+          bd = d2
+          const gx = X(n - 1) - X(0), gy = Y(n - 1) - Y(0), sgn = -gy - gx < 0 ? -1 : 1
+          const L = Math.sqrt(L2)
+          best = { e: (sgn * -dy / L) * rOffM, s: (sgn * dx / L) * rOffM }
+        }
+      }
+    }
+    if (rOffCache.size > 3000) rOffCache.clear()
+    rOffCache.set(key, best)
+    return best
+  }
   let rBusy = false, rView = null, rViewKey = '', rViewSince = 0
   async function planRoads() {
     if (rBusy || !rView || dead) return
@@ -961,7 +990,9 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     if (rail.length) {
       const off = lw(20, 2.4) / 2 + lw(10, 2.6) / 2 + lw(0, 1.4)
       draw(rail, 'rgb(0,0,110)', 14, 4.2, off); draw(rail, 'rgb(0,0,145)', 10, 2.6, off)
-    }
+      // 역 표시도 같은 만큼 옮길 수 있게 (미터 단위)
+      rRail = rail; rOffM = off * mpp; rOffCache.clear()
+    } else { rRail = null; rOffM = 0; rOffCache.clear() }
     g2.globalCompositeOperation = 'source-over'
     if (!rTex || rTex.userData.size !== `${W}x${H}`) { rTex?.dispose(); rTex = canvasTex(rCanvas); rTex.userData.size = `${W}x${H}`; uniforms.uRoad.value = rTex }
     rTex.needsUpdate = true
@@ -1054,6 +1085,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     get sources() { return info },
     get stations() { return rStations },
     viewCenter() { return { lat: view.lat, lon: view.lon } },
+    railOffset,
     /** 고해상도 위성 타일이 화면에 쓰이는 중인지 (출처 표시용) */
     get detailActive() { return uniforms.uDetailA.value > 0.05 && detailDrawn },
     /** 달의 화면 위치·반지름 */

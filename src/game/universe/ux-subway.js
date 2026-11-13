@@ -86,7 +86,10 @@ export function drawStations(ctx, earth, X, Y, R, W, H, viewKm, alpha) {
   // 깊은 역부터 (라벨이 겹치면 얕은 쪽 생략)
   list.sort((a, b) => (b.depths[0]?.dep || -1) - (a.depths[0]?.dep || -1))
   for (const st of list) {
-    const p = earth.project(st.lat, st.lon, X, Y, R)
+    const p = { ...earth.project(st.lat, st.lon, X, Y, R) }
+    // 지하철 선은 도로와 겹치지 않게 옆으로 비켜 그려져 있어서, 역 동그라미도 같은 만큼 옮김
+    const off = earth.railOffset?.(st.lat, st.lon)
+    if (off) { const mpp = (viewKm * 1000) / W; p.x += off.e / mpp; p.y += off.s / mpp }
     if (p.z < 0.1 || p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) continue
     ctx.globalAlpha = alpha
     ctx.strokeStyle = '#c99bff'; ctx.lineWidth = 1.6
