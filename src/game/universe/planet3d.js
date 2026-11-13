@@ -114,7 +114,7 @@ export function openPlanet3D(host, { name, date = new Date(), onClose } = {}) {
   ].filter(Boolean))
   S.root.querySelector('.cu-note').textContent = '드래그로 돌리기 · 핀치/휠로 확대 · 자전은 1초에 1시간'
 
-  const home = D.rings ? 6.8 : 4.6
+  const home = D.rings ? 7.2 : 6.2
   st.dist = home; st.minD = 1.08; st.maxD = Math.max(12, far * 3); st.pitch = 0.25; st.yaw = 0.8
   const views = [
     S.button('행성', () => { st.goalD = home; st.pitch = 0.25; on(0) }),

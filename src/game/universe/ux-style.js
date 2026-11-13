@@ -46,7 +46,19 @@ const CSS = `
   clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);box-shadow:inset 0 0 10px rgba(61,255,143,.25)}
 .mu-menu.on{background:rgba(61,255,143,.3);color:#eafff2}
 .mu-menu.ping::after{content:'';position:absolute;top:5px;right:5px;width:6px;height:6px;background:var(--g);box-shadow:0 0 6px var(--g)}
-.mu-tools{position:absolute;top:102px;right:10px;z-index:7;display:flex;flex-flow:column wrap;align-items:flex-end;align-content:flex-end;gap:6px;max-height:calc(100% - 230px)}
+.mu-q3{position:absolute;top:102px;right:10px;width:38px;height:38px;z-index:7;border:1px solid var(--g);padding:0;
+  background:rgba(1,30,14,.8);color:var(--g);font-family:inherit;font-weight:800;font-size:12px;letter-spacing:.02em;cursor:pointer;text-shadow:var(--glow);
+  clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);box-shadow:inset 0 0 12px rgba(61,255,143,.45)}
+.mu-q3.on{background:rgba(61,255,143,.3);color:#eafff2}
+.mu-q3p{position:absolute;top:56px;right:56px;z-index:9;width:min(78vw,330px);max-height:calc(100% - 200px);overflow:auto;padding:10px 12px;
+  background:rgba(1,16,8,.94);border:1px solid var(--g2);box-shadow:0 0 18px rgba(61,255,143,.25)}
+.mu-q3p[hidden]{display:none}
+.mu-q3p .t{font-size:12px;font-weight:800;color:var(--g);margin-bottom:6px;text-shadow:var(--glow)}
+.mu-q3p .g{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:6px 0}
+.mu-q3p .g span{width:100%;font-size:10px;color:var(--gd)}
+.mu-q3p button{height:28px;padding:0 9px;border:1px solid var(--g2);background:rgba(1,22,11,.85);color:#cfffe2;font-family:inherit;font-size:11px;cursor:pointer}
+.mu-q3p button:active{background:rgba(61,255,143,.3)}
+.mu-tools{position:absolute;top:148px;right:10px;z-index:7;display:flex;flex-flow:column wrap;align-items:flex-end;align-content:flex-end;gap:6px;max-height:calc(100% - 230px)}
 .mu-tools:not(.open){display:none}
 .mu-tools .mu-3d{position:relative;top:auto;right:auto;width:auto;min-width:38px;height:34px;padding:0 10px;animation:none;opacity:1;font-size:10.5px;letter-spacing:.02em;white-space:nowrap}
 .mu-tools .mu-3d::after{content:attr(data-label);margin-left:6px;font-weight:700;color:#cfffe2}

@@ -1048,10 +1048,11 @@ export function mountUniverseExplorer(container, opts = {}) {
   const btn3d = $('.mu-g3');
   const btnMore = $('.mu-more');
   btnMore.addEventListener('click', () => toggleGaia());
-  btn3d.addEventListener('click', async () => {
+  btn3d.addEventListener('click', () => open3D());
+  async function open3D(presetIn) {
     if (g3) return;
     g3 = 'loading';
-    const preset = s < 19.6 ? 'sun' : s < 22.2 ? 'mw' : s < 23.8 ? 'lg' : 'cosmos';
+    const preset = presetIn || (s < 19.6 ? 'sun' : s < 22.2 ? 'mw' : s < 23.8 ? 'lg' : 'cosmos');
     try {
       const { openGalaxy3D } = await import('./galaxy3d.js');
       if (destroyed) return;
@@ -1063,7 +1064,33 @@ export function mountUniverseExplorer(container, opts = {}) {
         onClose: () => { g3 = null; if (!destroyed) { last = performance.now(); raf = requestAnimationFrame(frame); } },
       });
     } catch (e) { g3 = null; toast('3D 보기를 열 수 없어요'); }
-  });
+  }
+  // ── 3D 바로가기: 처음부터 보이는 버튼 → 우주·행성·별·동네 3D를 한 번에 고르기 ──
+  {
+    const q = document.createElement('button'); q.className = 'mu-q3'; q.textContent = '3D'; q.setAttribute('aria-label', '3D로 보기');
+    const p = document.createElement('div'); p.className = 'mu-q3p'; p.hidden = true;
+    const chips = (attr, list) => list.map(([v, t]) => `<button data-${attr}="${v}">${t || v}</button>`).join('');
+    p.innerHTML = `<div class="t">3D로 보기</div>
+      <div class="g"><span>우주</span>${chips('g', [['mw', '우리은하'], ['near', '이웃 별'], ['cosmos', '근처 우주'], ['web', '우주 전체']])}</div>
+      <div class="g"><span>행성</span>${chips('p', ['수성', '금성', '지구', '화성', '목성', '토성', '천왕성', '해왕성', '달'].map((n) => [n]))}</div>
+      <div class="g"><span>거대한 별</span>${chips('s', [...GIANT_NAMES].map((n) => [n]))}</div>
+      <div class="g"><span>더 보기</span>${chips('x', [['city', '우리 동네 건물'], ['plan', '비행 계획'], ['bh', '블랙홀 체험']])}</div>`;
+    root.querySelector('.mu-close').after(q, p);
+    q.addEventListener('click', () => { p.hidden = !p.hidden; q.classList.toggle('on', !p.hidden); });
+    root.addEventListener('pointerdown', (e) => { if (!p.hidden && !p.contains(e.target) && e.target !== q) { p.hidden = true; q.classList.remove('on'); } }, true);
+    for (const ev of ['wheel', 'touchstart']) p.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
+    p.addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      p.hidden = true; q.classList.remove('on');
+      const d = b.dataset;
+      if (d.g) open3D(d.g);
+      else if (d.p) openCloseup('openPlanet3D', { name: d.p, date: simDate() });
+      else if (d.s) { const o = sky?.dso.find((x) => x.name === d.s); openCloseup('openGiant3D', { name: d.s, ly: o?.ly }); }
+      else if (d.x === 'city') { const c = myLoc && !myLoc.approx ? myLoc : { lat: 37.5665, lon: 126.978 }; openCloseup('openCity3D', { lat: c.lat, lon: c.lon, my: myLoc.approx ? null : myLoc, date: new Date() }); }
+      else if (d.x === 'plan') openCloseup('openMission', {});
+      else if (d.x === 'bh') openBH('sgra');
+    });
+  }
   $('.mu-go-home').addEventListener('click', () => { ui.modal.hidden = true; setTarget(S_START); });
   $('.mu-stay').addEventListener('click', () => { ui.modal.hidden = true; });
   $('.mu-reset').addEventListener('click', () => {
@@ -1215,7 +1242,7 @@ export function mountUniverseExplorer(container, opts = {}) {
   }
   function updateHud() {
     if (s > 10.5 || focus) loadCatalogs();
-    btn3d.hidden = s < 16.5;
+    btn3d.hidden = false;
     btnSky.hidden = s > 12.5;
     btnTrip.hidden = s < 10.5 || s > 17.5;
     btnMore.hidden = s < 16.5 || s > 21.8;
