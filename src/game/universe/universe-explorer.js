@@ -1526,7 +1526,9 @@ export function mountUniverseExplorer(container, opts = {}) {
     const v = earth.getView(), la = v.lat * DEG, lo = v.lon * DEG;
     const C = [Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)], E = [-Math.sin(lo), Math.cos(lo), 0], Nn = [-Math.sin(la) * Math.cos(lo), -Math.sin(la) * Math.sin(lo), Math.cos(la)];
     const P = S.pos, ok = S.ok;
-    const pr = (x, y, z) => [X + (x * E[0] + y * E[1] + z * E[2]) * R, Y - (x * Nn[0] + y * Nn[1] + z * Nn[2]) * R, x * C[0] + y * C[1] + z * C[2]];
+    const tilted = !!earth.tilting;
+    const pr = tilted ? (x, y, z) => { const q = earth.projectP(x, y, z, X, Y, R); return [q.x, q.y, q.z]; }
+      : (x, y, z) => [X + (x * E[0] + y * E[1] + z * E[2]) * R, Y - (x * Nn[0] + y * Nn[1] + z * Nn[2]) * R, x * C[0] + y * C[1] + z * C[2]];
     // ISS 궤도선
     const iss = S.sats.findIndex((q) => /^ISS/.test(q.name));
     if (iss >= 0 && ok[iss]) {
@@ -1544,10 +1546,11 @@ export function mountUniverseExplorer(container, opts = {}) {
         satVis[i] = 0;
         if (!ok[i]) continue;
         const x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2];
-        const sx2 = X + (x * E[0] + y * E[1] + z * E[2]) * R, sy2 = Y - (x * Nn[0] + y * Nn[1] + z * Nn[2]) * R;
+        let sx2, sy2, zz;
+        if (tilted) { const q = earth.projectP(x, y, z, X, Y, R); sx2 = q.x; sy2 = q.y; zz = q.z; if (zz < 0) continue; }
+        else { sx2 = X + (x * E[0] + y * E[1] + z * E[2]) * R; sy2 = Y - (x * Nn[0] + y * Nn[1] + z * Nn[2]) * R; zz = x * C[0] + y * C[1] + z * C[2]; }
         if (sx2 < -4 || sx2 > W + 4 || sy2 < -4 || sy2 > H + 4) continue;
-        const zz = x * C[0] + y * C[1] + z * C[2];
-        if (zz < 0 && (sx2 - X) ** 2 + (sy2 - Y) ** 2 < R * R) continue; // 지구 뒤
+        if (!tilted && zz < 0 && (sx2 - X) ** 2 + (sy2 - Y) ** 2 < R * R) continue; // 지구 뒤
         ctx.fillRect(sx2 - h, sy2 - h, sz, sz);
         satSX[i] = sx2; satSY[i] = sy2; satVis[i] = 1;
       }

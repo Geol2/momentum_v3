@@ -1140,8 +1140,10 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
         glowCtx.fillStyle = g
         glowCtx.beginPath(); glowCtx.arc(X, Y, R * 1.12, 0, Math.PI * 2); glowCtx.fill()
       }
-      tilt += (tiltGoal - tilt) * 0.18
-      if (Math.abs(tiltGoal - tilt) < 0.001) tilt = tiltGoal
+      // 지구 전체가 보이는 거리에서는 기울이지 않음(공 모양이 화면 가운데서 어긋나 보임) — 지표로 확대할수록 서서히
+      const zk = R / Math.max(1, Math.max(w, h)), want = tiltGoal * Math.max(0, Math.min(1, (zk - 1.2) / 2.8))
+      tilt += (want - tilt) * 0.18
+      if (Math.abs(want - tilt) < 0.001) tilt = want
       worldM.copy(buildWorld(X, Y, R))
       group.matrix.copy(worldM)
       group.matrixWorldNeedsUpdate = true
@@ -1183,6 +1185,8 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
       if (!drawnThisFrame && !cleared) { renderer.clear(); cleared = true }
       drawnThisFrame = false
     },
+    /** 지구 고정 좌표(지구 반지름 단위, 위성 등) → 화면 */
+    projectP(x, y, z, X, Y, R) { return toScreen([x, y, z], X, Y, R) },
     project(latDeg, lonDeg, X, Y, R) {
       const la = latDeg * DEG, lo = lonDeg * DEG
       return toScreen([Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)], X, Y, R)
