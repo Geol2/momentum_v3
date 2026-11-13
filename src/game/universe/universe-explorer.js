@@ -447,7 +447,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     setTarget(sView);
     if (speedIdx > 2) setSpeedIdx(1);
     $('.mu-back').textContent = '← 태양계로';
-    $('.mu-sys3d').hidden = true;
+    $('.mu-sys3d').hidden = false; // 실제 지도 텍스처로 3D
     ui.focusbar.hidden = false;
   }
   function setSpeedIdx(i) {
@@ -1013,14 +1013,15 @@ export function mountUniverseExplorer(container, opts = {}) {
     if (cuView || bhView) return;
     cuView = 'loading';
     try {
-      const mod = fn === 'openGiant3D' ? await import('./giant3d.js') : fn === 'openCity3D' ? await import('./city3d.js') : fn === 'openMission' ? await import('./mission.js') : await import('./closeup.js');
+      const mod = fn === 'openPlanet3D' ? await import('./planet3d.js') : fn === 'openGiant3D' ? await import('./giant3d.js') : fn === 'openCity3D' ? await import('./city3d.js') : fn === 'openMission' ? await import('./mission.js') : await import('./closeup.js');
       if (destroyed) return;
       const paused = !g3;
       if (paused) cancelAnimationFrame(raf);
       cuView = mod[fn](root, { ...opts, onClose: () => { cuView = null; if (paused && !destroyed && !g3) { last = performance.now(); raf = requestAnimationFrame(frame); } } });
-    } catch (e) { cuView = null; toast('가까이 보기를 열 수 없어요'); }
+    } catch (e) { cuView = null; console.error('closeup', e); toast('가까이 보기를 열 수 없어요'); }
   }
   function openSys3D(planetName = null) {
+    if (focus && focus.kind === 'planet') { openCloseup('openPlanet3D', { name: focus.name, date: simDate() }); return; }
     if (!focus || focus.kind !== 'star') return;
     const sys = focus.sys;
     openCloseup('openSystem3D', { sys, focusPlanet: planetName, toEarth: focus.toEarth || 0, startDate: simDate() });
