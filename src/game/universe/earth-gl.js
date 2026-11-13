@@ -904,12 +904,27 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     g2.fillStyle = '#000'; g2.fillRect(0, 0, W, H)
     g2.globalCompositeOperation = 'lighter'; g2.lineCap = 'round'; g2.lineJoin = 'round'
     // 실제 도로 폭(m)은 화면에선 1px도 안 돼서 안 보임 → 화면 기준 최소 굵기를 보장
-    const draw = (list, style, widthM, scrPx) => {
-      g2.strokeStyle = style; g2.lineWidth = Math.max(1, widthM / mpp, (scrPx * scrMpp) / mpp)
+    const lw = (widthM, scrPx) => Math.max(1, widthM / mpp, (scrPx * scrMpp) / mpp)
+    // off: 선 진행 방향 오른쪽으로 평행 이동(텍스처 px) — 지하철을 도로 옆에 나란히 그리기용
+    const draw = (list, style, widthM, scrPx, off = 0) => {
+      g2.strokeStyle = style; g2.lineWidth = lw(widthM, scrPx)
       g2.beginPath()
       for (const a of list) {
-        for (let k = 0; k < a.length; k += 2) {
-          const x = ((a[k] - b[0]) / (b[2] - b[0])) * W, y = ((b[3] - a[k + 1]) / (b[3] - b[1])) * H
+        const n = a.length / 2, X = new Float32Array(n), Y = new Float32Array(n)
+        for (let k = 0; k < n; k++) { X[k] = ((a[k * 2] - b[0]) / (b[2] - b[0])) * W; Y[k] = ((b[3] - a[k * 2 + 1]) / (b[3] - b[1])) * H }
+        for (let k = 0; k < n; k++) {
+          let x = X[k], y = Y[k]
+          if (off) {
+            // 앞뒤 구간 법선의 평균 방향으로 이동 (꺾이는 곳 과하게 튀지 않게 제한)
+            let nx = 0, ny = 0
+            for (const [i0, i1] of [[k - 1, k], [k, k + 1]]) {
+              if (i0 < 0 || i1 >= n) continue
+              const dx = X[i1] - X[i0], dy = Y[i1] - Y[i0], L = Math.hypot(dx, dy) || 1
+              nx += -dy / L; ny += dx / L
+            }
+            const L = Math.hypot(nx, ny) || 1, cosH = Math.max(0.5, L / 2)
+            x += (nx / L) * off / cosH; y += (ny / L) * off / cosH
+          }
           if (k) g2.lineTo(x, y); else g2.moveTo(x, y)
         }
       }
@@ -917,8 +932,11 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     }
     draw(ways.min, 'rgb(0,255,0)', 8, 1.4)
     draw(ways.maj, 'rgb(255,0,0)', 20, 2.4)
-    // 지하철 (파랑 채널): 넓은 테두리(약 110) + 가는 심(합쳐 255) — 셰이더가 테두리/심을 구분
-    if (ways.rail?.length) { draw(ways.rail, 'rgb(0,0,110)', 24, 5.5); draw(ways.rail, 'rgb(0,0,145)', 10, 2.2) }
+    // 지하철 (파랑 채널): 큰길 선 옆에 나란히(겹치면 초록·보라 두 줄) — 얇은 어두운 테두리(약 110) + 보라 심(합쳐 255)
+    if (ways.rail?.length) {
+      const off = lw(20, 2.4) / 2 + lw(10, 2.2) / 2 + lw(0, 1.2)
+      draw(ways.rail, 'rgb(0,0,110)', 14, 3.6, off); draw(ways.rail, 'rgb(0,0,145)', 10, 2.2, off)
+    }
     g2.globalCompositeOperation = 'source-over'
     if (!rTex || rTex.userData.size !== `${W}x${H}`) { rTex?.dispose(); rTex = canvasTex(rCanvas); rTex.userData.size = `${W}x${H}`; uniforms.uRoad.value = rTex }
     rTex.needsUpdate = true
