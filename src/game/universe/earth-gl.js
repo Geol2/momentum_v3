@@ -912,6 +912,10 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
       for (const a of list) {
         const n = a.length / 2, X = new Float32Array(n), Y = new Float32Array(n)
         for (let k = 0; k < n; k++) { X[k] = ((a[k * 2] - b[0]) / (b[2] - b[0])) * W; Y[k] = ((b[3] - a[k * 2 + 1]) / (b[3] - b[1])) * H }
+        // 진행 방향과 상관없이 늘 같은 쪽(화면 위·오른쪽)으로 비키게: 선 전체 방향으로 부호 결정
+        // (OSM은 상·하행 선로가 반대 방향 선 두 개라, 방향 기준이면 도로 양쪽에 갈라져 그려짐)
+        let sgn = 1
+        if (off && n > 1) { const dx = X[n - 1] - X[0], dy = Y[n - 1] - Y[0]; if (-dy * 1 + dx * -1 < 0) sgn = -1 }
         for (let k = 0; k < n; k++) {
           let x = X[k], y = Y[k]
           if (off) {
@@ -923,7 +927,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
               nx += -dy / L; ny += dx / L
             }
             const L = Math.hypot(nx, ny) || 1, cosH = Math.max(0.5, L / 2)
-            x += (nx / L) * off / cosH; y += (ny / L) * off / cosH
+            x += (sgn * nx / L) * off / cosH; y += (sgn * ny / L) * off / cosH
           }
           if (k) g2.lineTo(x, y); else g2.moveTo(x, y)
         }
@@ -934,8 +938,8 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     draw(ways.maj, 'rgb(255,0,0)', 20, 2.4)
     // 지하철 (파랑 채널): 큰길 선 옆에 나란히(겹치면 초록·보라 두 줄) — 얇은 어두운 테두리(약 110) + 보라 심(합쳐 255)
     if (ways.rail?.length) {
-      const off = lw(20, 2.4) / 2 + lw(10, 2.2) / 2 + lw(0, 1.2)
-      draw(ways.rail, 'rgb(0,0,110)', 14, 3.6, off); draw(ways.rail, 'rgb(0,0,145)', 10, 2.2, off)
+      const off = lw(20, 2.4) / 2 + lw(10, 2.6) / 2 + lw(0, 1.4)
+      draw(ways.rail, 'rgb(0,0,110)', 14, 4.2, off); draw(ways.rail, 'rgb(0,0,145)', 10, 2.6, off)
     }
     g2.globalCompositeOperation = 'source-over'
     if (!rTex || rTex.userData.size !== `${W}x${H}`) { rTex?.dispose(); rTex = canvasTex(rCanvas); rTex.userData.size = `${W}x${H}`; uniforms.uRoad.value = rTex }
