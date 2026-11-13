@@ -1096,16 +1096,15 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     const cx = W / 2, cy = -H / 2
     // 구 중심 → 화면 가운데 지표점의 위치: (X, -Y) 에서 화면 가운데까지는 구면 위 점
     const dx = (cx - X) / R, dy = (cy + Y) / R, dz = Math.sqrt(Math.max(0, 1 - dx * dx - dy * dy))
-    // 화면 가운데 지표점을 z=0에 두고 그 점을 축으로 기울임. 멀리서 지구 전체가 보일 땐
-    // 지구가 아래로 밀려 보이지 않게, 기울면서 내려간 만큼 다시 올려 화면 가운데에 둠
+    // 회전축: 멀리선 지구 중심(지구는 제자리, 보는 각도만 바뀜) → 확대할수록 화면 가운데 지표점
     const d = dz * R
-    const lift = (1 - pivotK) * d * Math.sin(tilt)
-    return new THREE.Matrix4().makeTranslation(cx, cy + lift, 0)
+    const Ce = new THREE.Vector3(X, -Y, -d), Ps = new THREE.Vector3(cx, cy, 0)
+    const P = Ce.clone().lerp(Ps, pivotK)
+    return new THREE.Matrix4().makeTranslation(P.x, P.y, P.z)
       .multiply(new THREE.Matrix4().makeRotationX(-tilt))
-      .multiply(new THREE.Matrix4().makeTranslation(-cx, -cy, 0))
-      // 방향 돌리기: 화면 가운데를 축으로
-      .multiply(new THREE.Matrix4().makeTranslation(cx, cy, 0)).multiply(new THREE.Matrix4().makeRotationZ(heading)).multiply(new THREE.Matrix4().makeTranslation(-cx, -cy, 0))
-      .multiply(new THREE.Matrix4().makeTranslation(X, -Y, -d))
+      .multiply(new THREE.Matrix4().makeRotationZ(heading))
+      .multiply(new THREE.Matrix4().makeTranslation(-P.x, -P.y, -P.z))
+      .multiply(new THREE.Matrix4().makeTranslation(Ce.x, Ce.y, Ce.z))
       .multiply(sm).multiply(m)
   }
 
@@ -1168,7 +1167,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
       camera.near = -depth; camera.far = depth
       camera.updateProjectionMatrix()
       // 원근 카메라: z=0 평면에서 화면 픽셀과 1:1 (가운데 지표는 기존 축척 그대로)
-      const Dz = 1.6 * Math.max(W, H)
+      const Dz = Math.max(1.6 * Math.max(W, H), 200 * R) // 달 궤도(60R)까지 카메라 앞에 오게
       pcam.fov = (2 * Math.atan(H / 2 / Dz) * 180) / Math.PI
       pcam.aspect = W / H
       pcam.position.set(W / 2, -H / 2, Dz)
