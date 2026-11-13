@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { bvRgb } from './deep-stars.js';
 import { eclToEq, eqToEclXYZ } from './gaia-tiles.js';
 import galUrl from './galaxies-2mrs.bin?url';
+import { buildWeb, cmbShell, LANDMARKS, distanceAtZ, distanceAtLookback, atDistance, R_CMB, R_FIRST, fmtYi } from './deep-universe.js';
 
 const R0 = 26670;           // 태양 ~ 은하 중심 거리 (광년, GRAVITY 2019 ~ 8.18 kpc)
 const Z0 = 66;              // 태양의 원반 위 높이
@@ -515,6 +516,35 @@ export function openGalaxy3D(host, opts = {}) {
     cosmos.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([sunV, sgPoint(a, 0, 500 * MLY)]), ringMat));
     addLabel(sgPoint(a, 0, 530 * MLY).toArray(), `${a}°`, '#6f7dff', 2e8, 3e10, 2);
   }
+  // ── 관측 가능한 우주 전체: 실측 지도 바깥은 모형 코스믹 웹 + 우주배경복사 (처음 멀리 나갈 때 만듦) ──
+  let deep = null;
+  function buildDeep() {
+    const web = buildWeb(PointBuf, SUN);
+    const webPts = addPoints(web, { opacity: 0, minPx: 1.6, maxPx: 7 });
+    const cmb = cmbShell(SUN); scene.add(cmb);
+    const dMat = new THREE.LineBasicMaterial({ color: 0x8a6cff, transparent: true, opacity: 0.6 });
+    const ringAt = (d, mat) => { const pts = []; for (let k = 0; k <= 192; k++) pts.push(sgPoint((k / 192) * 360, 0, d)); const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat); scene.add(l); return l; };
+    const rings = [];
+    // 실측 끝 경계
+    rings.push(ringAt(1.5e9, new THREE.LineBasicMaterial({ color: 0x3dff8f, transparent: true, opacity: 0.7 })));
+    addLabel(sgPoint(45, 0, 1.5e9).toArray(), '실측 은하 지도(2MRS) 끝 · 바깥은 모형', '#3dff8f', 2e9, 6e10, 5);
+    // 빛이 출발한 때 고리
+    for (const gy of [5, 10, 13]) {
+      const d = distanceAtLookback(gy * 1e9);
+      rings.push(ringAt(d, dMat));
+      addLabel(sgPoint(-30 - gy * 4, 0, d).toArray(), `빛이 ${gy * 10}억 년 전 출발 · 지금 거리 ${fmtYi(d)} 광년`, '#b9a6ff', 8e9, 3e11, 4);
+    }
+    rings.push(ringAt(R_FIRST, new THREE.LineBasicMaterial({ color: 0x5a4a9a, transparent: true, opacity: 0.5 })));
+    addLabel(sgPoint(160, 0, R_FIRST).toArray(), `첫 은하들 (빅뱅 후 약 3억 년) · ${fmtYi(R_FIRST)} 광년 — 그 너머는 암흑 시대`, '#9b8bd6', 2e10, 3e11, 4);
+    addLabel(sgPoint(200, 0, R_CMB).toArray(), `우주배경복사 (빅뱅 후 38만 년의 빛) · 지금 거리 ${fmtYi(R_CMB)} 광년`, '#ff9a5a', 2e10, 3e11, 6);
+    addPick(sgPoint(200, 0, R_CMB).toArray(), '우주배경복사 (CMB)', `관측 가능한 우주의 끝 · 지금 거리 약 ${fmtYi(R_CMB)} 광년`, '빅뱅 후 38만 년, 우주가 처음 투명해질 때 나온 빛 · 지금은 2.7K 마이크로파 · 무늬는 모형(실제 Planck 지도 아님)', 2e10, 3e11);
+    for (const L of LANDMARKS) {
+      const d = distanceAtZ(L.z), at = atDistance(d), P = eqTo3(L.ra, L.dec, d);
+      addLabel(P, L.name, '#ffd27a', d * 0.6, d * 40, 5);
+      addPick(P, L.name, `지금 거리 약 ${fmtYi(d)} 광년 · 빛이 ${fmtYi(at.t)} 년 전 출발 (적색편이 ${L.z})`, L.desc, d * 0.5, d * 60);
+    }
+    deep = { webPts, cmb, rings };
+  }
   // 은하 점: 비동기
   fetch(galUrl).then((r) => r.arrayBuffer()).then((buf) => {
     if (destroyed) return;
@@ -706,9 +736,10 @@ export function openGalaxy3D(host, opts = {}) {
     m33: { t: M33, d: 95000, ...vM33, title: '삼각형자리 은하', desc: '안드로메다의 동반 은하로 추정. 팽대부가 거의 없고 나선팔이 솜털처럼 흩어진 은하.' },
     lg: { t: [M31[0] * 0.4, M31[1] * 0.4, M31[2] * 0.4], d: 4.6e6, pitch: 0.55, title: '국부은하군 3D', desc: '우리은하·안드로메다·삼각형자리 은하와 위성은하 수십 개. 실제 방향과 거리로 배치했어요.' },
     virgo: { t: VC.toArray(), d: 1.7e7, pitch: 0.35, title: '처녀자리 은하단 내부', desc: '약 5,400만 광년, 가장 가까운 큰 은하단 · 은하 1,300~2,000개(여기엔 거리를 잰 밝은 은하와 이름난 은하). 파란 안개 = X선으로 보이는 수천만 도 가스, 보라 안개 = 암흑물질(모형). 깊이는 줄여서 배치했어요.' },
+    web: { t: SUN, d: 1.05e11, pitch: 0.38, yaw: 0.6, frame: 'sg', title: '관측 가능한 우주 전체', desc: '지름 약 930억 광년. 가운데 초록 고리 안(약 15억 광년)은 실제로 거리를 잰 은하 지도, 바깥은 같은 모양을 흉내 낸 모형 코스믹 웹. 멀리 볼수록 더 오래전 빛이라 젊고 푸른 은하. 첫 은하들 너머는 암흑 시대, 맨 끝은 우주배경복사(빅뱅 후 38만 년). 노란 이름은 실제로 발견된 거대 구조·가장 먼 은하.' },
     cosmos: { t: SUN, d: 1.45e9, pitch: 0.42, yaw: 0.35, frame: 'sg', title: '근처 우주 · 초은하단 지도', desc: '2MASS 적외선 하늘 탐사(2MRS)로 거리를 잰 실제 은하 약 4만 3천 개. 파란 원반은 초은하면(1억~5억 광년), 하늘색=초은하단 · 노랑=은하 벽 · 빨강=보이드. 가운데 빈 띠는 은하수에 가려 못 보는 곳(회피 영역).' },
   };
-  const ORDER = [['mw', '우리은하'], ['side', '옆모습'], ['gc', '은하 중심'], ['sun', '태양 주변'], ['near', '이웃 별'], ['lmc', '대마젤란'], ['m31', '안드로메다'], ['m33', '삼각형자리'], ['lg', '국부은하군'], ['virgo', '처녀자리 은하단'], ['cosmos', '근처 우주'], ['bh', '블랙홀 체험'], ['gaia', 'Gaia 별 985만'], ['rot', '자동회전']];
+  const ORDER = [['mw', '우리은하'], ['side', '옆모습'], ['gc', '은하 중심'], ['sun', '태양 주변'], ['near', '이웃 별'], ['lmc', '대마젤란'], ['m31', '안드로메다'], ['m33', '삼각형자리'], ['lg', '국부은하군'], ['virgo', '처녀자리 은하단'], ['cosmos', '근처 우주'], ['web', '우주 전체'], ['bh', '블랙홀 체험'], ['gaia', 'Gaia 별 985만'], ['rot', '자동회전']];
   const bar = $('.g3-bar');
   for (const [k, name] of ORDER) {
     const b = document.createElement('button'); b.textContent = name; b.dataset.k = k;
@@ -770,7 +801,7 @@ export function openGalaxy3D(host, opts = {}) {
   cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
   cv.addEventListener('pointerleave', () => { hoverPt = null; });
   cv.addEventListener('wheel', (e) => { e.preventDefault(); zoomBy(Math.exp(e.deltaY * 0.0015)); autoRotPause = performance.now(); }, { passive: false });
-  function zoomBy(k) { dist = Math.max(1.5, Math.min(6e9, dist * k)); if (goal) goal.dist = undefined; }
+  function zoomBy(k) { dist = Math.max(1.5, Math.min(1.6e11, dist * k)); if (goal) goal.dist = undefined; }
 
   // 화면 투영
   const v = new THREE.Vector3();
@@ -862,6 +893,15 @@ export function openGalaxy3D(host, opts = {}) {
     virgoOn = dist < 4.5e7 && target.distanceTo(VC) < 2e7;
     virgo.visible = virgoOn; vbar.style.display = virgoOn ? '' : 'none';
     cosmos.visible = dist > 2e7 && !virgoOn;
+    if (!deep && dist > 8e8) buildDeep();
+    if (deep) {
+      const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+      deep.webPts.material.uniforms.uOpacity.value = ss(1.2e9, 5e9, dist);
+      deep.webPts.visible = dist > 1.2e9;
+      deep.cmb.material.uniforms.uA.value = ss(1.2e10, 6e10, dist);
+      deep.cmb.visible = dist > 1.2e10;
+      for (const l of deep.rings) l.visible = dist > 1.5e9;
+    }
     camera.near = Math.max(0.0005, dist * 0.002); camera.far = dist * 60 + 3e7;
     camera.updateProjectionMatrix();
     camera.lookAt(target);
