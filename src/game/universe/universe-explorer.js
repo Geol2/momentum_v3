@@ -32,6 +32,8 @@ import day2kUrl from './earth-day-2k.webp';
 import relief2kUrl from './earth-relief-2k.webp';
 import moonUrl from './moon-map.webp';
 import { loadDepth, nearestStation, drawStations } from './ux-subway.js';
+// 실제 크기 비교(3D)가 있는 거대한 별
+const GIANT_NAMES = new Set(['스티븐슨 2-18', 'UY 방패자리', '에타 카리나이']);
 import { LY, AU, MLY, R_OBS, C, DEG, S_MIN, S_MAX, S_START, clamp, smooth, band, P, TODAY, SUN, skyPosM, MOON, GC, ANDROMEDA, M33, LMC, SMC, LG_CENTER, VIRGO, GA, LANI, camAt, LEVELS } from './ux-consts.js';
 import { buildWorld } from './ux-world.js';
 import { fmtKo, fmtLy, fmtMly, PLANET_PHYS, MOON_TEMP, DSO_KO, DEEP_KO, starTypeKo, fmtLength, fmtLightTime, fmtDuration } from './ux-format.js';
@@ -590,7 +592,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     if (t.earthMoon) { const mi = earth.moon; const km = Math.round(Math.hypot(...mi.pos) * 6371); return ['달', `${mi.phase} · 밝은 면 ${Math.round(mi.illum * 100)}% · 지금 ${km.toLocaleString('ko-KR')}km (빛으로 ${(km / 299792).toFixed(2)}초)`, '늘 같은 면이 지구를 향해요(조석 고정) — 자전·공전 모두 27.3일 · 매년 3.8cm씩 멀어지는 중']; }
     if (t.small) return smallInfo(t.small);
     if (t.comet) { const c = t.comet; return [c.name, `${c.kind === 'iso' ? '성간 천체 · 태양계 밖에서 옴' : '혜성'} · 지금 태양에서 ${c.r.toFixed(1)} AU`, c.desc]; }
-    if (t.dso) return [t.dso.name, `${fmtLy(t.dso.ly)} · ${DSO_KO[t.dso.kind]}${t.dso.kind === 'bh' || t.dso.name === '오메가 센타우리' ? ' · 탭하면 블랙홀 체험' : (t.dso.kind === 'psr' || t.dso.kind === 'mag') && sound.on ? ' · ♪ 신호음' : ''}`, t.dso.desc];
+    if (t.dso) return [t.dso.name, `${fmtLy(t.dso.ly)} · ${DSO_KO[t.dso.kind]}${GIANT_NAMES.has(t.dso.name) ? ' · 탭하면 실제 크기 비교(3D)' : ''}${t.dso.kind === 'bh' || t.dso.name === '오메가 센타우리' ? ' · 탭하면 블랙홀 체험' : (t.dso.kind === 'psr' || t.dso.kind === 'mag') && sound.on ? ' · ♪ 신호음' : ''}`, t.dso.desc];
     if (t.gal) return [t.gal.name, `${fmtLy(t.gal.ly)} · 국부은하군`, t.gal.desc];
     if (t.deep && t.deep.kind === 'bh') return [t.deep.name, `${fmtMly(t.deep.mly)}${t.deep.mly > 5000 ? ' (공동 거리)' : ''} · 초대질량 블랙홀`, t.deep.desc];
     if (t.deep) return [t.deep.name, `${fmtMly(t.deep.mly)}${t.deep.kind === 'far' || t.deep.mly > 5000 ? ' (공동 거리)' : ''} · ${DEEP_KO[t.deep.kind]}`, t.deep.desc];
@@ -612,6 +614,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     const hit = best ? best.p : pickSat(x, y, 12) || pickSmall(x, y, 10) || pickDeep(x, y, 10);
     if (hit && hit.sat !== undefined) { soundFor(hit); toast(satInfo(hit.sat).filter(Boolean).join(' · ')); openSat3D(hit.sat); return true; }
     if (hit && hit.dso && hit.dso.kind === 'bh') { openBH(bhTarget(hit.dso.name)); return true; }
+    if (hit && hit.dso && GIANT_NAMES.has(hit.dso.name)) { openCloseup('openGiant3D', { name: hit.dso.name, ly: hit.dso.ly }); return true; }
     if (hit && hit.deep && hit.deep.kind === 'bh') { openBH(bhTarget(hit.deep.name)); return true; }
     if (hit && hit.lgal) { const k = { 우리은하: 'sgra', 안드로메다: 'm31', '대마젤란 은하': 'lmc' }[hit.lgal.name]; if (k) { openBH(k); return true; } }
     if (hit && hit.dso && hit.dso.name === '오메가 센타우리') { toast('오메가 센타우리 중심에 중간질량 블랙홀(태양의 8,200배 이상) — 블랙홀 체험으로'); openBH('omegacen'); return true; }
@@ -898,7 +901,11 @@ export function mountUniverseExplorer(container, opts = {}) {
     for (const d of world.lgDwarfs || []) if (d.pos) add([d.name], d.name, '왜소은하', () => arriveAt({ name: d.name, ly: d.ly || 0, wx: d.pos[0], wy: d.pos[1], s: 21.4 }), 1);
     for (const d of world.deepSpace) add([d.name], d.name, `${DEEP_KO[d.kind] || '천체'} · ${fmtLy(d.mly * 1e6)}`, () => arriveAt({ name: d.name, ly: d.mly * 1e6, wx: d.pos[0], wy: d.pos[1], s: Math.log10(d.mly * MLY) - 0.2 }), 2);
     if (sky) {
-      for (const d of sky.dso) add([d.name, DSO_KO?.[d.kind]], d.name, `${DSO_KO?.[d.kind] || '천체'} · ${fmtLy(d.ly)}`, () => arriveAt({ name: d.name, ly: d.ly, wx: d.pos[0], wy: d.pos[1], s: d.ly > 20000 ? 19.6 : 18.2 }), 2);
+      for (const d of sky.dso) add([d.name, DSO_KO?.[d.kind]], d.name, `${DSO_KO?.[d.kind] || '천체'} · ${fmtLy(d.ly)}${GIANT_NAMES.has(d.name) ? ' · 3D 크기 비교' : ''}`, () => {
+        arriveAt({ name: d.name, ly: d.ly, wx: d.pos[0], wy: d.pos[1], s: d.ly > 20000 ? 19.6 : 18.2 });
+        // 거대한 별: 은하 지도에선 점이라, 바로 실제 크기 비교 화면으로
+        if (GIANT_NAMES.has(d.name)) setTimeout(() => openCloseup('openGiant3D', { name: d.name, ly: d.ly }), 1400);
+      }, 2);
       sky.rows.forEach((r, i) => { if (r[0] || r[1]) add([r[0], r[1]], (r[0] || r[1]).replace(/ \(.*\)$/, ''), `별 · ${fmtLy(r[4])}`, () => arriveAt({ name: r[0] || r[1], ly: r[4], wx: sky.x[i], wy: sky.y[i], s: 17.0 }), r[5] < 2 ? 2 : 0); });
     }
     return idx;
@@ -1006,7 +1013,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     if (cuView || bhView) return;
     cuView = 'loading';
     try {
-      const mod = fn === 'openCity3D' ? await import('./city3d.js') : fn === 'openMission' ? await import('./mission.js') : await import('./closeup.js');
+      const mod = fn === 'openGiant3D' ? await import('./giant3d.js') : fn === 'openCity3D' ? await import('./city3d.js') : fn === 'openMission' ? await import('./mission.js') : await import('./closeup.js');
       if (destroyed) return;
       const paused = !g3;
       if (paused) cancelAnimationFrame(raf);

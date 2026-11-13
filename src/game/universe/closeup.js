@@ -94,7 +94,7 @@ export function makeShell(host, cls, onClose) {
 }
 
 // ── 3D 값 잡음(GLSL) ──
-const NOISE = `
+export const NOISE = `
 float h31(vec3 p){ p = fract(p*0.3183099 + vec3(.1,.2,.3)); p *= 17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
 float vnoise(vec3 x){ vec3 i = floor(x), f = fract(x); f = f*f*(3.0-2.0*f);
   return mix(mix(mix(h31(i),h31(i+vec3(1,0,0)),f.x),mix(h31(i+vec3(0,1,0)),h31(i+vec3(1,1,0)),f.x),f.y),
@@ -102,7 +102,7 @@ float vnoise(vec3 x){ vec3 i = floor(x), f = fract(x); f = f*f*(3.0-2.0*f);
 float fbm(vec3 p){ float a = 0.5, s = 0.0; for (int i=0;i<6;i++){ s += a*vnoise(p); p = p*2.03 + 1.7; a *= 0.5; } return s; }
 `;
 
-const PLANET_VERT = `
+export const PLANET_VERT = `
 varying vec3 vObj; varying vec3 vN; varying vec3 vW;
 void main(){ vObj = normalize(position); vN = normalize(mat3(modelMatrix)*normal); vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`;
 const PLANET_FRAG = `
@@ -157,7 +157,7 @@ void main(){
   gl_FragColor = vec4(c, 1.0);
 }`;
 
-const STAR_FRAG = `
+export const STAR_FRAG = `
 uniform vec3 uCol; uniform float uTime;
 varying vec3 vObj; varying vec3 vN; varying vec3 vW;
 ${NOISE}
@@ -170,7 +170,7 @@ void main(){
   gl_FragColor = vec4(c*1.25, 1.0);
 }`;
 
-function glowTexture(rgb) {
+export function glowTexture(rgb) {
   const c = document.createElement('canvas'); c.width = c.height = 128;
   const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
   gr.addColorStop(0, `rgba(${rgb},1)`); gr.addColorStop(0.2, `rgba(${rgb},.45)`); gr.addColorStop(0.5, `rgba(${rgb},.12)`); gr.addColorStop(1, `rgba(${rgb},0)`);
