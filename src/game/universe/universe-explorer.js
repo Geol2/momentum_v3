@@ -1527,6 +1527,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     const C = [Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)], E = [-Math.sin(lo), Math.cos(lo), 0], Nn = [-Math.sin(la) * Math.cos(lo), -Math.sin(la) * Math.sin(lo), Math.cos(la)];
     const P = S.pos, ok = S.ok;
     const tilted = !!earth.tilting;
+    const c0 = tilted ? earth.projectP(0, 0, 0, X, Y, R) : { x: X, y: Y };
     const pr = tilted ? (x, y, z) => { const q = earth.projectP(x, y, z, X, Y, R); return [q.x, q.y, q.z]; }
       : (x, y, z) => [X + (x * E[0] + y * E[1] + z * E[2]) * R, Y - (x * Nn[0] + y * Nn[1] + z * Nn[2]) * R, x * C[0] + y * C[1] + z * C[2]];
     // ISS 궤도선
@@ -1547,7 +1548,11 @@ export function mountUniverseExplorer(container, opts = {}) {
         if (!ok[i]) continue;
         const x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2];
         let sx2, sy2, zz;
-        if (tilted) { const q = earth.projectP(x, y, z, X, Y, R); sx2 = q.x; sy2 = q.y; zz = q.z; if (zz < 0) continue; }
+        if (tilted) {
+          const q = earth.projectP(x, y, z, X, Y, R); sx2 = q.x; sy2 = q.y;
+          // 지구 뒤쪽이면서 화면에서 지구 원판 안에 들면 가려짐
+          if (x * C[0] + y * C[1] + z * C[2] < 0 && (sx2 - c0.x) ** 2 + (sy2 - c0.y) ** 2 < R * R) continue;
+        }
         else { sx2 = X + (x * E[0] + y * E[1] + z * E[2]) * R; sy2 = Y - (x * Nn[0] + y * Nn[1] + z * Nn[2]) * R; zz = x * C[0] + y * C[1] + z * C[2]; }
         if (sx2 < -4 || sx2 > W + 4 || sy2 < -4 || sy2 > H + 4) continue;
         if (!tilted && zz < 0 && (sx2 - X) ** 2 + (sy2 - Y) ** 2 < R * R) continue; // 지구 뒤

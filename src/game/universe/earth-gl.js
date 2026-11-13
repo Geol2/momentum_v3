@@ -359,8 +359,8 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
   const camera = new THREE.OrthographicCamera(0, 1, 0, -1, -1, 1)
   // 3D 기울기: 원근 카메라로 지표를 비스듬히 (0이면 위에서 내려다보는 기존 화면 그대로)
   const pcam = new THREE.PerspectiveCamera(30, 1, 1, 10)
-  let tilt = 0, tiltGoal = 0
-  const worldM = new THREE.Matrix4(), _v = new THREE.Vector3()
+  let tilt = 0, tiltGoal = 0, pivotK = 0
+  const worldM = new THREE.Matrix4(), _v = new THREE.Vector3(), _c = new THREE.Vector3()
   const group = new THREE.Group()
   group.matrixAutoUpdate = false
   scene.add(group)
@@ -1076,8 +1076,13 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     const z = p[0] * C[0] + p[1] * C[1] + p[2] * C[2]
     if (tilt < 0.002) return { x: X + x * R, y: Y - y * R, z }
     // 기울였을 때: 실제 3D 변환 → 원근 투영
-    _v.set(p[0], p[1], p[2]).applyMatrix4(worldM).project(pcam)
-    const vis = z > 0 && _v.z < 1
+    // 보이는지: 지구 중심→점 방향이 카메라 쪽을 향하면 앞면 (원근이라 기울이면 보이는 반구가 바뀜)
+    _v.set(p[0], p[1], p[2]).applyMatrix4(worldM)
+    _c.setFromMatrixPosition(worldM)
+    const facing = (_v.x - _c.x) * (pcam.position.x - _v.x) + (_v.y - _c.y) * (pcam.position.y - _v.y) + (_v.z - _c.z) * (pcam.position.z - _v.z)
+    const r2 = (_v.x - _c.x) ** 2 + (_v.y - _c.y) ** 2 + (_v.z - _c.z) ** 2
+    _v.project(pcam)
+    const vis = (facing > 0 || r2 > R * R * 1.0001) && _v.z < 1
     return { x: (_v.x + 1) * 0.5 * W, y: (1 - _v.y) * 0.5 * H, z: vis ? Math.max(z, 0.01) : -1 }
   }
   // 지구 모형(단위 구) → 화면 픽셀 세계 행렬: 기울기 0이면 기존과 같고, 기울이면 화면 가운데 지표점을 축으로 회전
@@ -1090,12 +1095,14 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     const cx = W / 2, cy = -H / 2
     // 구 중심 → 화면 가운데 지표점의 위치: (X, -Y) 에서 화면 가운데까지는 구면 위 점
     const dx = (cx - X) / R, dy = (cy + Y) / R, dz = Math.sqrt(Math.max(0, 1 - dx * dx - dy * dy))
-    const pivot = new THREE.Vector3(cx, cy, 0)
-    const center = new THREE.Vector3(X, -Y, -dz * R) // 구 중심 (가운데 지표점이 z=0)
-    return new THREE.Matrix4().makeTranslation(pivot.x, pivot.y, 0)
+    // 화면 가운데 지표점을 z=0에 두고 그 점을 축으로 기울임. 멀리서 지구 전체가 보일 땐
+    // 지구가 아래로 밀려 보이지 않게, 기울면서 내려간 만큼 다시 올려 화면 가운데에 둠
+    const d = dz * R
+    const lift = (1 - pivotK) * d * Math.sin(tilt)
+    return new THREE.Matrix4().makeTranslation(cx, cy + lift, 0)
       .multiply(new THREE.Matrix4().makeRotationX(-tilt))
-      .multiply(new THREE.Matrix4().makeTranslation(-pivot.x, -pivot.y, 0))
-      .multiply(new THREE.Matrix4().makeTranslation(center.x, center.y, center.z))
+      .multiply(new THREE.Matrix4().makeTranslation(-cx, -cy, 0))
+      .multiply(new THREE.Matrix4().makeTranslation(X, -Y, -d))
       .multiply(sm).multiply(m)
   }
 
@@ -1132,7 +1139,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
       updateAstro()
       // 지표를 확대해 화면을 꽉 채우면 1.5배로(위성 사진은 어차피 늘려 보는 중) — 픽셀 수 약 44% 감소
       resize(w, h, Math.min(ratio, R > Math.max(w, h) * 0.9 ? 1.5 : 2))
-      if (glowCtx && R < Math.max(w, h) * 2 && tilt < 0.002) {
+      if (glowCtx && R < Math.max(w, h) * 2 && (tilt < 0.002 || pivotK < 0.05)) {
         const g = glowCtx.createRadialGradient(X, Y, R * 0.98, X, Y, R * 1.12)
         g.addColorStop(0, 'rgba(110,170,255,0.55)')
         g.addColorStop(1, 'rgba(110,170,255,0)')
@@ -1140,10 +1147,11 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
         glowCtx.fillStyle = g
         glowCtx.beginPath(); glowCtx.arc(X, Y, R * 1.12, 0, Math.PI * 2); glowCtx.fill()
       }
-      // 지구 전체가 보이는 거리에서는 기울이지 않음(공 모양이 화면 가운데서 어긋나 보임) — 지표로 확대할수록 서서히
-      const zk = R / Math.max(1, Math.max(w, h)), want = tiltGoal * Math.max(0, Math.min(1, (zk - 1.2) / 2.8))
-      tilt += (want - tilt) * 0.18
-      if (Math.abs(want - tilt) < 0.001) tilt = want
+      // 기울기는 1단계 내내 같게. 축만 바뀜: 지구 전체가 보일 땐 지구 중심, 지표로 확대할수록 화면 가운데 지표점
+      const zk = R / Math.max(1, Math.max(w, h))
+      pivotK = Math.max(0, Math.min(1, (zk - 0.6) / 1.0))
+      tilt += (tiltGoal - tilt) * 0.18
+      if (Math.abs(tiltGoal - tilt) < 0.001) tilt = tiltGoal
       worldM.copy(buildWorld(X, Y, R))
       group.matrix.copy(worldM)
       group.matrixWorldNeedsUpdate = true
