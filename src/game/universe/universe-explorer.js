@@ -77,7 +77,7 @@ export function mountUniverseExplorer(container, opts = {}) {
         <button class="mu-speed">SPD · 1초=1시간</button>
         <button class="mu-sys3d" hidden>3D로 보기</button>
       </div>
-      <div class="mu-credit" hidden>위성 영상: <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless - https://s2maps.eu</a> by <a href="https://eox.at" target="_blank" rel="noopener">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2024, 일부 2016) · CC BY-NC-SA 4.0 · 지형 음영: AWS Terrain Tiles (SRTM 등) · 야경: NASA Black Marble · 구름: NASA GIBS VIIRS (어제 영상) · 도로: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> 기여자</div>
+      <div class="mu-credit" hidden>위성 영상: <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless - https://s2maps.eu</a> by <a href="https://eox.at" target="_blank" rel="noopener">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2024, 일부 2016) · CC BY-NC-SA 4.0 · 지형 음영: AWS Terrain Tiles (SRTM 등) · 야경: NASA Black Marble · 구름: NASA GIBS VIIRS (어제 영상) · 도로: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> 기여자</div>
       <div class="mu-lvtext"></div>
       <div class="mu-controls">
         <button data-zoom="-1" aria-label="가까이">＋</button>

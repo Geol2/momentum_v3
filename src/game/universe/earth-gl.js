@@ -8,6 +8,7 @@
  * 2D 레이어와 정확히 겹치도록 픽셀 단위 정사영 카메라를 쓴다.
  * (X, Y) = 지구 중심의 화면 좌표(css px), R = 지구 반지름(css px)
  */
+import { fetchRoads } from './roads-mvt.js'
 import * as THREE from 'three'
 import { buildTextures, TW, TH, CW, CH, LW, LH, CLOUD_PERIOD } from './earth.js'
 import { sunDirection, moonState } from './astro.js'
@@ -819,7 +820,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     nBox = c.box; info.night = true
   }
 
-  // ── 내 주변 도로: OpenStreetMap(Overpass API)에서 화면 범위만 받아 텍스처로 그림 ──
+  // ── 내 주변 도로: OpenStreetMap 데이터(OpenFreeMap 벡터 타일, 안 되면 Overpass)를 화면 범위만 받아 텍스처로 그림 ──
   // 화면 폭에 따라 받는 도로 등급을 나눔 (넓을수록 큰길만 — 데이터 양 제한)
   const rCanvas = document.createElement('canvas')
   let rTex = null, rGen = 0, rBox = null, rLvl = -1, rFailAt = -1e9
@@ -873,11 +874,16 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     let ways = roadData.get(key)
     if (!ways) {
       try {
-        const [majRe, minRe] = ROAD_SETS[lvl]
-        const maj = await overpass(majRe, b)
-        const min = minRe ? await overpass(minRe, b) : []
-        ways = { maj, min }
-      } catch { rFailAt = performance.now(); return }
+        // 1순위: OpenFreeMap 벡터 타일(CDN) / 실패하면 Overpass 질의 서버
+        ways = await fetchRoads(b, lvl, () => dead || my !== rGen)
+      } catch {
+        try {
+          const [majRe, minRe] = ROAD_SETS[lvl]
+          const maj = await overpass(majRe, b)
+          const min = minRe ? await overpass(minRe, b) : []
+          ways = { maj, min }
+        } catch { rFailAt = performance.now(); return }
+      }
       lruSet(roadData, key, ways, 6)
     }
     if (my !== rGen || dead) return
