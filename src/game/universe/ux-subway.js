@@ -5,11 +5,18 @@
 
 let DEPTH = null, loading = null
 export function loadDepth() {
-  if (DEPTH || loading) return
-  loading = import('./subway-depth.json').then((m) => {
+  if (DEPTH) return Promise.resolve()
+  if (loading) return loading
+  return loading = import('./subway-depth.json').then((m) => {
     // [호선, 역명, 층수, 선로 깊이 m, 위도, 경도]
     DEPTH = m.default.map(([line, name, floor, dep, lat, lon]) => ({ line, name, floor, dep, lat, lon, key: norm(name) }))
   }).catch(() => { loading = null })
+}
+
+// 3D 동네용: 반경 안 역들 (같은 역 여러 호선 묶음)
+export async function depthNear(lat, lon, r) {
+  await loadDepth()
+  return stationList([]).filter((st) => distM(lat, lon, st.lat, st.lon) < r)
 }
 
 const norm = (n) => (n || '').replace(/\(.*?\)/g, '').replace(/역$/, '').replace(/\s/g, '')

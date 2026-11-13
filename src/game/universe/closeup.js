@@ -23,7 +23,7 @@ const CSS = `
 `;
 
 // ── 공용: 화면 틀 + 궤도 카메라 ──
-function makeShell(host, cls, onClose) {
+export function makeShell(host, cls, onClose) {
   if (!document.getElementById('cu-style')) { const st = document.createElement('style'); st.id = 'cu-style'; st.textContent = CSS; document.head.appendChild(st); }
   const root = document.createElement('div');
   root.className = 'cu-root ' + cls;

@@ -73,6 +73,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     <div class="mu-hint mu-frame">드래그로 이동 · 핀치·휠로 가리킨 곳 확대 · 두 번 탭하면 그곳으로</div>
     <div class="mu-bottom">
       <div class="mu-scalebar" aria-label="축척"><span class="mu-sb-lab"></span><span class="mu-sb-bar"></span></div>
+      <button class="mu-citybtn" hidden aria-label="3D 건물 보기">3D 건물</button>
       <div class="mu-focusbar" hidden>
         <button class="mu-back">← 태양계로</button>
         <button class="mu-speed">SPD · 1초=1시간</button>
@@ -950,6 +951,13 @@ export function mountUniverseExplorer(container, opts = {}) {
   // 새 버튼(3D·밤하늘 등)이 생기면 메뉴에 점 표시
   let toolSig = '';
   const watchTools = () => { const sig = [...tools.children].filter((b) => !b.hidden).map((b) => b.className).join('|'); if (toolSig && sig !== toolSig && sig.length > toolSig.length && !tools.classList.contains('open')) menuBtn.classList.add('ping'); toolSig = sig; };
+  // 3D 동네 (지표를 최대로 확대했을 때)
+  const btnCity = $('.mu-citybtn');
+  btnCity.addEventListener('click', () => {
+    const c = earth.viewCenter ? earth.viewCenter() : null;
+    if (!c) return;
+    openCloseup('openCity3D', { lat: c.lat, lon: c.lon, my: myLoc.approx ? null : myLoc, date: new Date() });
+  });
   const btnTrip = $('.mu-trip');
   let tripView = null;
   async function openTrip(id = 'v1') {
@@ -996,7 +1004,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     if (cuView || bhView) return;
     cuView = 'loading';
     try {
-      const mod = await import('./closeup.js');
+      const mod = fn === 'openCity3D' ? await import('./city3d.js') : await import('./closeup.js');
       if (destroyed) return;
       const paused = !g3;
       if (paused) cancelAnimationFrame(raf);
@@ -1206,6 +1214,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     // 지구에서 멀리 벗어나 있으면 지구·달 단계 설명 대신 태양계 단계로
     if (idx < 2 && !focus && Math.hypot(pan[0], pan[1]) > mppAt(s) * Math.min(W, H) * 0.6) idx = 2;
     const lv = LEVELS[idx];
+    btnCity.hidden = !(earth.gl && s < 3.75 && idx === 0 && !focus);
     const fmtCoord = (v, pos, neg) => `${Math.abs(v).toFixed(2)}°${v >= 0 ? pos : neg}`;
     let locLine = '';
     if (idx === 0) {

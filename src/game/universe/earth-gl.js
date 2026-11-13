@@ -1007,6 +1007,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     get moon() { updateAstro(); return moonInfo },
     get sources() { return info },
     get stations() { return rStations },
+    viewCenter() { return { lat: view.lat, lon: view.lon } },
     /** 고해상도 위성 타일이 화면에 쓰이는 중인지 (출처 표시용) */
     get detailActive() { return uniforms.uDetailA.value > 0.05 && detailDrawn },
     /** 달의 화면 위치·반지름 */

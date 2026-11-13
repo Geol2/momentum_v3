@@ -98,7 +98,7 @@ const LV = [
 ]
 
 let tpl = null
-async function template() {
+export async function template() {
   if (tpl) return tpl
   const r = await fetch('https://tiles.openfreemap.org/planet', { signal: AbortSignal.timeout(15000) })
   if (!r.ok) throw new Error('openfreemap ' + r.status)
@@ -168,4 +168,77 @@ export async function fetchRoads(b, lvl, isDead) {
   }))
   if (!ok && lastErr) throw lastErr
   return res
+}
+
+// 범용: 원하는 레이어들의 도형(선·면·점)과 속성을 타일 좌표로 꺼냄 (3D 건물용)
+// 반환: { 레이어명: [{ type, props, rings: [[x,y,...], ...], extent }] }
+export function decodeTile(buf, want) {
+  const d = new Uint8Array(buf)
+  let p = 0
+  const varint = () => { let r = 0, s = 1, b; do { b = d[p++]; r += (b & 0x7f) * s; s *= 128 } while (b & 0x80); return r }
+  const skip = (wt) => { if (wt === 0) varint(); else if (wt === 1) p += 8; else if (wt === 2) { const l = varint(); p += l } else if (wt === 5) p += 4; else throw new Error('mvt wire ' + wt) }
+  const packed = (end) => { const a = []; while (p < end) a.push(varint()); return a }
+  const zz = (n) => (n % 2 ? -(n + 1) / 2 : n / 2)
+  const dv = new DataView(d.buffer, d.byteOffset, d.byteLength)
+  const out = {}
+  while (p < d.length) {
+    const tag = varint(), f = Math.floor(tag / 8), wt = tag & 7
+    if (f !== 3 || wt !== 2) { skip(wt); continue }
+    const end = varint() + p
+    let name = '', extent = 4096
+    const keys = [], vals = [], feats = []
+    while (p < end) {
+      const t = varint(), lf = t >> 3, lw = t & 7
+      if (lf === 1) { const l = varint(); name = td.decode(d.subarray(p, p + l)); p += l }
+      else if (lf === 2) { const l = varint(); feats.push([p, p + l]); p += l }
+      else if (lf === 3) { const l = varint(); keys.push(td.decode(d.subarray(p, p + l))); p += l }
+      else if (lf === 4) {
+        const e = varint() + p
+        let v = null
+        while (p < e) {
+          const vt = varint(), vf = vt >> 3, vw = vt & 7
+          if (vf === 1) { const l = varint(); v = td.decode(d.subarray(p, p + l)); p += l }
+          else if (vf === 2) { v = dv.getFloat32(p, true); p += 4 }
+          else if (vf === 3) { v = dv.getFloat64(p, true); p += 8 }
+          else if (vf === 4 || vf === 5) v = varint()
+          else if (vf === 6) v = zz(varint())
+          else if (vf === 7) v = !!varint()
+          else skip(vw)
+        }
+        vals.push(v)
+      } else if (lf === 5) extent = varint()
+      else skip(lw)
+    }
+    if (want.has(name)) {
+      const list = out[name] || (out[name] = [])
+      for (const [s, e] of feats) {
+        p = s
+        let tags = [], type = 0, geom = null
+        while (p < e) {
+          const t = varint(), ff = t >> 3, fw = t & 7
+          if (ff === 2 && fw === 2) tags = packed(varint() + p)
+          else if (ff === 3) type = varint()
+          else if (ff === 4 && fw === 2) geom = packed(varint() + p)
+          else skip(fw)
+        }
+        if (!geom) continue
+        const props = {}
+        for (let k = 0; k < tags.length; k += 2) props[keys[tags[k]]] = vals[tags[k + 1]]
+        const rings = []
+        let x = 0, y = 0, ring = null, i = 0
+        while (i < geom.length) {
+          const c = geom[i++], cmd = c & 7, cnt = c >> 3
+          if (cmd === 7) { if (ring) { rings.push(ring); ring = null } continue }
+          for (let k = 0; k < cnt; k++) {
+            x += zz(geom[i++]); y += zz(geom[i++])
+            if (cmd === 1) { if (ring && ring.length >= 2) rings.push(ring); ring = [x, y] } else ring.push(x, y)
+          }
+        }
+        if (ring && ring.length >= 2) rings.push(ring)
+        list.push({ type, props, rings, extent })
+      }
+    }
+    p = end
+  }
+  return out
 }
