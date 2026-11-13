@@ -359,7 +359,8 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
   const camera = new THREE.OrthographicCamera(0, 1, 0, -1, -1, 1)
   // 3D 기울기: 원근 카메라로 지표를 비스듬히 (0이면 위에서 내려다보는 기존 화면 그대로)
   const pcam = new THREE.PerspectiveCamera(30, 1, 1, 10)
-  let tilt = 0, tiltGoal = 0, pivotK = 0
+  let tilt = 0, tiltGoal = 0, pivotK = 0, heading = 0
+  const flat = () => tilt < 0.002 && Math.abs(heading) < 1e-4
   const worldM = new THREE.Matrix4(), _v = new THREE.Vector3(), _c = new THREE.Vector3()
   const group = new THREE.Group()
   group.matrixAutoUpdate = false
@@ -1074,7 +1075,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     const x = p[0] * E[0] + p[1] * E[1] + p[2] * E[2]
     const y = p[0] * N[0] + p[1] * N[1] + p[2] * N[2]
     const z = p[0] * C[0] + p[1] * C[1] + p[2] * C[2]
-    if (tilt < 0.002) return { x: X + x * R, y: Y - y * R, z }
+    if (flat()) return { x: X + x * R, y: Y - y * R, z }
     // 기울였을 때: 실제 3D 변환 → 원근 투영
     // 보이는지: 지구 중심→점 방향이 카메라 쪽을 향하면 앞면 (원근이라 기울이면 보이는 반구가 바뀜)
     _v.set(p[0], p[1], p[2]).applyMatrix4(worldM)
@@ -1090,7 +1091,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     const { E, N, C } = basis
     const m = new THREE.Matrix4().set(E[0], E[1], E[2], 0, N[0], N[1], N[2], 0, C[0], C[1], C[2], 0, 0, 0, 0, 1)
     const sm = new THREE.Matrix4().makeScale(R, R, R)
-    if (tilt < 0.002) return new THREE.Matrix4().makeTranslation(X, -Y, 0).multiply(sm).multiply(m)
+    if (flat()) return new THREE.Matrix4().makeTranslation(X, -Y, 0).multiply(sm).multiply(m)
     // 화면 가운데에 보이는 지표점(구 중심 바로 위)을 z=0에 두고 그 점을 축으로 기울임
     const cx = W / 2, cy = -H / 2
     // 구 중심 → 화면 가운데 지표점의 위치: (X, -Y) 에서 화면 가운데까지는 구면 위 점
@@ -1102,6 +1103,8 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     return new THREE.Matrix4().makeTranslation(cx, cy + lift, 0)
       .multiply(new THREE.Matrix4().makeRotationX(-tilt))
       .multiply(new THREE.Matrix4().makeTranslation(-cx, -cy, 0))
+      // 방향 돌리기: 화면 가운데를 축으로
+      .multiply(new THREE.Matrix4().makeTranslation(cx, cy, 0)).multiply(new THREE.Matrix4().makeRotationZ(heading)).multiply(new THREE.Matrix4().makeTranslation(-cx, -cy, 0))
       .multiply(new THREE.Matrix4().makeTranslation(X, -Y, -d))
       .multiply(sm).multiply(m)
   }
@@ -1113,8 +1116,14 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     /** 3D 기울기(라디안, 0~1.15) */
     get tilt() { return tiltGoal },
     setTilt(t) { tiltGoal = Math.max(0, Math.min(1.15, t)) },
-    get tilting() { return tilt > 0.002 },
-    rotateBy(dx, dy) {
+    get tilting() { return !flat() },
+    /** 방향(라디안): 화면 가운데를 축으로 돌리기 */
+    get heading() { return heading },
+    setHeading(h) { heading = ((h + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI; if (Math.abs(heading) < 0.01) heading = 0 },
+    rotateBy(dx0, dy0) {
+      // 돌려 놓은 화면에서도 손가락 방향대로 움직이게
+      const ch = Math.cos(heading), sh = Math.sin(heading)
+      const dx = dx0 * ch - dy0 * sh, dy = dx0 * sh + dy0 * ch
       view = { lat: Math.max(-89, Math.min(89, view.lat + dy / DEG)), lon: ((view.lon - dx / DEG + 540) % 360) - 180 }
       updateBasis()
     },
@@ -1139,7 +1148,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
       updateAstro()
       // 지표를 확대해 화면을 꽉 채우면 1.5배로(위성 사진은 어차피 늘려 보는 중) — 픽셀 수 약 44% 감소
       resize(w, h, Math.min(ratio, R > Math.max(w, h) * 0.9 ? 1.5 : 2))
-      if (glowCtx && R < Math.max(w, h) * 2 && (tilt < 0.002 || pivotK < 0.05)) {
+      if (glowCtx && R < Math.max(w, h) * 2 && flat()) {
         const g = glowCtx.createRadialGradient(X, Y, R * 0.98, X, Y, R * 1.12)
         g.addColorStop(0, 'rgba(110,170,255,0.55)')
         g.addColorStop(1, 'rgba(110,170,255,0)')
@@ -1184,7 +1193,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
       orbitMat.opacity = opts.moonAlpha ?? 0
       orbit.visible = orbitMat.opacity > 0.01
       moon.visible = (opts.moonAlpha ?? 0) > 0.01 || (1737.4 / 6371) * R > 1.5
-      renderer.render(scene, tilt < 0.002 ? camera : pcam)
+      renderer.render(scene, flat() ? camera : pcam)
       drawnThisFrame = true
       cleared = false
     },

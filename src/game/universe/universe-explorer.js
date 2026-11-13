@@ -728,6 +728,11 @@ export function mountUniverseExplorer(container, opts = {}) {
     if (e.pointerType !== 'mouse' && tapStart && Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y) > 8) { clearTimeout(holdTimer); hoverPt = null; }
     if (pointers.size === 1) {
       const dx = e.clientX - p.x, dy = e.clientY - p.y;
+      // 마우스 오른쪽 버튼·Shift 드래그: 위아래 = 기울이기, 좌우 = 방향 돌리기
+      if (canSpin() && earth.setTilt && (e.shiftKey || (e.buttons & 2))) {
+        earth.setTilt(earth.tilt + dy * 0.006); earth.setHeading(earth.heading + dx * 0.006);
+        tiltLabel(); p.x = e.clientX; p.y = e.clientY; return;
+      }
       if (canSpin()) {
         const r = earthRadiusPx();
         earth.rotateBy(dx / r, dy / r);
@@ -740,8 +745,20 @@ export function mountUniverseExplorer(container, opts = {}) {
         anchor = null;
       }
     }
+    const pPrev = { x: p.x, y: p.y };
     p.x = e.clientX; p.y = e.clientY;
     if (pointers.size === 2) {
+      // 두 손가락: 함께 위아래로 밀기 = 기울이기, 비틀기 = 방향 돌리기 (지구가 보이는 동안)
+      if (canSpin() && earth.setTilt) {
+        const [a, b] = [...pointers.values()];
+        const other = a === p ? b : a;
+        const ang1 = Math.atan2(other.y - p.y, other.x - p.x), ang0 = Math.atan2(other.y - pPrev.y, other.x - pPrev.x);
+        let dA = ang1 - ang0; if (dA > Math.PI) dA -= 2 * Math.PI; if (dA < -Math.PI) dA += 2 * Math.PI;
+        if (Math.abs(dA) < 0.3) earth.setHeading(earth.heading + dA);
+        // 손가락 둘이 같은 방향으로 움직일 때만 기울이기 (중점 이동의 절반)
+        const dyMid = (p.y - pPrev.y) / 2;
+        if (Math.abs(dyMid) > 0.2) { earth.setTilt(earth.tilt + dyMid * 0.008); tiltLabel(); }
+      }
       const d = pinchDist();
       if (lastPinch > 0 && d > 0) {
         const [a, b] = [...pointers.values()];
@@ -966,7 +983,9 @@ export function mountUniverseExplorer(container, opts = {}) {
   if (earth.setTilt) earth.setTilt(store.earth2D ? 0 : TILT_3D);
   const tiltLabel = () => { btnTilt.textContent = earth.tilt > 0 ? '2D로' : '3D로'; };
   tiltLabel();
+  overlay.addEventListener('contextmenu', (e) => { if (canSpin()) e.preventDefault(); });
   btnTilt.addEventListener('click', () => {
+    if (earth.setHeading) earth.setHeading(0);
     earth.setTilt(earth.tilt > 0 ? 0 : TILT_3D);
     store.earth2D = earth.tilt === 0; save(); tiltLabel();
   });
@@ -1243,7 +1262,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     if (idx < 2 && !focus && Math.hypot(pan[0], pan[1]) > mppAt(s) * Math.min(W, H) * 0.6) idx = 2;
     const lv = LEVELS[idx];
     btnCity.hidden = !(earth.gl && s < 3.75 && idx === 0 && !focus);
-    btnTilt.hidden = !(earth.gl && earth.setTilt && idx === 0 && !focus);
+    btnTilt.hidden = !(earth.gl && earth.setTilt && idx <= 1 && !focus);
     btnTilt.style.marginBottom = btnCity.hidden ? '8px' : '46px';
     const fmtCoord = (v, pos, neg) => `${Math.abs(v).toFixed(2)}°${v >= 0 ? pos : neg}`;
     let locLine = '';
