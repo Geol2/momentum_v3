@@ -853,6 +853,18 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     if (!j) throw lastErr
     return (j.elements || []).filter((e) => e.geometry && e.geometry.length > 1).map((e) => { const a = new Float32Array(e.geometry.length * 2); e.geometry.forEach((g, k) => { a[k * 2] = g.lon; a[k * 2 + 1] = g.lat }); return a })
   }
+  const METRO_BOX = [125.9, 36.7, 128.1, 38.2]
+  let metro = null, metroP = null
+  function loadMetro() {
+    if (!metroP) metroP = import('./metro-lines.json').then((m) => {
+      const d = m.default
+      metro = {
+        lines: d.lines.map(([, , f]) => { const a = new Float32Array(f.length); let x = 0, y = 0; for (let k = 0; k < f.length; k += 2) { x += f[k]; y += f[k + 1]; a[k] = x / 1e5; a[k + 1] = y / 1e5 } return a }),
+        stations: d.stations.map(([name, line, lon, lat]) => ({ name: name.replace(/역$/, ''), line, lon, lat, sub: 'subway' })),
+      }
+    }).catch(() => { metroP = null })
+    return metroP
+  }
   let rBusy = false, rView = null, rViewKey = '', rViewSince = 0
   async function planRoads() {
     if (rBusy || !rView || dead) return
@@ -891,6 +903,15 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
         } catch { rFailAt = performance.now(); return }
       }
       lruSet(roadData, key, ways, 6)
+    }
+    // 수도권 전철: 지도 타일에 빠진 노선이 있어서(예: 7호선) OSM 노선 형상을 앱에 넣어 둔 것으로 그림
+    let rail = ways.rail || [], stns = ways.stations || []
+    if (!(b[2] < METRO_BOX[0] || b[0] > METRO_BOX[2] || b[3] < METRO_BOX[1] || b[1] > METRO_BOX[3])) {
+      await loadMetro()
+      if (metro) {
+        rail = metro.lines
+        stns = metro.stations.filter((st) => st.lon > b[0] && st.lon < b[2] && st.lat > b[1] && st.lat < b[3]).concat(stns)
+      }
     }
     if (my !== rGen || dead) return
     // 텍스처 해상도: 등급별로 한 칸 약 30m / 12m / 5m (최대 2048)
@@ -937,9 +958,9 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     draw(ways.min, 'rgb(0,255,0)', 8, 1.4)
     draw(ways.maj, 'rgb(255,0,0)', 20, 2.4)
     // 지하철 (파랑 채널): 큰길 선 옆에 나란히(겹치면 초록·보라 두 줄) — 얇은 어두운 테두리(약 110) + 보라 심(합쳐 255)
-    if (ways.rail?.length) {
+    if (rail.length) {
       const off = lw(20, 2.4) / 2 + lw(10, 2.6) / 2 + lw(0, 1.4)
-      draw(ways.rail, 'rgb(0,0,110)', 14, 4.2, off); draw(ways.rail, 'rgb(0,0,145)', 10, 2.6, off)
+      draw(rail, 'rgb(0,0,110)', 14, 4.2, off); draw(rail, 'rgb(0,0,145)', 10, 2.6, off)
     }
     g2.globalCompositeOperation = 'source-over'
     if (!rTex || rTex.userData.size !== `${W}x${H}`) { rTex?.dispose(); rTex = canvasTex(rCanvas); rTex.userData.size = `${W}x${H}`; uniforms.uRoad.value = rTex }
@@ -948,7 +969,7 @@ export function createEarthGL(host, { sdfUrl, dayUrl, reliefUrl, day2kUrl, relie
     rBox = b; rLvl = lvl; info.roads = true
     // 역 (중복 제거) — 화면 라벨·가까운 역 계산용
     const seen = new Set()
-    rStations = (ways.stations || []).filter((st) => { const k = st.name + '|' + st.lat.toFixed(3) + '|' + st.lon.toFixed(3); if (seen.has(k)) return false; seen.add(k); return true })
+    rStations = stns.filter((st) => { const k = st.name + '|' + st.lat.toFixed(3) + '|' + st.lon.toFixed(3); if (seen.has(k)) return false; seen.add(k); return true })
   }
 
   // ── 달 ──

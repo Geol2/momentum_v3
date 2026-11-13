@@ -39,4 +39,5 @@ moon-map.webp (달 지도): three.js 저장소 예제 텍스처 examples/texture
   확대 야경: NASA GIBS — VIIRS Black Marble (2016)
   내 주변 도로: © OpenStreetMap 기여자, ODbL 1.0 (https://www.openstreetmap.org/copyright) — OpenFreeMap 벡터 타일(© OpenMapTiles, https://openfreemap.org), 대체로 Overpass API
   지하철역 깊이: 서울교통공사_역사심도정보 (서울 열린데이터광장 OA-13305, 2024.3.31 기준), 공공누리 제1유형 — 선로 기준 깊이 = 지반고 - 레일면고, 승강장 기준 = 선로 기준 - 1.1m
+  수도권 전철 노선 형상·역 위치(metro-lines.json): © OpenStreetMap 기여자, ODbL 1.0 — 노선 관계에서 뽑은 가공본(tiny-seoul-3d-demo, 2026-07 생성)을 압축
   오로라: NOAA SWPC OVATION Aurora 30분 예보 · 행성 Kp 지수 (미국 정부 공개 자료)

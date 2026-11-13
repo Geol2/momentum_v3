@@ -40,15 +40,17 @@ function stationList(osm) {
   if (DEPTH) for (const d of DEPTH) {
     const k = d.key
     const e = out.get(k)
-    if (e && distM(e.lat, e.lon, d.lat, d.lon) < 800) e.depths.push(d)
-    else if (!e) out.set(k, { name: d.name, lat: d.lat, lon: d.lon, depths: [d] })
+    if (e && distM(e.lat, e.lon, d.lat, d.lon) < 800) { e.depths.push(d); e.lines.add(d.line + '호선') }
+    else if (!e) out.set(k, { name: d.name, lat: d.lat, lon: d.lon, depths: [d], lines: new Set([d.line + '호선']) })
   }
   for (const st of osm || []) {
     const k = norm(st.name)
     const e = out.get(k)
-    if (e && distM(e.lat, e.lon, st.lat, st.lon) < 800) continue
-    if (!e) out.set(k, { name: norm(st.name), lat: st.lat, lon: st.lon, depths: [] })
-    else out.set(k + '|' + st.lat.toFixed(2), { name: norm(st.name), lat: st.lat, lon: st.lon, depths: [] })
+    if (e && distM(e.lat, e.lon, st.lat, st.lon) < 800) { if (st.line) e.lines.add(st.line); continue }
+    const k2 = e ? k + '|' + st.lat.toFixed(2) : k
+    const e2 = out.get(k2)
+    if (e2) { if (st.line) e2.lines.add(st.line); continue }
+    out.set(k2, { name: norm(st.name), lat: st.lat, lon: st.lon, depths: [], lines: new Set(st.line ? [st.line] : []) })
   }
   return [...out.values()]
 }
@@ -70,7 +72,7 @@ export function nearestStation(lat, lon, osm) {
   }
   if (!best) return null
   const dt = depthText(best.depths)
-  const lines = [...new Set(best.depths.map((d) => d.line + '호선'))].join('·')
+  const lines = [...best.lines].join('·')
   return `가까운 역 ${best.name}${lines ? `(${lines})` : ''} ${best.dist < 1000 ? Math.round(best.dist / 10) * 10 + 'm' : (best.dist / 1000).toFixed(1) + 'km'}${dt ? ` · 승강장 ${dt === '지상' ? '지상' : dt.replace('지하', '지하 약')}` : ' · 깊이 자료 없음'}`
 }
 
