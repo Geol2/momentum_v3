@@ -1043,7 +1043,7 @@ export function mountUniverseExplorer(container, opts = {}) {
     if (cuView || bhView) return;
     cuView = 'loading';
     try {
-      const mod = fn === 'openPlanet3D' ? await import('./planet3d.js') : fn === 'openGiant3D' ? await import('./giant3d.js') : fn === 'openCity3D' ? await import('./city3d.js') : fn === 'openMission' ? await import('./mission.js') : await import('./closeup.js');
+      const mod = fn === 'openSolar3D' ? await import('./solar3d.js') : fn === 'openPlanet3D' ? await import('./planet3d.js') : fn === 'openGiant3D' ? await import('./giant3d.js') : fn === 'openCity3D' ? await import('./city3d.js') : fn === 'openMission' ? await import('./mission.js') : await import('./closeup.js');
       if (destroyed) return;
       const paused = !g3;
       if (paused) cancelAnimationFrame(raf);
@@ -1090,7 +1090,7 @@ export function mountUniverseExplorer(container, opts = {}) {
       g3 = openGalaxy3D(root, {
         sky, exo: catalog, layers: starLayers.map((L) => L.d), describeDeep: deepInfo, subscribe: (f) => { g3Listeners.add(f); return () => g3Listeners.delete(f); },
         gaia: { toggle: () => toggleGaia(), get on() { return gaiaOn; }, view: (x0, x1, y0, y1, cell) => { if (gaiaOn) gaia.update(x0, x1, y0, y1, cell); } }, dwarfs: world.lgDwarfs, preset, dsoKo: DSO_KO,
-        describeStar: (i) => hoverLabel({ sky: i }), openBH: (k) => openBH(k), photoFor: (name) => getPhoto(photoTitle(name)),
+        describeStar: (i) => hoverLabel({ sky: i }), openBH: (k) => openBH(k), onSolar: () => openCloseup('openSolar3D', { date: simDate() }), photoFor: (name) => getPhoto(photoTitle(name)),
         onClose: () => { g3 = null; if (!destroyed) { last = performance.now(); raf = requestAnimationFrame(frame); } },
       });
     } catch (e) { g3 = null; toast('3D 보기를 열 수 없어요'); }
@@ -1099,7 +1099,8 @@ export function mountUniverseExplorer(container, opts = {}) {
   {
     const q = document.createElement('button'); q.className = 'mu-q3'; q.textContent = '3D'; q.setAttribute('aria-label', '3D 은하 보기');
     root.querySelector('.mu-close').after(q);
-    q.addEventListener('click', () => open3D());
+    // 태양계 단계(지구~태양권)에서는 태양계 3D, 그 밖은 3D 은하
+    q.addEventListener('click', () => { if (s > 8.6 && s < 16.5 && !focus) openCloseup('openSolar3D', { date: simDate() }); else open3D(); });
   }
   $('.mu-go-home').addEventListener('click', () => { ui.modal.hidden = true; setTarget(S_START); });
   $('.mu-stay').addEventListener('click', () => { ui.modal.hidden = true; });

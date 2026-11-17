@@ -239,7 +239,7 @@ const fmtLy = (ly) => {
  * @param {{ sky?:any, exo?:any, dwarfs?:Array, preset?:string, describeStar?:Function, dsoKo?:Object, onClose?:Function }} opts
  */
 export function openGalaxy3D(host, opts = {}) {
-  const { sky, exo, layers = [], subscribe, gaia, openBH, photoFor, describeDeep, dwarfs = [], preset = 'mw', describeStar, dsoKo = {}, onClose } = opts;
+  const { sky, exo, layers = [], subscribe, gaia, openBH, photoFor, describeDeep, dwarfs = [], preset = 'mw', describeStar, dsoKo = {}, onSolar, onClose } = opts;
   if (!document.getElementById('g3-style')) {
     const st = document.createElement('style'); st.id = 'g3-style'; st.textContent = CSS3D; document.head.appendChild(st);
   }
@@ -739,11 +739,11 @@ export function openGalaxy3D(host, opts = {}) {
     web: { t: SUN, d: 1.05e11, pitch: 0.38, yaw: 0.6, frame: 'sg', title: '관측 가능한 우주 전체', desc: '지름 약 930억 광년. 가운데 초록 고리 안(약 15억 광년)은 실제로 거리를 잰 은하 지도, 바깥은 같은 모양을 흉내 낸 모형 코스믹 웹. 멀리 볼수록 더 오래전 빛이라 젊고 푸른 은하. 첫 은하들 너머는 암흑 시대, 맨 끝은 우주배경복사(빅뱅 후 38만 년). 노란 이름은 실제로 발견된 거대 구조·가장 먼 은하.' },
     cosmos: { t: SUN, d: 1.45e9, pitch: 0.42, yaw: 0.35, frame: 'sg', title: '근처 우주 · 초은하단 지도', desc: '2MASS 적외선 하늘 탐사(2MRS)로 거리를 잰 실제 은하 약 4만 3천 개. 파란 원반은 초은하면(1억~5억 광년), 하늘색=초은하단 · 노랑=은하 벽 · 빨강=보이드. 가운데 빈 띠는 은하수에 가려 못 보는 곳(회피 영역).' },
   };
-  const ORDER = [['mw', '우리은하'], ['side', '옆모습'], ['gc', '은하 중심'], ['sun', '태양 주변'], ['near', '이웃 별'], ['lmc', '대마젤란'], ['m31', '안드로메다'], ['m33', '삼각형자리'], ['lg', '국부은하군'], ['virgo', '처녀자리 은하단'], ['cosmos', '근처 우주'], ['web', '우주 전체'], ['bh', '블랙홀 체험'], ['gaia', 'Gaia 별 985만'], ['rot', '자동회전']];
+  const ORDER = [['mw', '우리은하'], ['side', '옆모습'], ['gc', '은하 중심'], ['solar', '태양계'], ['sun', '태양 주변'], ['near', '이웃 별'], ['lmc', '대마젤란'], ['m31', '안드로메다'], ['m33', '삼각형자리'], ['lg', '국부은하군'], ['virgo', '처녀자리 은하단'], ['cosmos', '근처 우주'], ['web', '우주 전체'], ['bh', '블랙홀 체험'], ['gaia', 'Gaia 별 985만'], ['rot', '자동회전']];
   const bar = $('.g3-bar');
   for (const [k, name] of ORDER) {
     const b = document.createElement('button'); b.textContent = name; b.dataset.k = k;
-    b.addEventListener('click', () => { if (k === 'bh') { openBH?.('sgra'); } else if (k === 'gaia') { gaia?.toggle(); b.classList.toggle('on', !!gaia?.on); if (gaia?.on && dist > 30000) go('sun'); } else if (k === 'rot') { autoRot = !autoRot; b.classList.toggle('on', autoRot); } else go(k); });
+    b.addEventListener('click', () => { if (k === 'bh') { openBH?.('sgra'); } else if (k === 'solar') { onSolar?.(); } else if (k === 'gaia') { gaia?.toggle(); b.classList.toggle('on', !!gaia?.on); if (gaia?.on && dist > 30000) go('sun'); } else if (k === 'rot') { autoRot = !autoRot; b.classList.toggle('on', autoRot); } else go(k); });
     bar.appendChild(b);
   }
   bar.querySelector('[data-k="rot"]').classList.add('on');
