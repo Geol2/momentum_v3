@@ -94,10 +94,12 @@ export function paginate(text) {
 }
 
 function askPages(state, ai) {
-  if (state.view === 'detail' && ai.detail) return paginate(ai.detail)
+  const steps = ai.steps?.length ? `할 일:\n${ai.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}` : ''
+  if (state.view === 'detail' && (ai.detail || steps)) {
+    return paginate([ai.detail, steps].filter(Boolean).join('\n\n'))
+  }
   const q = ai.question ? `Q. ${ai.question}\n\n` : ''
-  const steps = ai.steps?.length ? `\n\n할 일:\n${ai.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}` : ''
-  return paginate(`${q}${ai.answer}${steps}`)
+  return paginate(`${q}${ai.answer}${steps ? `\n\n${steps}` : ''}`)
 }
 
 // ---------- 카드 복습 (라이트너) ----------
@@ -142,8 +144,16 @@ export function render(state, data) {
 
     case 'ask': {
       const ai = data.ai || {}
+      const voice = data.voice || {}
+      const mic = !!data.voiceEnabled
       const hintBack = '두 번 누르기: 뒤로'
       const title = ai.project ? `Claude · ${ai.project}` : 'Claude'
+      // 안경 마이크: 누르면 듣기 시작, 다시 누르면 끝 → 받아 적어서 바로 물어봅니다.
+      if (voice.status === 'recording') {
+        return frame('말하는 중', `${voice.seconds || 0}초`, '듣고 있어요...\n\n다 말했으면 한 번 누르세요.', '누르기: 끝 · 두 번: 취소')
+      }
+      if (voice.status === 'transcribing') return frame('말하는 중', '', '받아 적는 중...', hintBack)
+      if (voice.status === 'error') return frame('Claude', '', voice.error, `${mic ? '누르기: 다시 말하기 · ' : ''}${hintBack}`)
       if (ai.status === 'loading') {
         const q = ai.question.length > 50 ? `${ai.question.slice(0, 50)}...` : ai.question
         const photos = ai.imageCount ? ` (사진 ${ai.imageCount}장)` : ''
@@ -152,19 +162,29 @@ export function render(state, data) {
         const body = `Q. ${q || '사진 속 요구사항 보기'}${photos}\n\n${steps.length ? steps.join('\n') : '생각하는 중...'}`
         return frame(title, steps.length ? `${ai.progress.length}단계` : '', body, hintBack)
       }
-      if (ai.status === 'error') return frame('Claude', '', ai.error, hintBack)
+      if (ai.status === 'error') return frame('Claude', '', ai.error, `${mic ? '누르기: 다시 말하기 · ' : ''}${hintBack}`)
       if (ai.status !== 'done') {
-        return frame('Claude에게 묻기', '', '폰이나 PC에서 질문하세요.\nPC: momentum.geol2.com/g2.html\n\n답은 질문한 화면과 여기에 같이 떠요.\n어느 화면에서 이어 물어도 같은 대화예요.', hintBack)
+        const body = mic
+          ? '한 번 누르고 말하세요.\n다 말했으면 다시 누르세요.\n\n폰·PC(momentum.geol2.com/g2.html)에서\n써서 물어도 여기에 같이 떠요.'
+          : '폰이나 PC에서 질문하세요.\nPC: momentum.geol2.com/g2.html\n\n답은 질문한 화면과 여기에 같이 떠요.\n어느 화면에서 이어 물어도 같은 대화예요.'
+        return frame('Claude에게 묻기', '', body, mic ? `누르기: 말하기 · ${hintBack}` : hintBack)
       }
       const pages = askPages(state, ai)
       const page = clamp(state.page ?? 0, pages.length - 1)
       const detail = state.view === 'detail'
       const steps = ai.steps?.length || 0
+      const more = ai.detail || steps
+      let save = ''
+      if (steps && ai.todoSave === 'saving') save = '할 일 저장 중...'
+      else if (steps && ai.todoSave === 'saved') save = `할 일 ${steps}개 저장됨`
+      else if (steps && ai.todoSave === 'error') save = '저장 실패 · 누르기: 다시 저장'
+      else if (steps) save = `누르기: 할 일 ${steps}개 저장`
       let hint
-      if (steps && ai.todoSave === 'saving') hint = '할 일 저장 중...'
-      else if (steps && ai.todoSave === 'saved') hint = `할 일 ${steps}개 저장됨 · 두 번: 뒤로`
-      else if (steps && ai.todoSave === 'error') hint = '저장 실패 · 누르기: 다시 저장'
-      else if (steps) hint = `누르기: 할 일 ${steps}개 저장${ai.detail ? ' · 길게: 전체 답' : ''}`
+      if (mic) {
+        // 마이크가 있으면 요약에서 누르기 = 말하기, 전체 답에서 누르기 = 할 일 저장
+        if (detail) hint = save ? `${save} · 길게: 요약` : '쓸기: 쪽 넘김 · 길게: 요약'
+        else hint = more ? '누르기: 말하기 · 길게: 전체 답' : '누르기: 말하기 · 쓸기: 쪽 넘김'
+      } else if (save) hint = `${save}${ai.detail ? ' · 길게: 전체 답' : ''}`
       else if (ai.detail) hint = detail ? '쓸기: 쪽 넘김 · 길게: 요약 · 두 번: 뒤로' : '쓸기: 쪽 넘김 · 길게: 전체 답(코드)'
       else hint = '쓸기: 쪽 넘김 · 두 번: 뒤로'
       return frame(detail ? `${title} 전체 답` : title, `${page + 1}/${pages.length}`, pages[page], hint)
@@ -222,6 +242,10 @@ const home = (cursor = 0) => ({ state: { screen: 'home', cursor }, effects: [] }
 const stay = (state) => ({ state, effects: [] })
 
 export function reduce(state, gesture, data) {
+  // 말하는 중에 두 번 누르기 = 녹음 취소 (뒤로 가지 않음)
+  if (state.screen === 'ask' && data.voice?.status === 'recording' && gesture === 'double') {
+    return { state, effects: [{ type: 'micCancel' }] }
+  }
   if (state.screen !== 'home' && gesture === 'double') {
     const back = homeItems(data).findIndex((it) =>
       it.key === state.screen || it.key === `deck:${state.deckId}`)
@@ -283,14 +307,24 @@ export function reduce(state, gesture, data) {
 
     case 'ask': {
       const ai = data.ai || {}
+      const voice = data.voice || {}
+      const mic = !!data.voiceEnabled
+      if (voice.status === 'recording') {
+        return gesture === 'tap' ? { state, effects: [{ type: 'micStop' }] } : stay(state)
+      }
+      if (voice.status === 'transcribing') return stay(state)
+      const canSave = ai.status === 'done' && ai.steps?.length && ai.todoSave !== 'saving' && ai.todoSave !== 'saved'
+      if (gesture === 'tap') {
+        // 누르기: (전체 답 화면이면) 작업 단계를 오늘 할 일로 저장, 아니면 마이크로 말하기.
+        // 할 일은 한 답에 한 번만 저장됩니다(실수로 두 번 눌러도 중복되지 않게).
+        if (canSave && (!mic || state.view === 'detail')) return { state, effects: [{ type: 'saveSteps' }] }
+        if (mic && ai.status !== 'loading') return { state, effects: [{ type: 'micStart' }] }
+        return stay(state)
+      }
       if (ai.status !== 'done') return stay(state)
       // 길게 누르기: 요약 <-> 전체 답(코드) 전환. 폐쇄망 PC에서 타이핑하면서 안경으로 코드를 봅니다.
-      if (gesture === 'long' && ai.detail) {
+      if (gesture === 'long' && (ai.detail || ai.steps?.length)) {
         return stay({ ...state, view: state.view === 'detail' ? 'summary' : 'detail', page: 0 })
-      }
-      // 누르기: 작업 단계를 오늘 할 일로 저장 (한 답에 한 번만 — 실수로 두 번 눌러도 중복되지 않게)
-      if (gesture === 'tap' && ai.steps?.length && ai.todoSave !== 'saving' && ai.todoSave !== 'saved') {
-        return { state, effects: [{ type: 'saveSteps' }] }
       }
       const max = askPages(state, ai).length - 1
       if (gesture === 'up') return stay({ ...state, page: clamp((state.page ?? 0) - 1, max) })

@@ -15,7 +15,7 @@ export async function connectGlasses() {
   if (!isInEvenApp()) return null
 
   // SDK는 WebView에서만 쓰므로 동적 import — 일반 미리보기 번들에는 영향이 없습니다.
-  const { waitForEvenAppBridge, OsEventTypeList, StartUpPageCreateResult } =
+  const { waitForEvenAppBridge, OsEventTypeList, StartUpPageCreateResult, AudioInputSource } =
     await import('@evenrealities/even_hub_sdk')
   const bridge = await waitForEvenAppBridge()
   let started = false
@@ -67,5 +67,37 @@ export async function connectGlasses() {
     return bridge.shutDownPageContainer(1)
   }
 
-  return { show, onGesture, close }
+  // 안경 마이크. 소리는 audioEvent로 100ms씩 들어옵니다(PCM 16bit little-endian 모노, 16kHz).
+  // 화면(startup page)을 만든 뒤에만 켤 수 있어서, show()가 한 번 끝난 다음에 부릅니다.
+  let offAudio = null
+  async function startMic(onChunk) {
+    await queue
+    const ok = await bridge.audioControl(true, AudioInputSource.Glasses)
+    if (!ok) throw new Error('안경 마이크를 켜지 못했어요')
+    offAudio?.()
+    offAudio = bridge.onEvenHubEvent((event) => {
+      const pcm = event.audioEvent?.audioPcm
+      if (pcm) onChunk(toBytes(pcm))
+    })
+  }
+  async function stopMic() {
+    offAudio?.()
+    offAudio = null
+    await bridge.audioControl(false)
+  }
+
+  return { show, onGesture, close, startMic, stopMic }
+}
+
+// 호스트가 PCM을 Uint8Array, 숫자 배열, base64 문자열 중 하나로 줍니다(SDK 문서).
+function toBytes(pcm) {
+  if (pcm instanceof Uint8Array) return pcm
+  if (Array.isArray(pcm)) return Uint8Array.from(pcm)
+  if (typeof pcm === 'string') {
+    const bin = atob(pcm)
+    const out = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+    return out
+  }
+  return new Uint8Array(0)
 }

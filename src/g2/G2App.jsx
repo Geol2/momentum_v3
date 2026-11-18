@@ -17,6 +17,9 @@ const PROJECT_KEY = 'g2_ai_project'
 // 최근 질문 확인 간격: 답을 기다리는 중이면 자주, 아니면 가끔(다른 화면에서 새로 물었는지)
 const POLL_RUNNING_MS = 1500
 const POLL_IDLE_MS = 3000
+// 한 번에 말할 수 있는 길이. 서버 whisper가 CPU로 받아 적으므로 짧을수록 빨라요.
+const MIC_MAX_SECONDS = 30
+const MIC_RATE = 16000
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -77,6 +80,8 @@ export default function G2App() {
   const pendingRef = useRef(false)
   const speakRef = useRef(speak)
   speakRef.current = speak
+  // 녹음 중인 소리 조각들
+  const micRef = useRef({ chunks: [], bytes: 0, timer: null })
   const [glasses, setGlasses] = useState(null)
   const [lastGesture, setLastGesture] = useState('')
 
@@ -163,6 +168,64 @@ export default function G2App() {
         }
         break
       }
+      case 'micStart': {
+        const g = glassesRef.current
+        if (!g?.startMic) {
+          setData((d) => ({ ...d, voice: { status: 'error', error: '마이크는 안경에서만 돼요.\nPC에서는 입력칸에 써서 물어보세요.' } }))
+          break
+        }
+        if (dataRef.current.voice?.status === 'recording') break
+        const mic = micRef.current
+        mic.chunks = []
+        mic.bytes = 0
+        try {
+          await g.startMic((chunk) => {
+            mic.chunks.push(chunk)
+            mic.bytes += chunk.length
+          })
+        } catch (e) {
+          setData((d) => ({ ...d, voice: { status: 'error', error: `${e.message || '마이크를 켜지 못했어요.'}\n다시 눌러 보세요.` } }))
+          break
+        }
+        const started = Date.now()
+        setData((d) => ({ ...d, voice: { status: 'recording', seconds: 0 } }))
+        clearInterval(mic.timer)
+        mic.timer = setInterval(() => {
+          const seconds = Math.floor((Date.now() - started) / 1000)
+          setData((d) => (d.voice?.status === 'recording' ? { ...d, voice: { ...d.voice, seconds } } : d))
+          // 너무 길면 알아서 끝냅니다.
+          if (seconds >= MIC_MAX_SECONDS) runEffectRef.current({ type: 'micStop' })
+        }, 500)
+        break
+      }
+      case 'micCancel':
+      case 'micStop': {
+        const mic = micRef.current
+        if (dataRef.current.voice?.status !== 'recording') break
+        clearInterval(mic.timer)
+        await glassesRef.current?.stopMic?.().catch(() => {})
+        if (fx.type === 'micCancel') {
+          setData((d) => ({ ...d, voice: { status: 'idle' } }))
+          break
+        }
+        const pcm = new Uint8Array(mic.bytes)
+        let off = 0
+        for (const c of mic.chunks) { pcm.set(c, off); off += c.length }
+        mic.chunks = []
+        setData((d) => ({ ...d, voice: { status: 'transcribing' } }))
+        try {
+          const { text } = await aiApi.transcribe(pcm, MIC_RATE)
+          if (!text?.trim()) {
+            setData((d) => ({ ...d, voice: { status: 'error', error: '잘 못 알아들었어요.\n다시 눌러서 말해 주세요.' } }))
+            break
+          }
+          setData((d) => ({ ...d, voice: { status: 'idle' } }))
+          await askClaudeRef.current(text)
+        } catch (e) {
+          setData((d) => ({ ...d, voice: { status: 'error', error: errorText(e) } }))
+        }
+        break
+      }
       case 'exit': {
         // 브라우저 미리보기에는 닫을 안경 화면이 없으므로 아무것도 하지 않습니다.
         await glassesRef.current?.close()
@@ -172,6 +235,10 @@ export default function G2App() {
         console.warn('[g2] 모르는 effect', fx)
     }
   }, [])
+
+  // 타이머·녹음 끝에서 부르기 위한 참조 (runEffect는 한 번만 만들어집니다)
+  const runEffectRef = useRef(runEffect)
+  runEffectRef.current = runEffect
 
   const handleGesture = useCallback((gesture) => {
     setLastGesture(gesture)
@@ -183,7 +250,9 @@ export default function G2App() {
 
   // 서버의 '최근 질문'을 화면 상태로 옮깁니다. 같은 답이면 할 일 저장 상태는 유지합니다.
   const applyJob = useCallback((job) => {
-    setData((d) => {
+    setData((prev) => {
+      // 새 질문이 오면 '못 알아들었어요' 같은 마이크 안내는 지웁니다(녹음 중이면 그대로).
+      const d = prev.voice?.status === 'error' ? { ...prev, voice: { status: 'idle' } } : prev
       if (!job) return { ...d, ai: { status: 'idle', turns: 0 } }
       const base = {
         jobId: job.id, question: job.question, project: job.project, imageCount: job.imageCount,
@@ -276,6 +345,9 @@ export default function G2App() {
     }
   }, [project])
 
+  const askClaudeRef = useRef(askClaude)
+  askClaudeRef.current = askClaude
+
   const resetClaude = useCallback(async () => {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
     pendingRef.current = true
@@ -331,13 +403,13 @@ export default function G2App() {
   // 이 계정이 Claude를 쓸 수 있는지 서버에 묻습니다. 실패하면 꺼진 것으로 봅니다.
   useEffect(() => {
     if (auth.status !== 'authenticated') {
-      setData((d) => ({ ...d, aiEnabled: false }))
+      setData((d) => ({ ...d, aiEnabled: false, voiceEnabled: false }))
       return
     }
     let cancelled = false
     aiApi.status()
-      .then((r) => { if (!cancelled) setData((d) => ({ ...d, aiEnabled: !!r?.enabled })) })
-      .catch(() => { if (!cancelled) setData((d) => ({ ...d, aiEnabled: false })) })
+      .then((r) => { if (!cancelled) setData((d) => ({ ...d, aiEnabled: !!r?.enabled, voiceEnabled: !!r?.voice })) })
+      .catch(() => { if (!cancelled) setData((d) => ({ ...d, aiEnabled: false, voiceEnabled: false })) })
     return () => { cancelled = true }
   }, [auth.status])
 

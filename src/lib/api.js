@@ -169,6 +169,13 @@ export const aiApi = {
   latestJob: () => apiFetch('/api/ai/jobs/latest'),
   // 새 대화 — 모든 화면 공통
   resetConversation: () => apiFetch('/api/ai/conversation/reset', { method: 'POST' }),
+  // 안경 마이크 음성(PCM 16bit 모노) → 텍스트. 서버의 whisper가 받아 적습니다. { text }
+  transcribe: (pcm, rate = 16000) => {
+    const form = new FormData()
+    form.append('audio', new Blob([pcm], { type: 'application/octet-stream' }), 'audio.pcm')
+    form.append('rate', String(rate))
+    return apiFetch('/api/ai/transcribe', { method: 'POST', body: form })
+  },
 }
 
 // Claude가 읽을 프로젝트 — GitHub 저장소(서버가 클론) 또는 zip 업로드(출장 등)
