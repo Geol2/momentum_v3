@@ -509,9 +509,13 @@ function AskBox({ ai, busy, turns, onAsk, onReset, speak, onSpeakChange, onSaveS
 
   const addPhotos = async (files) => {
     setPhotoError('')
-    const list = [...(files || [])].filter((f) => f.type.startsWith('image/'))
+    const all = [...(files || [])]
+    const list = all.filter((f) => f.type.startsWith('image/'))
     const room = MAX_PHOTOS - photos.length
-    if (list.length > room) setPhotoError(`사진은 ${MAX_PHOTOS}장까지예요.`)
+    // zip 등을 사진 칸에 넣으면 조용히 버려지고 Claude는 "사진만 읽을 수 있다"고 답합니다. 바로 알려 줍니다.
+    if (list.length < all.length) {
+      setPhotoError('사진이 아닌 파일은 여기에 넣을 수 없어요. zip은 위쪽 "프로젝트 → 관리 → zip 업로드"로 올린 뒤, 목록에서 그 프로젝트를 고르고 물어보세요.')
+    } else if (list.length > room) setPhotoError(`사진은 ${MAX_PHOTOS}장까지예요.`)
     try {
       const shrunk = await Promise.all(list.slice(0, Math.max(0, room)).map(shrinkPhoto))
       setPhotos((p) => [...p, ...shrunk].slice(0, MAX_PHOTOS))
