@@ -189,9 +189,9 @@ export const aiApi = {
   status: () => apiFetch('/api/ai/status'),
   ask: (question, history = [], images = []) => apiFetch('/api/ai/ask', { method: 'POST', body: JSON.stringify({ question, history, images }) }),
   // 프로젝트를 읽으며 답하면 1~3분 걸리기도 해서(Cloudflare 100초 제한) 백그라운드로 돌리고 물어봅니다.
-  // project: 읽게 할 프로젝트 이름(없으면 일반 질문). 대화(이어서 묻기)는 서버가 사용자별로 이어 갑니다.
-  startJob: ({ question, images = [], project = null }) =>
-    apiFetch('/api/ai/jobs', { method: 'POST', body: JSON.stringify({ question, images, project }) }),
+  // conversationId: 이어 갈 대화(없으면 project로 새 대화를 만듦). 응답: { jobId, conversationId }
+  startJob: ({ question, images = [], project = null, conversationId = null }) =>
+    apiFetch('/api/ai/jobs', { method: 'POST', body: JSON.stringify({ question, images, project, conversationId }) }),
   // { status: 'running' | 'done' | 'error', progress: ['읽기: src/App.jsx', ...], answer, detail, steps, error }
   job: (id) => apiFetch(`/api/ai/jobs/${encodeURIComponent(id)}`),
   // 어느 화면(폰·PC)에서 물었든 가장 최근 질문. 없으면 null. 안경 앱이 이걸 따라갑니다.
@@ -205,6 +205,17 @@ export const aiApi = {
     form.append('rate', String(rate))
     return apiFetch('/api/ai/transcribe', { method: 'POST', body: form })
   },
+}
+
+// Claude 대화 — 프로젝트마다 여러 개, 서버(DB)에 저장. 어느 화면에서 이어 물어도 같은 대화.
+export const aiConversationsApi = {
+  // [{ id, project, title, createdAt, updatedAt }] 최근 대화가 먼저
+  list: () => apiFetch('/api/ai/conversations'),
+  create: (project) => apiFetch('/api/ai/conversations', { method: 'POST', body: JSON.stringify({ project: project || null }) }),
+  // { conversation, turns: [{ id, question, imageCount, answer, detail, steps, createdAt }] }
+  get: (id) => apiFetch(`/api/ai/conversations/${id}`),
+  rename: (id, title) => apiFetch(`/api/ai/conversations/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+  remove: (id) => apiFetch(`/api/ai/conversations/${id}`, { method: 'DELETE' }),
 }
 
 // Claude가 읽을 프로젝트 — GitHub 저장소(서버가 클론) 또는 zip 업로드(출장 등)

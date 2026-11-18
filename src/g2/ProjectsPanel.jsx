@@ -1,4 +1,4 @@
-// Claude가 읽을 프로젝트 고르기·관리 (폰/PC 화면 전용, 안경에는 안 보임)
+// Claude가 읽을 프로젝트 목록(useProjects)과 관리 창(ProjectManager). 폰/PC 화면 전용, 안경에는 안 보임.
 //  - GitHub: 저장소 주소를 넣으면 서버가 받아 둡니다. 코드가 바뀌면 "동기화".
 //  - zip 업로드: 출장 등으로 GitHub에 없는 코드를 압축해서 올립니다.
 //    node_modules·build·.git 같은 폴더는 서버가 알아서 빼고 풉니다.
@@ -26,9 +26,31 @@ function when(iso) {
 
 const STATUS = { ready: '준비됨', syncing: '받는 중...', error: '실패' }
 
-export default function ProjectsPanel({ selected, onSelect, disabled }) {
+// 프로젝트 목록. 사이드바와 관리 창이 같은 목록을 보도록 한 곳에서 불러옵니다.
+export function useProjects() {
   const [projects, setProjects] = useState(null)
-  const [open, setOpen] = useState(false)
+  const [error, setError] = useState('')
+  const load = useCallback(async () => {
+    try {
+      setProjects(await aiProjectsApi.list())
+      setError('')
+    } catch (e) {
+      setError(errText(e))
+    }
+  }, [])
+  useEffect(() => { load() }, [load])
+  // 받는 중인 프로젝트가 있으면 끝날 때까지 상태를 새로 봅니다.
+  const syncing = projects?.some((p) => p.status === 'syncing')
+  useEffect(() => {
+    if (!syncing) return undefined
+    const t = setInterval(load, POLL_MS)
+    return () => clearInterval(t)
+  }, [syncing, load])
+  return { projects, load, error }
+}
+
+// 프로젝트 관리: 목록(동기화·삭제), GitHub 추가, zip 업로드. onSelect(name): 올린 프로젝트를 바로 고름
+export default function ProjectManager({ projects, load, onSelect }) {
   const [error, setError] = useState('')
   // busy: 추가·동기화·삭제 같은 짧은 작업. upload: zip 업로드(길 수 있어 따로 둡니다 —
   // 업로드 중에도 GitHub 추가 등은 할 수 있게).
@@ -40,34 +62,11 @@ export default function ProjectsPanel({ selected, onSelect, disabled }) {
   const [zipName, setZipName] = useState('')
   const [zipFile, setZipFile] = useState(null)
 
-  const load = useCallback(async () => {
-    try {
-      setProjects(await aiProjectsApi.list())
-    } catch (e) {
-      setError(errText(e))
-    }
-  }, [])
-
-  useEffect(() => { load() }, [load])
-
   // 비공개 저장소 가능 여부(서버 토큰). 예전 서버면 실패 → 공개만으로 안내
   const [privateRepos, setPrivateRepos] = useState(false)
   useEffect(() => {
     aiProjectsApi.settings().then((s) => setPrivateRepos(!!s?.privateRepos)).catch(() => {})
   }, [])
-
-  // 받는 중인 프로젝트가 있으면 끝날 때까지 상태를 새로 봅니다.
-  const syncing = projects?.some((p) => p.status === 'syncing')
-  useEffect(() => {
-    if (!syncing) return undefined
-    const t = setInterval(load, POLL_MS)
-    return () => clearInterval(t)
-  }, [syncing, load])
-
-  // 고른 프로젝트가 지워졌으면 선택을 풉니다. 업로드 직후처럼 목록을 새로 받는 중에는 건너뜁니다.
-  useEffect(() => {
-    if (!busy && !upload && projects && selected && !projects.some((p) => p.name === selected)) onSelect('')
-  }, [busy, upload, projects, selected, onSelect])
 
   const run = async (label, fn) => {
     setError('')
@@ -125,36 +124,11 @@ export default function ProjectsPanel({ selected, onSelect, disabled }) {
     if (file && !zipName) setZipName(file.name.replace(/\.zip$/i, '').replace(/[^A-Za-z0-9._-]/g, '-').replace(/^[^A-Za-z0-9]+/, '').slice(0, 40))
   }
 
-  const ready = (projects || []).filter((p) => p.status === 'ready')
-
   return (
-    <div style={box}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <label htmlFor="g2-project" style={{ fontSize: 14, fontWeight: 600 }}>프로젝트</label>
-        <select
-          id="g2-project"
-          value={selected}
-          disabled={disabled}
-          onChange={(e) => onSelect(e.target.value)}
-          style={{ ...input, flex: '1 1 160px', width: 'auto' }}
-        >
-          <option value="">없음 (일반 질문)</option>
-          {ready.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
-        </select>
-        <button type="button" onClick={() => setOpen((o) => !o)} style={btn} aria-expanded={open}>
-          {open ? '관리 닫기' : '관리'}
-        </button>
-      </div>
-      <p style={hint}>
-        {selected
-          ? `Claude가 ${selected} 코드를 직접 찾아 읽고 답해요. 1~3분 걸릴 수 있어요.`
-          : '프로젝트를 고르면 Claude가 그 코드를 직접 읽으며 답해요.'}
-      </p>
-
+    <div>
       {error && <p style={{ ...hint, color: '#ffb4a8' }}>{error}</p>}
-
-      {open && (
-        <div style={{ marginTop: 10 }}>
+      {(
+        <div style={{ marginTop: 4 }}>
           {projects === null && <p style={hint}>불러오는 중...</p>}
           {projects?.length === 0 && <p style={hint}>아직 프로젝트가 없어요. 아래에서 추가하세요.</p>}
           {projects?.length > 0 && (
@@ -220,7 +194,6 @@ export default function ProjectsPanel({ selected, onSelect, disabled }) {
   )
 }
 
-const box = { marginBottom: 4 }
 const hint = { fontSize: 12, color: '#6b717c', margin: '6px 0 0' }
 const sub = { display: 'block', fontSize: 13, color: '#c8ccd4', marginBottom: 6 }
 const tag = { fontSize: 11, color: '#9aa0aa', border: '1px solid #2a2f3a', borderRadius: 4, padding: '0 4px', marginLeft: 6 }

@@ -9,11 +9,12 @@ import { dateKey } from '../lib/dates.js'
 import { useAuth } from '../lib/useAuth.js'
 import { connectGlasses, isInEvenApp } from './bridge.js'
 import Preview from './Preview.jsx'
-import ProjectsPanel from './ProjectsPanel.jsx'
+import Workspace from './Workspace.jsx'
 import { gradeCard, initialState, reduce, render } from './screens.js'
 
 const PROGRESS_KEY = 'g2_card_progress'
-const PROJECT_KEY = 'g2_ai_project'
+const PROJECT_KEY = 'g2_ai_project' // 예전 버전: 고른 프로젝트 이름만
+const CONV_KEY = 'g2_ai_conv'       // 지금 대화 { id, project }
 // 최근 질문 확인 간격: 답을 기다리는 중이면 자주, 아니면 가끔(다른 화면에서 새로 물었는지)
 const POLL_RUNNING_MS = 1500
 const POLL_IDLE_MS = 3000
@@ -21,10 +22,24 @@ const POLL_IDLE_MS = 3000
 const MIC_MAX_SECONDS = 30
 const MIC_RATE = 16000
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+// 깨우기(wake)로 일찍 끝낼 수 있는 대기 — 질문을 보내면 다음 확인을 기다리지 않고 바로 봅니다.
+function wakeableSleep(ms, wakeRef) {
+  return new Promise((resolve) => {
+    const t = setTimeout(done, ms)
+    function done() { clearTimeout(t); wakeRef.current = null; resolve() }
+    wakeRef.current = done
+  })
+}
 
-function loadProject() {
-  try { return localStorage.getItem(PROJECT_KEY) || '' } catch { return '' }
+// 지금 대화. id가 null이면 '질문 전인 새 대화'(첫 질문 때 서버가 만듭니다).
+function loadConv() {
+  try {
+    const c = JSON.parse(localStorage.getItem(CONV_KEY))
+    if (c && typeof c.project === 'string') return { id: Number.isInteger(c.id) ? c.id : null, project: c.project }
+    return { id: null, project: localStorage.getItem(PROJECT_KEY) || '' }
+  } catch {
+    return { id: null, project: '' }
+  }
 }
 
 // 카드 진도는 이 기기에만 저장합니다(서버 API가 아직 없음).
@@ -72,12 +87,23 @@ export default function G2App() {
   const [state, setState] = useState(initialState)
   const [data, setData] = useState(() => ({ todos: null, notes: null, progress: loadProgress(), ai: { status: 'idle', turns: 0 } }))
   const [speak, setSpeak] = useState(false)
-  // Claude가 읽을 프로젝트(이 기기에서 물을 때). 바꾸면 대화가 섞이지 않게 새 대화로 시작합니다.
-  const [project, setProjectState] = useState(loadProject)
+  // 지금 대화 { id, project }. 왼쪽 목록에서 고르거나, 다른 화면에서 새로 물으면 그쪽을 따라갑니다.
+  const [conv, setConvState] = useState(loadConv)
+  const convRef = useRef(conv)
+  convRef.current = conv
+  const setConv = useCallback((c) => {
+    convRef.current = c
+    setConvState(c)
+    try { localStorage.setItem(CONV_KEY, JSON.stringify(c)) } catch { /* 저장 불가 */ }
+  }, [])
+  // 질문이 시작·끝날 때마다 늘려서, 대화 목록·내역을 다시 불러오게 합니다.
+  const [aiVersion, setAiVersion] = useState(0)
+  const bump = useCallback(() => setAiVersion((v) => v + 1), [])
   // 마지막으로 본 질문 { id, status }. undefined = 아직 한 번도 확인 안 함(앱을 막 열었음).
   const seenRef = useRef({ id: undefined, status: null })
   // 이 기기에서 질문을 보내거나 새 대화를 누르는 중이면, 그사이 받은 '최근 질문'은 무시합니다.
   const pendingRef = useRef(false)
+  const wakeRef = useRef(null)
   const speakRef = useRef(speak)
   speakRef.current = speak
   // 녹음 중인 소리 조각들
@@ -255,8 +281,8 @@ export default function G2App() {
       const d = prev.voice?.status === 'error' ? { ...prev, voice: { status: 'idle' } } : prev
       if (!job) return { ...d, ai: { status: 'idle', turns: 0 } }
       const base = {
-        jobId: job.id, question: job.question, project: job.project, imageCount: job.imageCount,
-        turns: job.turns, progress: job.progress || [],
+        jobId: job.id, conversationId: job.conversationId ?? null, question: job.question, project: job.project,
+        imageCount: job.imageCount, turns: job.turns, progress: job.progress || [],
       }
       if (job.status === 'running') return { ...d, ai: { ...base, status: 'loading' } }
       if (job.status === 'error') return { ...d, ai: { ...base, status: 'error', error: job.error || '답을 받지 못했어요.' } }
@@ -294,7 +320,11 @@ export default function G2App() {
       const toAsk = { screen: 'ask', page: 0, view: 'summary' }
       stateRef.current = toAsk
       setState(toAsk)
+      // 다른 화면에서 새로 물었으면 이 화면도 그 대화로 따라갑니다.
+      if (job.conversationId != null) setConv({ id: job.conversationId, project: job.project || '' })
+      bump()
     }
+    if (status !== 'running' && (id !== seen.id || seen.status !== status)) bump()
     if (status === 'done' && (id !== seen.id || seen.status !== 'done')) {
       setState((s) => (s.screen === 'ask' ? { ...s, page: 0, view: 'summary' } : s))
       if (speakRef.current && 'speechSynthesis' in window) {
@@ -305,7 +335,7 @@ export default function G2App() {
         window.speechSynthesis.speak(u)
       }
     }
-  }, [applyJob])
+  }, [applyJob, setConv, bump])
 
   useEffect(() => {
     if (!data.aiEnabled) return undefined
@@ -314,7 +344,7 @@ export default function G2App() {
       while (!stop) {
         // 일반 브라우저 탭이 가려져 있으면 쉽니다. Even 앱은 폰 화면이 꺼져도 안경이 쓰므로 계속 봅니다.
         if (isInEvenApp() || !document.hidden) await pollLatest()
-        await sleep(dataRef.current.ai.status === 'loading' ? POLL_RUNNING_MS : POLL_IDLE_MS)
+        await wakeableSleep(dataRef.current.ai.status === 'loading' ? POLL_RUNNING_MS : POLL_IDLE_MS, wakeRef)
       }
     })()
     return () => { stop = true }
@@ -332,23 +362,30 @@ export default function G2App() {
       setData((d) => ({ ...d, ai: { status: 'error', question: q, error: LOGIN_NEEDED } }))
       return
     }
+    const { id: conversationId, project } = convRef.current
     pendingRef.current = true
-    setData((d) => ({ ...d, ai: { status: 'loading', question: q, imageCount: images.length, project, progress: [], turns: d.ai.turns } }))
+    setData((d) => ({ ...d, ai: { status: 'loading', conversationId, question: q, imageCount: images.length, project, progress: [], turns: d.ai.turns } }))
     try {
-      const { jobId } = await aiApi.startJob({ question: q, images, project: project || null })
-      seenRef.current = { id: jobId, status: 'running' }
-      setData((d) => ({ ...d, ai: { ...d.ai, jobId } }))
+      const res = await aiApi.startJob({ question: q, images, project: project || null, conversationId })
+      seenRef.current = { id: res.jobId, status: 'running' }
+      // 새 대화의 첫 질문이면 서버가 만든 대화 id를 받습니다.
+      if (res.conversationId != null && res.conversationId !== conversationId) setConv({ id: res.conversationId, project })
+      setData((d) => ({ ...d, ai: { ...d.ai, jobId: res.jobId, conversationId: res.conversationId ?? conversationId } }))
+      bump()
     } catch (e) {
-      setData((d) => ({ ...d, ai: { status: 'error', question: q, error: errorText(e), turns: d.ai.turns } }))
+      setData((d) => ({ ...d, ai: { status: 'error', conversationId, question: q, error: errorText(e), turns: d.ai.turns } }))
     } finally {
       pendingRef.current = false
+      wakeRef.current?.() // 다음 확인을 기다리지 않고 바로 진행 상황을 봅니다
     }
-  }, [project])
+  }, [setConv, bump])
 
   const askClaudeRef = useRef(askClaude)
   askClaudeRef.current = askClaude
 
-  const resetClaude = useCallback(async () => {
+  // 새 대화(질문 전): 안경의 최근 질문 표시도 비웁니다. project: 이 대화가 읽을 프로젝트('' = 일반)
+  const newChat = useCallback(async (project) => {
+    setConv({ id: null, project: project || '' })
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
     pendingRef.current = true
     setData((d) => ({ ...d, ai: { status: 'idle', turns: 0 } }))
@@ -360,13 +397,12 @@ export default function G2App() {
       seenRef.current = { id: null, status: null }
       pendingRef.current = false
     }
-  }, [])
+  }, [setConv])
 
-  const setProject = useCallback((name) => {
-    setProjectState(name)
-    try { if (name) localStorage.setItem(PROJECT_KEY, name); else localStorage.removeItem(PROJECT_KEY) } catch { /* 저장 불가 */ }
-    resetClaude()
-  }, [resetClaude])
+  // 목록에서 예전 대화를 고르면 거기서 이어 묻습니다.
+  const selectConversation = useCallback((c) => {
+    setConv({ id: c.id, project: c.project || '' })
+  }, [setConv])
 
   // 키보드
   useEffect(() => {
@@ -437,205 +473,60 @@ export default function G2App() {
     )
   }
 
+  const statusLine = (
+    <>
+      {isInEvenApp()
+        ? (glasses ? '안경에 연결됨' : '안경에 연결하는 중...')
+        : '브라우저 미리보기 — 글꼴·줄 간격은 근사치예요.'}
+      {' '}
+      {auth.status === 'authenticated'
+        ? `· ${userName || '로그인됨'}`
+        : auth.status === 'anonymous' && (
+          <button type="button" onClick={() => setShowLogin(true)} style={{ ...btn, padding: '2px 8px' }}>로그인</button>
+        )}
+    </>
+  )
+
+  const glassesPane = (
+    <>
+      <ScaledPreview page={page} />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+        {BUTTONS.map(([g, label]) => (
+          <button key={g} type="button" onClick={() => handleGesture(g)} style={btn}>{label}</button>
+        ))}
+      </div>
+      <p style={{ fontSize: 12, color: '#6b717c', marginTop: 10 }}>
+        키보드: ↑/↓ 쓸기 · Enter 누르기 · Esc 두 번 누르기 · L 길게 누르기
+        {lastGesture && ` · 마지막 입력: ${lastGesture}`}
+      </p>
+    </>
+  )
+
+  // Claude를 쓸 수 있는 계정: 클로드 데스크톱 같은 작업 공간(프로젝트·대화 목록 / 대화 / 안경 화면)
+  if (data.aiEnabled) {
+    return (
+      <Workspace
+        conv={conv}
+        onSelectConversation={selectConversation}
+        onNewChat={newChat}
+        version={aiVersion}
+        ai={data.ai}
+        onAsk={askClaude}
+        speak={speak}
+        onSpeakChange={setSpeak}
+        glassesPane={glassesPane}
+        status={statusLine}
+      />
+    )
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: '#0b0d12', color: '#e8e8ea', padding: '24px 16px', boxSizing: 'border-box' }}>
       <div style={{ maxWidth: 620, margin: '0 auto' }}>
         <h1 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 4px' }}>G2 화면 미리보기</h1>
-        <p style={{ fontSize: 13, color: '#9aa0aa', margin: '0 0 16px' }}>
-          {isInEvenApp()
-            ? (glasses ? '안경에 연결됨 — 안경에서 조작하세요.' : '안경에 연결하는 중...')
-            : '브라우저 미리보기 — 글꼴·줄 간격은 근사치예요.'}
-          {' '}
-          {auth.status === 'authenticated'
-            ? `${userName || '로그인됨'}`
-            : auth.status === 'anonymous' && (
-              <button type="button" onClick={() => setShowLogin(true)} style={{ ...btn, padding: '2px 8px' }}>로그인</button>
-            )}
-        </p>
-
-        <ScaledPreview page={page} />
-
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
-          {BUTTONS.map(([g, label]) => (
-            <button key={g} type="button" onClick={() => handleGesture(g)} style={btn}>{label}</button>
-          ))}
-        </div>
-        <p style={{ fontSize: 12, color: '#6b717c', marginTop: 12 }}>
-          키보드: ↑/↓ 쓸기 · Enter 누르기 · Esc 두 번 누르기 · L 길게 누르기
-          {lastGesture && ` · 마지막 입력: ${lastGesture}`}
-        </p>
-
-        {data.aiEnabled && <AskBox
-          ai={data.ai}
-          busy={data.ai.status === 'loading'}
-          turns={data.ai.turns || 0}
-          onAsk={askClaude}
-          onReset={resetClaude}
-          speak={speak}
-          onSpeakChange={setSpeak}
-          onSaveSteps={() => runEffect({ type: 'saveSteps' })}
-          project={project}
-          onProjectChange={setProject}
-        />}
+        <p style={{ fontSize: 13, color: '#9aa0aa', margin: '0 0 16px' }}>{statusLine}</p>
+        {glassesPane}
       </div>
-    </div>
-  )
-}
-
-const MAX_PHOTOS = 6
-// Claude는 긴 변이 1568px를 넘는 사진을 어차피 줄여서 봅니다. 미리 줄이면 업로드가 빠르고
-// 모니터 글자도 충분히 읽힙니다.
-const PHOTO_MAX_SIDE = 1568
-
-async function shrinkPhoto(file) {
-  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' })
-  const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(bmp.width, bmp.height))
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.round(bmp.width * scale)
-  canvas.height = Math.round(bmp.height * scale)
-  canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height)
-  bmp.close?.()
-  const url = canvas.toDataURL('image/jpeg', 0.85)
-  return { mediaType: 'image/jpeg', data: url.slice(url.indexOf(',') + 1), preview: url }
-}
-
-// 폰 화면의 질문 입력칸. 안경에는 키보드·카메라가 없어서 질문과 사진은 폰에서 보냅니다.
-function AskBox({ ai, busy, turns, onAsk, onReset, speak, onSpeakChange, onSaveSteps, project, onProjectChange }) {
-  const [text, setText] = useState('')
-  const [photos, setPhotos] = useState([])
-  const [photoError, setPhotoError] = useState('')
-  const cameraRef = useRef(null)
-  const albumRef = useRef(null)
-
-  const addPhotos = async (files) => {
-    setPhotoError('')
-    const all = [...(files || [])]
-    const list = all.filter((f) => f.type.startsWith('image/'))
-    const room = MAX_PHOTOS - photos.length
-    // zip 등을 사진 칸에 넣으면 조용히 버려지고 Claude는 "사진만 읽을 수 있다"고 답합니다. 바로 알려 줍니다.
-    if (list.length < all.length) {
-      setPhotoError('사진이 아닌 파일은 여기에 넣을 수 없어요. zip은 위쪽 "프로젝트 → 관리 → zip 업로드"로 올린 뒤, 목록에서 그 프로젝트를 고르고 물어보세요.')
-    } else if (list.length > room) setPhotoError(`사진은 ${MAX_PHOTOS}장까지예요.`)
-    try {
-      const shrunk = await Promise.all(list.slice(0, Math.max(0, room)).map(shrinkPhoto))
-      setPhotos((p) => [...p, ...shrunk].slice(0, MAX_PHOTOS))
-    } catch (e) {
-      console.error('[g2] 사진 처리 실패', e)
-      setPhotoError('사진을 읽지 못했어요. 다른 사진으로 해 보세요.')
-    }
-  }
-
-  const canSend = !busy && (text.trim() || photos.length)
-  const submit = (e) => {
-    e.preventDefault()
-    if (!canSend) return
-    onAsk(text, photos.map(({ mediaType, data }) => ({ mediaType, data })))
-    setText('')
-    setPhotos([])
-  }
-  return (
-    <div style={{ marginTop: 20, borderTop: '1px solid #222831', paddingTop: 16 }}>
-      {/* 프로젝트 패널에도 form이 있어서, 질문 form 밖에 둡니다(form 중첩 금지). */}
-      <ProjectsPanel selected={project} onSelect={onProjectChange} disabled={busy} />
-      <form onSubmit={submit}>
-      <label htmlFor="g2-ask" style={{ display: 'block', fontSize: 14, fontWeight: 600, margin: '12px 0 8px' }}>
-        Claude에게 묻기 {turns > 0 && <span style={{ color: '#9aa0aa', fontWeight: 400 }}>· 이어서 묻는 중 ({turns}번째 대화)</span>}
-      </label>
-      <textarea
-        id="g2-ask"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        // 폰 키보드의 줄바꿈과 겹치지 않게, PC에서만 Ctrl/Cmd+Enter로 보냅니다.
-        onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit(e) }}
-        rows={3}
-        placeholder={photos.length ? '예: 이 요구사항대로 고치려면? (비우면 기본 질문)'
-          : project ? `예: ${project}에서 로그인 처리는 어디서 해?` : '예: JPA에서 N+1 문제 해결법?'}
-        style={{
-          width: '100%', boxSizing: 'border-box', background: '#12151c', color: '#e8e8ea',
-          border: '1px solid #2a2f3a', borderRadius: 8, padding: 10, fontSize: 15, resize: 'vertical',
-        }}
-      />
-      {photos.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-          {photos.map((p, i) => (
-            <div key={p.preview.slice(-32) + i} style={{ position: 'relative' }}>
-              <img src={p.preview} alt={`사진 ${i + 1}`} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 6, border: '1px solid #2a2f3a' }} />
-              <button
-                type="button"
-                aria-label={`사진 ${i + 1} 빼기`}
-                onClick={() => setPhotos((ps) => ps.filter((_, j) => j !== i))}
-                style={{ position: 'absolute', top: -6, right: -6, width: 22, height: 22, borderRadius: 11, border: 0, background: '#e8e8ea', color: '#0b0d12', fontSize: 13, cursor: 'pointer' }}
-              >x</button>
-            </div>
-          ))}
-        </div>
-      )}
-      {photoError && <p style={{ color: '#ffb4a8', fontSize: 13, margin: '6px 0 0' }}>{photoError}</p>}
-
-      {/* capture가 있으면 바로 카메라, 없으면 앨범/파일 선택 */}
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden
-        onChange={(e) => { addPhotos(e.target.files); e.target.value = '' }} />
-      <input ref={albumRef} type="file" accept="image/*" multiple hidden
-        onChange={(e) => { addPhotos(e.target.files); e.target.value = '' }} />
-
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 8 }}>
-        <button type="button" onClick={() => cameraRef.current?.click()} disabled={busy || photos.length >= MAX_PHOTOS} style={btn}>사진 찍기</button>
-        <button type="button" onClick={() => albumRef.current?.click()} disabled={busy || photos.length >= MAX_PHOTOS} style={btn}>앨범</button>
-        <button type="submit" disabled={!canSend} style={{ ...btn, opacity: canSend ? 1 : 0.5 }}>
-          {busy ? '생각하는 중...' : '보내기 (안경에 표시)'}
-        </button>
-        <button type="button" onClick={onReset} disabled={busy} style={btn}>새 대화</button>
-        <label style={{ fontSize: 13, color: '#9aa0aa', display: 'flex', gap: 6, alignItems: 'center' }}>
-          <input type="checkbox" checked={speak} onChange={(e) => onSpeakChange(e.target.checked)} />
-          폰으로 읽어 주기
-        </label>
-      </div>
-      <p style={{ fontSize: 12, color: '#6b717c', margin: '8px 0 0' }}>
-        모니터는 정면에서, 글자가 선명하게 찍어 주세요. 코드가 길면 여러 장으로 나눠 찍으면 돼요.
-      </p>
-
-      {ai.status === 'done' && (
-        <section style={{ marginTop: 16 }}>
-          <h2 style={{ fontSize: 14, margin: '0 0 6px' }}>답변{ai.detail ? ' (안경: 요약 · 길게 누르면 전체)' : ''}</h2>
-          <pre style={answerBox}>{ai.answer}</pre>
-          {ai.steps?.length > 0 && <StepsPanel ai={ai} onSave={onSaveSteps} />}
-          {ai.detail && (
-            <>
-              <h2 style={{ fontSize: 14, margin: '12px 0 6px' }}>전체 답 / 수정 코드</h2>
-              <pre style={answerBox}>{ai.detail}</pre>
-            </>
-          )}
-        </section>
-      )}
-      {ai.status === 'loading' && ai.progress?.length > 0 && (
-        <ul style={{ margin: '12px 0 0', paddingLeft: 18, fontSize: 13, color: '#9aa0aa', lineHeight: 1.6 }}>
-          {ai.progress.slice(-6).map((p, i) => <li key={`${i}-${p}`}>{p}</li>)}
-        </ul>
-      )}
-      {ai.status === 'error' && <p style={{ color: '#ffb4a8', fontSize: 14, marginTop: 12 }}>{ai.error}</p>}
-      </form>
-    </div>
-  )
-}
-
-// Claude가 정리한 작업 단계 → 오늘 할 일로 저장. 안경에서 누르기로도 저장됩니다.
-function StepsPanel({ ai, onSave }) {
-  const label = {
-    saving: `저장 중... (${ai.savedSteps || 0}/${ai.steps.length})`,
-    saved: `오늘 할 일에 ${ai.steps.length}개 저장됨`,
-    error: '저장 실패 — 다시 저장',
-  }[ai.todoSave] || `오늘 할 일로 저장 (${ai.steps.length}개)`
-  const disabled = ai.todoSave === 'saving' || ai.todoSave === 'saved'
-  return (
-    <div style={{ marginTop: 12 }}>
-      <h2 style={{ fontSize: 14, margin: '0 0 6px' }}>작업 단계</h2>
-      <ol style={{ margin: '0 0 8px', paddingLeft: 22, fontSize: 14, lineHeight: 1.6 }}>
-        {ai.steps.map((s, i) => <li key={`${i}-${s}`}>{s}</li>)}
-      </ol>
-      <button type="button" onClick={onSave} disabled={disabled}
-        style={{ ...btn, opacity: disabled ? 0.6 : 1, color: ai.todoSave === 'error' ? '#ffb4a8' : btn.color }}>
-        {label}
-      </button>
     </div>
   )
 }
@@ -652,12 +543,6 @@ function ScaledPreview({ page }) {
     return () => ro.disconnect()
   }, [])
   return <div ref={ref} style={{ width: '100%' }}><Preview page={page} scale={scale} /></div>
-}
-
-const answerBox = {
-  margin: 0, padding: 12, background: '#12151c', border: '1px solid #2a2f3a', borderRadius: 8,
-  color: '#e8e8ea', fontSize: 13, lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "D2Coding", monospace',
 }
 
 const btn = {
