@@ -154,7 +154,7 @@ export const pushApi = {
 // G2 안경 "Claude에게 묻기". Claude API 키는 백엔드에만 있고, 여기서는 우리 서버만 부릅니다.
 // history: [{ role: 'user' | 'assistant', text }] — 이어서 묻기용 이전 대화
 // images: [{ mediaType: 'image/jpeg', data: base64 }] — 폐쇄망 PC 화면을 폰으로 찍은 사진
-// 응답: { answer: 안경용 요약, detail: 폰용 전체 답(코드 등) 또는 null }
+// 응답: { answer: 안경용 요약, detail: 폰용 전체 답(코드 등) 또는 null, steps: 할 일로 저장할 작업 단계[] }
 export const aiApi = {
   ask: (question, history = [], images = []) => apiFetch('/api/ai/ask', { method: 'POST', body: JSON.stringify({ question, history, images }) }),
 }

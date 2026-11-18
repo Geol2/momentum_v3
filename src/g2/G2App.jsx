@@ -125,6 +125,27 @@ export default function G2App() {
         })
         break
       }
+      case 'saveSteps': {
+        // 같은 화면에서 저장 중/완료 표시를 보여 주고, 단계 순서대로 하나씩 만듭니다(목록 순서 유지).
+        const ai = dataRef.current.ai
+        if (!ai?.steps?.length || ai.todoSave === 'saving' || ai.todoSave === 'saved') break
+        const setSave = (todoSave) => setData((d) => ({ ...d, ai: { ...d.ai, todoSave } }))
+        setSave('saving')
+        try {
+          const today = todayKey()
+          // 실패 후 다시 누를 때 이미 만든 단계는 건너뜁니다.
+          for (let i = ai.savedSteps || 0; i < ai.steps.length; i++) {
+            await todosApi.create(ai.steps[i], today)
+            setData((d) => ({ ...d, ai: { ...d.ai, savedSteps: i + 1 } }))
+          }
+          // '오늘 할 일' 화면에 들어가면 새로 불러오도록 비워 둡니다.
+          setData((d) => ({ ...d, todos: null, ai: { ...d.ai, todoSave: 'saved' } }))
+        } catch (e) {
+          console.error('[g2] 할 일 저장 실패', e)
+          setSave('error')
+        }
+        break
+      }
       case 'exit': {
         // 브라우저 미리보기에는 닫을 안경 화면이 없으므로 아무것도 하지 않습니다.
         await glassesRef.current?.close()
@@ -156,12 +177,13 @@ export default function G2App() {
     }
     setData((d) => ({ ...d, ai: { status: 'loading', question: q, imageCount: images.length } }))
     try {
-      const { answer, detail } = await aiApi.ask(q, historyRef.current, images)
+      const { answer, detail, steps } = await aiApi.ask(q, historyRef.current, images)
       // 사진은 다시 보내지 않습니다(비용). 대신 대화 기록에 "사진을 봤다"는 사실과 답 전문을 남깁니다.
       const asked = images.length ? `${q}\n[사진 ${images.length}장 첨부]`.trim() : q
-      const full = detail ? `${answer}\n@@상세@@\n${detail}` : answer
+      let full = detail ? `${answer}\n@@상세@@\n${detail}` : answer
+      if (steps?.length) full += `\n@@할일@@\n- ${steps.join('\n- ')}`
       historyRef.current = [...historyRef.current, { role: 'user', text: asked }, { role: 'assistant', text: full }]
-      setData((d) => ({ ...d, ai: { status: 'done', question: q, answer, detail: detail || null } }))
+      setData((d) => ({ ...d, ai: { status: 'done', question: q, answer, detail: detail || null, steps: steps || [], todoSave: 'idle', savedSteps: 0 } }))
       // 새 답은 항상 요약 첫 쪽부터
       setState((s) => (s.screen === 'ask' ? { ...s, page: 0, view: 'summary' } : s))
       if (speak && 'speechSynthesis' in window) {
@@ -274,6 +296,7 @@ export default function G2App() {
           onReset={resetClaude}
           speak={speak}
           onSpeakChange={setSpeak}
+          onSaveSteps={() => runEffect({ type: 'saveSteps' })}
         />
       </div>
     </div>
@@ -298,7 +321,7 @@ async function shrinkPhoto(file) {
 }
 
 // 폰 화면의 질문 입력칸. 안경에는 키보드·카메라가 없어서 질문과 사진은 폰에서 보냅니다.
-function AskBox({ ai, busy, turns, onAsk, onReset, speak, onSpeakChange }) {
+function AskBox({ ai, busy, turns, onAsk, onReset, speak, onSpeakChange, onSaveSteps }) {
   const [text, setText] = useState('')
   const [photos, setPhotos] = useState([])
   const [photoError, setPhotoError] = useState('')
@@ -388,6 +411,7 @@ function AskBox({ ai, busy, turns, onAsk, onReset, speak, onSpeakChange }) {
         <section style={{ marginTop: 16 }}>
           <h2 style={{ fontSize: 14, margin: '0 0 6px' }}>답변{ai.detail ? ' (안경: 요약 · 길게 누르면 전체)' : ''}</h2>
           <pre style={answerBox}>{ai.answer}</pre>
+          {ai.steps?.length > 0 && <StepsPanel ai={ai} onSave={onSaveSteps} />}
           {ai.detail && (
             <>
               <h2 style={{ fontSize: 14, margin: '12px 0 6px' }}>전체 답 / 수정 코드</h2>
@@ -398,6 +422,28 @@ function AskBox({ ai, busy, turns, onAsk, onReset, speak, onSpeakChange }) {
       )}
       {ai.status === 'error' && <p style={{ color: '#ffb4a8', fontSize: 14, marginTop: 12 }}>{ai.error}</p>}
     </form>
+  )
+}
+
+// Claude가 정리한 작업 단계 → 오늘 할 일로 저장. 안경에서 누르기로도 저장됩니다.
+function StepsPanel({ ai, onSave }) {
+  const label = {
+    saving: `저장 중... (${ai.savedSteps || 0}/${ai.steps.length})`,
+    saved: `오늘 할 일에 ${ai.steps.length}개 저장됨`,
+    error: '저장 실패 — 다시 저장',
+  }[ai.todoSave] || `오늘 할 일로 저장 (${ai.steps.length}개)`
+  const disabled = ai.todoSave === 'saving' || ai.todoSave === 'saved'
+  return (
+    <div style={{ marginTop: 12 }}>
+      <h2 style={{ fontSize: 14, margin: '0 0 6px' }}>작업 단계</h2>
+      <ol style={{ margin: '0 0 8px', paddingLeft: 22, fontSize: 14, lineHeight: 1.6 }}>
+        {ai.steps.map((s, i) => <li key={`${i}-${s}`}>{s}</li>)}
+      </ol>
+      <button type="button" onClick={onSave} disabled={disabled}
+        style={{ ...btn, opacity: disabled ? 0.6 : 1, color: ai.todoSave === 'error' ? '#ffb4a8' : btn.color }}>
+        {label}
+      </button>
+    </div>
   )
 }
 

@@ -91,7 +91,8 @@ export function paginate(text) {
 function askPages(state, ai) {
   if (state.view === 'detail' && ai.detail) return paginate(ai.detail)
   const q = ai.question ? `Q. ${ai.question}\n\n` : ''
-  return paginate(`${q}${ai.answer}`)
+  const steps = ai.steps?.length ? `\n\n할 일:\n${ai.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}` : ''
+  return paginate(`${q}${ai.answer}${steps}`)
 }
 
 // ---------- 카드 복습 (라이트너) ----------
@@ -149,9 +150,14 @@ export function render(state, data) {
       const pages = askPages(state, ai)
       const page = clamp(state.page ?? 0, pages.length - 1)
       const detail = state.view === 'detail'
-      const hint = ai.detail
-        ? (detail ? '쓸기: 쪽 넘김 · 길게: 요약 · 두 번: 뒤로' : '쓸기: 쪽 넘김 · 길게: 전체 답(코드)')
-        : '쓸기: 쪽 넘김 · 두 번: 뒤로'
+      const steps = ai.steps?.length || 0
+      let hint
+      if (steps && ai.todoSave === 'saving') hint = '할 일 저장 중...'
+      else if (steps && ai.todoSave === 'saved') hint = `할 일 ${steps}개 저장됨 · 두 번: 뒤로`
+      else if (steps && ai.todoSave === 'error') hint = '저장 실패 · 누르기: 다시 저장'
+      else if (steps) hint = `누르기: 할 일 ${steps}개 저장${ai.detail ? ' · 길게: 전체 답' : ''}`
+      else if (ai.detail) hint = detail ? '쓸기: 쪽 넘김 · 길게: 요약 · 두 번: 뒤로' : '쓸기: 쪽 넘김 · 길게: 전체 답(코드)'
+      else hint = '쓸기: 쪽 넘김 · 두 번: 뒤로'
       return frame(detail ? 'Claude 전체 답' : 'Claude', `${page + 1}/${pages.length}`, pages[page], hint)
     }
 
@@ -271,6 +277,10 @@ export function reduce(state, gesture, data) {
       // 길게 누르기: 요약 <-> 전체 답(코드) 전환. 폐쇄망 PC에서 타이핑하면서 안경으로 코드를 봅니다.
       if (gesture === 'long' && ai.detail) {
         return stay({ ...state, view: state.view === 'detail' ? 'summary' : 'detail', page: 0 })
+      }
+      // 누르기: 작업 단계를 오늘 할 일로 저장 (한 답에 한 번만 — 실수로 두 번 눌러도 중복되지 않게)
+      if (gesture === 'tap' && ai.steps?.length && ai.todoSave !== 'saving' && ai.todoSave !== 'saved') {
+        return { state, effects: [{ type: 'saveSteps' }] }
       }
       const max = askPages(state, ai).length - 1
       if (gesture === 'up') return stay({ ...state, page: clamp((state.page ?? 0) - 1, max) })
