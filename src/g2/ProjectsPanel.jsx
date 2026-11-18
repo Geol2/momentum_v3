@@ -6,10 +6,15 @@ import { useCallback, useEffect, useState } from 'react'
 import { aiProjectsApi, ApiError } from '../lib/api.js'
 
 const POLL_MS = 3000
+const MAX_ZIP_BYTES = 100 * 1024 * 1024
+const BIG_ZIP_BYTES = 20 * 1024 * 1024
+const mb = (n) => `${(n / 1024 / 1024).toFixed(1)}MB`
 
 function errText(e) {
   if (e instanceof ApiError && e.message && e.message !== 'network') return e.message
   if (e instanceof ApiError && e.status === 413) return '파일이 너무 커요(최대 100MB).'
+  if (e instanceof ApiError && e.status === 0) return '서버에 연결하지 못했어요. 네트워크를 확인하고 다시 해 주세요.'
+  if (e instanceof ApiError && e.status === 524) return '서버가 너무 오래 걸렸어요. node_modules·build를 빼고 더 작게 압축해 주세요.'
   return '요청에 실패했어요.'
 }
 
@@ -25,7 +30,12 @@ export default function ProjectsPanel({ selected, onSelect, disabled }) {
   const [projects, setProjects] = useState(null)
   const [open, setOpen] = useState(false)
   const [error, setError] = useState('')
+  // busy: 추가·동기화·삭제 같은 짧은 작업. upload: zip 업로드(길 수 있어 따로 둡니다 —
+  // 업로드 중에도 GitHub 추가 등은 할 수 있게).
   const [busy, setBusy] = useState('')
+  const [upload, setUpload] = useState(null) // { pct } 또는 null
+  // 파일 선택 칸을 비울 때 쓰는 key (input type=file은 값으로 비울 수 없음)
+  const [fileKey, setFileKey] = useState(0)
   const [gitUrl, setGitUrl] = useState('')
   const [zipName, setZipName] = useState('')
   const [zipFile, setZipFile] = useState(null)
@@ -50,8 +60,8 @@ export default function ProjectsPanel({ selected, onSelect, disabled }) {
 
   // 고른 프로젝트가 지워졌으면 선택을 풉니다. 업로드 직후처럼 목록을 새로 받는 중에는 건너뜁니다.
   useEffect(() => {
-    if (!busy && projects && selected && !projects.some((p) => p.name === selected)) onSelect('')
-  }, [busy, projects, selected, onSelect])
+    if (!busy && !upload && projects && selected && !projects.some((p) => p.name === selected)) onSelect('')
+  }, [busy, upload, projects, selected, onSelect])
 
   const run = async (label, fn) => {
     setError('')
@@ -75,19 +85,36 @@ export default function ProjectsPanel({ selected, onSelect, disabled }) {
     })
   }
 
-  const upload = (e) => {
+  const uploadZip = async (e) => {
     e.preventDefault()
-    if (!zipFile || !zipName.trim()) return
-    run('upload', async () => {
-      const p = await aiProjectsApi.upload(zipName.trim(), zipFile)
+    if (!zipFile || !zipName.trim() || upload) return
+    if (zipFile.size > MAX_ZIP_BYTES) {
+      setError(`zip이 ${mb(zipFile.size)}예요. 100MB까지 올릴 수 있어요. node_modules·build·.git을 빼고 다시 압축해 주세요.`)
+      return
+    }
+    setError('')
+    setUpload({ pct: 0 })
+    try {
+      const p = await aiProjectsApi.upload(zipName.trim(), zipFile, (ratio) => setUpload({ pct: Math.round(ratio * 100) }))
       setZipFile(null)
       setZipName('')
+      setFileKey((k) => k + 1)
+      await load()
       onSelect(p.name)
-    })
+    } catch (err) {
+      setError(errText(err))
+    } finally {
+      setUpload(null)
+    }
   }
 
   const pickZip = (file) => {
     setZipFile(file || null)
+    if (file && file.size > BIG_ZIP_BYTES) {
+      setError(`zip이 ${mb(file.size)}로 커서 올리는 데 몇 분 걸릴 수 있어요. node_modules·build·.git을 빼고 압축하면 훨씬 빨라요.`)
+    } else {
+      setError('')
+    }
     // 이름을 안 적었으면 파일 이름에서 가져옵니다(영문·숫자·.-_ 만).
     if (file && !zipName) setZipName(file.name.replace(/\.zip$/i, '').replace(/[^A-Za-z0-9._-]/g, '-').replace(/^[^A-Za-z0-9]+/, '').slice(0, 40))
   }
@@ -159,18 +186,25 @@ export default function ProjectsPanel({ selected, onSelect, disabled }) {
             </div>
           </form>
 
-          <form onSubmit={upload} style={{ marginTop: 12 }}>
+          <form onSubmit={uploadZip} style={{ marginTop: 12 }}>
             <label htmlFor="g2-zip" style={sub}>zip 업로드 (출장 등 GitHub에 없는 코드, 최대 100MB)</label>
-            <input id="g2-zip" type="file" accept=".zip,application/zip" onChange={(e) => pickZip(e.target.files?.[0])}
+            <input key={fileKey} id="g2-zip" type="file" accept=".zip,application/zip" onChange={(e) => pickZip(e.target.files?.[0])}
               style={{ fontSize: 13, color: '#9aa0aa', marginBottom: 6, maxWidth: '100%' }} />
             <div style={{ display: 'flex', gap: 8 }}>
               <input value={zipName} onChange={(e) => setZipName(e.target.value)} placeholder="프로젝트 이름 (영문)"
                 aria-label="업로드할 프로젝트 이름" style={input} />
-              <button type="submit" style={btn} disabled={!!busy || !zipFile || !zipName.trim()}>
-                {busy === 'upload' ? '올리는 중...' : '업로드'}
+              <button type="submit" style={btn} disabled={!!upload || !zipFile || !zipName.trim()}>
+                {!upload ? '업로드' : upload.pct < 100 ? `올리는 중 ${upload.pct}%` : '서버에서 푸는 중...'}
               </button>
             </div>
-            <p style={hint}>같은 이름으로 다시 올리면 새 코드로 바뀌어요. node_modules·build·.git은 빼고 풀어요.</p>
+            {zipFile && !upload && <p style={hint}>{zipFile.name} · {mb(zipFile.size)}</p>}
+            {upload && (
+              <div style={{ height: 6, background: '#1a1e26', borderRadius: 3, marginTop: 8, overflow: 'hidden' }}
+                role="progressbar" aria-valuenow={upload.pct} aria-valuemin={0} aria-valuemax={100}>
+                <div style={{ width: `${upload.pct}%`, height: '100%', background: '#4dff7a', transition: 'width .3s' }} />
+              </div>
+            )}
+            <p style={hint}>같은 이름으로 다시 올리면 새 코드로 바뀌어요. node_modules·build·.git은 빼고 압축하면 빨라요.</p>
           </form>
         </div>
       )}

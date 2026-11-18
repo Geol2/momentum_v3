@@ -95,6 +95,35 @@ export async function apiFetch(path, options = {}) {
   return text ? JSON.parse(text) : null
 }
 
+// 큰 파일 업로드용. fetch는 올라간 정도를 알 수 없어서 XMLHttpRequest로 진행률을 받습니다.
+// 토큰·토큰 갱신·401 처리는 apiFetch와 같습니다. onProgress(0~1)는 '보낸 양'이고, 1이 된 뒤에는
+// 서버가 처리(예: zip 풀기)하는 중입니다.
+export function apiUpload(path, form, { onProgress, timeoutMs = 15 * 60 * 1000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_BASE}${path}`)
+    const token = getToken()
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    xhr.timeout = timeoutMs
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total) }
+    xhr.onerror = () => reject(new ApiError(0, 'network'))
+    xhr.ontimeout = () => reject(new ApiError(0, '시간이 너무 오래 걸려요. 더 작게 압축해서 다시 올려 주세요.'))
+    xhr.onload = () => {
+      const renewed = xhr.getResponseHeader('X-Renewed-Token')
+      if (renewed) setToken(renewed)
+      let body = null
+      try { body = xhr.responseText ? JSON.parse(xhr.responseText) : null } catch { /* JSON 아님 */ }
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(body)
+      if (xhr.status === 401) {
+        clearToken()
+        window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT))
+      }
+      reject(new ApiError(xhr.status, body?.message || null))
+    }
+    xhr.send(form)
+  })
+}
+
 export const todosApi = {
   list: () => apiFetch('/api/todos'),
   create: (text, dateKey, extra = {}) => apiFetch('/api/todos', { method: 'POST', body: JSON.stringify({ text, dateKey, ...extra }) }),
@@ -183,11 +212,12 @@ export const aiProjectsApi = {
   list: () => apiFetch('/api/ai/projects'),
   addGit: (url, name) => apiFetch('/api/ai/projects/git', { method: 'POST', body: JSON.stringify({ url, name: name || null }) }),
   sync: (name) => apiFetch(`/api/ai/projects/${encodeURIComponent(name)}/sync`, { method: 'POST' }),
-  upload: (name, file) => {
+  // onProgress(0~1): 올라간 정도. 큰 zip은 몇 분 걸릴 수 있어 진행률을 보여 줍니다.
+  upload: (name, file, onProgress) => {
     const form = new FormData()
     form.append('name', name)
     form.append('file', file)
-    return apiFetch('/api/ai/projects/upload', { method: 'POST', body: form })
+    return apiUpload('/api/ai/projects/upload', form, { onProgress })
   },
   remove: (name) => apiFetch(`/api/ai/projects/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 }
