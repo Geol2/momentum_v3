@@ -356,6 +356,7 @@ export default function App() {
         onForgotPassword={auth.forgotPassword}
         onResetPassword={auth.resetPassword}
         expired={auth.expired}
+        backdrop={<StarField background="mountain" />}
       />
     )
   }

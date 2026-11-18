@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import StarField from './StarField.jsx'
-import { DAYS_KR } from '../lib/data.js'
+import { DAYS_KR } from '../lib/dates.js'
 import { detectInApp, isAndroid, isIOS, openInExternalBrowser, openInChromeIOS, copyCurrentUrl } from '../lib/inAppBrowser.js'
 
 const IN_APP_NAMES = {
@@ -207,7 +206,10 @@ const RESEND_COOLDOWN = 60 // seconds — matches the backend resend cooldown
 
 const MODE_LABEL = { login: '로그인', signup: '회원가입', forgot: '비밀번호 찾기' }
 
-export default function Login({ onLogin, onSignup, onRequestCode, onForgotPassword, onResetPassword, expired = false }) {
+// backdrop: 뒤에 깔 배경(메인 앱은 별·풍경 사진 StarField). 여기서 StarField를 직접 가져오지 않는 이유:
+// G2 안경 앱도 이 로그인 화면을 쓰는데, StarField가 풍경 사진(Unsplash) 주소 목록을 끌고 들어와
+// 안경 앱이 허용 목록(app.json whitelist)에 없는 주소에 접속하게 되고 Even Hub 심사에서 반려됩니다.
+export default function Login({ onLogin, onSignup, onRequestCode, onForgotPassword, onResetPassword, expired = false, backdrop = null }) {
   const [mode, setMode] = useState('login') // 'login' | 'signup' | 'forgot'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('') // forgot 모드에서는 "새 비밀번호"로 씁니다
@@ -333,7 +335,7 @@ export default function Login({ onLogin, onSignup, onRequestCode, onForgotPasswo
   if (inApp && isIOS()) {
     return (
       <>
-        <StarField background="mountain" />
+        {backdrop}
         <IosEscape appName={IN_APP_NAMES[inApp] || '인앱'} />
       </>
     )
@@ -341,7 +343,7 @@ export default function Login({ onLogin, onSignup, onRequestCode, onForgotPasswo
 
   return (
     <>
-      <StarField background="mountain" />
+      {backdrop}
       <div style={{
         position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'flex-start',
         justifyContent: 'center', padding: '24px 16px', overflowY: 'auto',

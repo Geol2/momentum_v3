@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Login from '../components/Login.jsx'
 import { aiApi, ApiError, getToken, notesApi, todosApi } from '../lib/api.js'
-import { dateKey } from '../lib/data.js'
+import { dateKey } from '../lib/dates.js'
 import { useAuth } from '../lib/useAuth.js'
 import { connectGlasses, isInEvenApp } from './bridge.js'
 import Preview from './Preview.jsx'

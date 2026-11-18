@@ -5,9 +5,9 @@
  *      s1-home.png, s2-vocab-front.png, s3-vocab-back.png, s6-sqld-back.png 를 한 폴더에 캡처
  *   2) npm i pngjs (임시 폴더에서) 후: node make-assets.mjs <캡처폴더> <출력폴더>
  */
-// 달빛 서랍 Even Hub 스토어 에셋 생성: 아이콘(24x24), 커버, 스크린샷(회색조 버전 포함)
+// 달빛 서랍 Even Hub 스토어 에셋 생성: 아이콘(24x24), 커버, 스크린샷
 import { PNG } from 'pngjs'
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { copyFileSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 const [, , SHOTS, OUT] = process.argv
 mkdirSync(join(OUT, 'screenshots'), { recursive: true })
@@ -69,8 +69,10 @@ const lits = {}
 for (const [src, name] of SHOT_LIST) {
   const lit = loadLit(src.replace('-flat', ''))
   lits[name] = lit
-  save(toPng(lit, false), `screenshots/${name}.png`)
-  save(toPng(lit, true), `screenshots/${name}-green.png`)
+  // 스크린샷은 시뮬레이터 캡처(투명 배경 + 초록 글자)를 그대로 씁니다. 예전에는 검은 배경에
+  // 얹어 저장했다가 "Black-background screenshots are not acceptable"로 반려됐습니다(0.1.2).
+  copyFileSync(join(SHOTS, src), join(OUT, `screenshots/${name}.png`))
+  console.log('copied', `screenshots/${name}.png`)
 }
 
 // ---------- 커버: 1152x576 (안경 화면 2:1 비율), 회색조 ----------

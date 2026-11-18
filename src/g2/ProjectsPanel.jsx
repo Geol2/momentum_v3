@@ -154,7 +154,7 @@ export default function ProjectsPanel({ selected, onSelect, disabled }) {
             <label htmlFor="g2-git" style={sub}>GitHub 저장소 추가 (공개 저장소)</label>
             <div style={{ display: 'flex', gap: 8 }}>
               <input id="g2-git" value={gitUrl} onChange={(e) => setGitUrl(e.target.value)}
-                placeholder="https://github.com/소유자/저장소" style={input} />
+                placeholder="github.com/소유자/저장소" style={input} />
               <button type="submit" style={btn} disabled={!!busy || !gitUrl.trim()}>{busy === 'git' ? '추가 중...' : '추가'}</button>
             </div>
           </form>

@@ -1,6 +1,8 @@
 // Static data ported from the original 달빛 서랍 design.
 
-export const DAYS_KR = ['일', '월', '화', '수', '목', '금', '토']
+// 날짜 도우미는 G2 안경 앱도 쓰므로 가벼운 파일로 분리했습니다(아래 배경 사진 URL이
+// 안경 앱 번들에 딸려 들어가면 Even Hub 심사에서 반려됩니다).
+export { DAYS_KR, dateKey } from './dates.js'
 
 export const MOODS = [
   { emoji: '😊', label: '행복', color: '#fcd34d' },
@@ -131,11 +133,6 @@ export function greetingFor(hour, name) {
   else g = '좋은 밤이에요'
   const n = (name || '').trim()
   return n ? `${n}님, ${g}` : g
-}
-
-// A stable key for a given day, used for the diaries map.
-export function dateKey(y, m, d) {
-  return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }
 
 // 공지사항 — 최신 항목을 배열 맨 위에 추가하세요.
