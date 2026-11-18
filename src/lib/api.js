@@ -160,11 +160,15 @@ export const aiApi = {
   status: () => apiFetch('/api/ai/status'),
   ask: (question, history = [], images = []) => apiFetch('/api/ai/ask', { method: 'POST', body: JSON.stringify({ question, history, images }) }),
   // 프로젝트를 읽으며 답하면 1~3분 걸리기도 해서(Cloudflare 100초 제한) 백그라운드로 돌리고 물어봅니다.
-  // project: 읽게 할 프로젝트 이름(없으면 일반 질문)
-  startJob: ({ question, history = [], images = [], project = null }) =>
-    apiFetch('/api/ai/jobs', { method: 'POST', body: JSON.stringify({ question, history, images, project }) }),
+  // project: 읽게 할 프로젝트 이름(없으면 일반 질문). 대화(이어서 묻기)는 서버가 사용자별로 이어 갑니다.
+  startJob: ({ question, images = [], project = null }) =>
+    apiFetch('/api/ai/jobs', { method: 'POST', body: JSON.stringify({ question, images, project }) }),
   // { status: 'running' | 'done' | 'error', progress: ['읽기: src/App.jsx', ...], answer, detail, steps, error }
   job: (id) => apiFetch(`/api/ai/jobs/${encodeURIComponent(id)}`),
+  // 어느 화면(폰·PC)에서 물었든 가장 최근 질문. 없으면 null. 안경 앱이 이걸 따라갑니다.
+  latestJob: () => apiFetch('/api/ai/jobs/latest'),
+  // 새 대화 — 모든 화면 공통
+  resetConversation: () => apiFetch('/api/ai/conversation/reset', { method: 'POST' }),
 }
 
 // Claude가 읽을 프로젝트 — GitHub 저장소(서버가 클론) 또는 zip 업로드(출장 등)

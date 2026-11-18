@@ -154,7 +154,7 @@ export function render(state, data) {
       }
       if (ai.status === 'error') return frame('Claude', '', ai.error, hintBack)
       if (ai.status !== 'done') {
-        return frame('Claude에게 묻기', '', '폰 화면에 질문을 입력하세요.\n\n답은 여기에 떠요.\n이어서 물어보면 앞 대화를 기억해요.', hintBack)
+        return frame('Claude에게 묻기', '', '폰이나 PC에서 질문하세요.\nPC: momentum.geol2.com/g2.html\n\n답은 질문한 화면과 여기에 같이 떠요.\n어느 화면에서 이어 물어도 같은 대화예요.', hintBack)
       }
       const pages = askPages(state, ai)
       const page = clamp(state.page ?? 0, pages.length - 1)

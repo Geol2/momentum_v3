@@ -14,8 +14,9 @@ import { gradeCard, initialState, reduce, render } from './screens.js'
 
 const PROGRESS_KEY = 'g2_card_progress'
 const PROJECT_KEY = 'g2_ai_project'
-const JOB_POLL_MS = 1500
-const JOB_MAX_MS = 15 * 60 * 1000
+// 최근 질문 확인 간격: 답을 기다리는 중이면 자주, 아니면 가끔(다른 화면에서 새로 물었는지)
+const POLL_RUNNING_MS = 1500
+const POLL_IDLE_MS = 3000
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -66,14 +67,16 @@ const BUTTONS = [
 export default function G2App() {
   const auth = useAuth()
   const [state, setState] = useState(initialState)
-  const [data, setData] = useState(() => ({ todos: null, notes: null, progress: loadProgress(), ai: { status: 'idle' } }))
-  // Claude 대화 기록 (이어서 묻기). 앱을 닫으면 사라집니다.
-  const historyRef = useRef([])
+  const [data, setData] = useState(() => ({ todos: null, notes: null, progress: loadProgress(), ai: { status: 'idle', turns: 0 } }))
   const [speak, setSpeak] = useState(false)
-  // Claude가 읽을 프로젝트. 바꾸면 대화가 섞이지 않게 새 대화로 시작합니다.
+  // Claude가 읽을 프로젝트(이 기기에서 물을 때). 바꾸면 대화가 섞이지 않게 새 대화로 시작합니다.
   const [project, setProjectState] = useState(loadProject)
-  // 새 질문·새 대화를 누르면 이전 질문의 진행 상황 확인을 멈춥니다.
-  const askSeqRef = useRef(0)
+  // 마지막으로 본 질문 { id, status }. undefined = 아직 한 번도 확인 안 함(앱을 막 열었음).
+  const seenRef = useRef({ id: undefined, status: null })
+  // 이 기기에서 질문을 보내거나 새 대화를 누르는 중이면, 그사이 받은 '최근 질문'은 무시합니다.
+  const pendingRef = useRef(false)
+  const speakRef = useRef(speak)
+  speakRef.current = speak
   const [glasses, setGlasses] = useState(null)
   const [lastGesture, setLastGesture] = useState('')
 
@@ -178,7 +181,78 @@ export default function G2App() {
     effects.forEach(runEffect)
   }, [runEffect])
 
-  // 폰 화면에서 입력한 질문(+사진)을 보내고, 요약은 안경에, 전체 답은 폰에 띄웁니다.
+  // 서버의 '최근 질문'을 화면 상태로 옮깁니다. 같은 답이면 할 일 저장 상태는 유지합니다.
+  const applyJob = useCallback((job) => {
+    setData((d) => {
+      if (!job) return { ...d, ai: { status: 'idle', turns: 0 } }
+      const base = {
+        jobId: job.id, question: job.question, project: job.project, imageCount: job.imageCount,
+        turns: job.turns, progress: job.progress || [],
+      }
+      if (job.status === 'running') return { ...d, ai: { ...base, status: 'loading' } }
+      if (job.status === 'error') return { ...d, ai: { ...base, status: 'error', error: job.error || '답을 받지 못했어요.' } }
+      const same = d.ai.jobId === job.id && d.ai.status === 'done'
+      return {
+        ...d,
+        ai: {
+          ...base, status: 'done', answer: job.answer, detail: job.detail || null, steps: job.steps || [],
+          todoSave: same ? d.ai.todoSave : 'idle', savedSteps: same ? d.ai.savedSteps : 0,
+        },
+      }
+    })
+  }, [])
+
+  // 어느 화면(이 폰, PC 브라우저 등)에서 물었든 가장 최근 질문을 따라갑니다.
+  // 새 질문이 생기면 안경을 Claude 화면으로 넘기고, 답이 오면 요약 첫 쪽부터 보여 줍니다.
+  const pollLatest = useCallback(async () => {
+    if (pendingRef.current) return
+    let job
+    try {
+      job = await aiApi.latestJob()
+    } catch {
+      return // 잠깐 끊긴 건 다음 확인 때 다시
+    }
+    if (pendingRef.current) return
+    const seen = seenRef.current
+    const first = seen.id === undefined
+    const id = job?.id ?? null
+    const status = job?.status ?? null
+    if (!first && id === seen.id && status === seen.status && status !== 'running') return
+    seenRef.current = { id, status }
+    applyJob(job)
+    if (first || !job) return // 앱을 막 열었을 땐 예전 답으로 화면을 뺏지 않습니다.
+    if (id !== seen.id) {
+      const toAsk = { screen: 'ask', page: 0, view: 'summary' }
+      stateRef.current = toAsk
+      setState(toAsk)
+    }
+    if (status === 'done' && (id !== seen.id || seen.status !== 'done')) {
+      setState((s) => (s.screen === 'ask' ? { ...s, page: 0, view: 'summary' } : s))
+      if (speakRef.current && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel()
+        // 코드(전체 답)는 읽어 주면 알아듣기 어려워서 요약만 읽습니다.
+        const u = new SpeechSynthesisUtterance(job.answer)
+        u.lang = 'ko-KR'
+        window.speechSynthesis.speak(u)
+      }
+    }
+  }, [applyJob])
+
+  useEffect(() => {
+    if (!data.aiEnabled) return undefined
+    let stop = false
+    ;(async () => {
+      while (!stop) {
+        // 일반 브라우저 탭이 가려져 있으면 쉽니다. Even 앱은 폰 화면이 꺼져도 안경이 쓰므로 계속 봅니다.
+        if (isInEvenApp() || !document.hidden) await pollLatest()
+        await sleep(dataRef.current.ai.status === 'loading' ? POLL_RUNNING_MS : POLL_IDLE_MS)
+      }
+    })()
+    return () => { stop = true }
+  }, [data.aiEnabled, pollLatest])
+
+  // 이 화면에서 입력한 질문(+사진)을 보냅니다. 답은 위의 '최근 질문 따라가기'가 받아서
+  // 이 화면과 안경(그리고 열려 있는 다른 화면)에 함께 띄웁니다.
   const askClaude = useCallback(async (question, images = []) => {
     const q = question.trim()
     if (!q && !images.length) return
@@ -189,52 +263,31 @@ export default function G2App() {
       setData((d) => ({ ...d, ai: { status: 'error', question: q, error: LOGIN_NEEDED } }))
       return
     }
-    const seq = ++askSeqRef.current
-    setData((d) => ({ ...d, ai: { status: 'loading', question: q, imageCount: images.length, project, progress: [] } }))
+    pendingRef.current = true
+    setData((d) => ({ ...d, ai: { status: 'loading', question: q, imageCount: images.length, project, progress: [], turns: d.ai.turns } }))
     try {
-      const { jobId } = await aiApi.startJob({ question: q, history: historyRef.current, images, project: project || null })
-      let job
-      for (const started = Date.now(); ; ) {
-        await sleep(JOB_POLL_MS)
-        if (seq !== askSeqRef.current) return   // 그사이 새 질문/새 대화
-        job = await aiApi.job(jobId)
-        if (job.status !== 'running') break
-        if (Date.now() - started > JOB_MAX_MS) throw new Error('timeout')
-        const progress = job.progress || []
-        setData((d) => (d.ai.status === 'loading' ? { ...d, ai: { ...d.ai, progress } } : d))
-      }
-      if (job.status === 'error') {
-        setData((d) => ({ ...d, ai: { status: 'error', question: q, error: job.error || '답을 받지 못했어요.' } }))
-        return
-      }
-      const { answer, detail, steps } = job
-      // 사진은 다시 보내지 않습니다(비용). 대신 대화 기록에 "사진을 봤다"는 사실과 답 전문을 남깁니다.
-      const asked = images.length ? `${q}\n[사진 ${images.length}장 첨부]`.trim() : q
-      let full = detail ? `${answer}\n@@상세@@\n${detail}` : answer
-      if (steps?.length) full += `\n@@할일@@\n- ${steps.join('\n- ')}`
-      historyRef.current = [...historyRef.current, { role: 'user', text: asked }, { role: 'assistant', text: full }]
-      setData((d) => ({ ...d, ai: { status: 'done', question: q, answer, detail: detail || null, steps: steps || [], todoSave: 'idle', savedSteps: 0, project, readCount: (job.progress || []).length } }))
-      // 새 답은 항상 요약 첫 쪽부터
-      setState((s) => (s.screen === 'ask' ? { ...s, page: 0, view: 'summary' } : s))
-      if (speak && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel()
-        // 코드(전체 답)는 읽어 주면 알아듣기 어려워서 요약만 읽습니다.
-        const u = new SpeechSynthesisUtterance(answer)
-        u.lang = 'ko-KR'
-        window.speechSynthesis.speak(u)
-      }
+      const { jobId } = await aiApi.startJob({ question: q, images, project: project || null })
+      seenRef.current = { id: jobId, status: 'running' }
+      setData((d) => ({ ...d, ai: { ...d.ai, jobId } }))
     } catch (e) {
-      if (seq !== askSeqRef.current) return
-      const error = e?.message === 'timeout' ? '15분이 지나도 답이 없어요. 다시 물어봐 주세요.' : errorText(e)
-      setData((d) => ({ ...d, ai: { status: 'error', question: q, error } }))
+      setData((d) => ({ ...d, ai: { status: 'error', question: q, error: errorText(e), turns: d.ai.turns } }))
+    } finally {
+      pendingRef.current = false
     }
-  }, [speak, project])
+  }, [project])
 
-  const resetClaude = useCallback(() => {
-    askSeqRef.current++
-    historyRef.current = []
+  const resetClaude = useCallback(async () => {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
-    setData((d) => ({ ...d, ai: { status: 'idle' } }))
+    pendingRef.current = true
+    setData((d) => ({ ...d, ai: { status: 'idle', turns: 0 } }))
+    try {
+      await aiApi.resetConversation()
+    } catch (e) {
+      console.error('[g2] 새 대화 실패', e)
+    } finally {
+      seenRef.current = { id: null, status: null }
+      pendingRef.current = false
+    }
   }, [])
 
   const setProject = useCallback((name) => {
@@ -343,7 +396,7 @@ export default function G2App() {
         {data.aiEnabled && <AskBox
           ai={data.ai}
           busy={data.ai.status === 'loading'}
-          turns={historyRef.current.length / 2}
+          turns={data.ai.turns || 0}
           onAsk={askClaude}
           onReset={resetClaude}
           speak={speak}
