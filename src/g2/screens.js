@@ -143,10 +143,14 @@ export function render(state, data) {
     case 'ask': {
       const ai = data.ai || {}
       const hintBack = '두 번 누르기: 뒤로'
+      const title = ai.project ? `Claude · ${ai.project}` : 'Claude'
       if (ai.status === 'loading') {
-        const q = ai.question.length > 60 ? `${ai.question.slice(0, 60)}...` : ai.question
-        const photos = ai.imageCount ? `\n(사진 ${ai.imageCount}장)` : ''
-        return frame('Claude', '', `Q. ${q || '사진 속 요구사항 보기'}${photos}\n\n생각하는 중...`, hintBack)
+        const q = ai.question.length > 50 ? `${ai.question.slice(0, 50)}...` : ai.question
+        const photos = ai.imageCount ? ` (사진 ${ai.imageCount}장)` : ''
+        // 프로젝트를 읽는 중이면 최근 작업 3개를 보여 줍니다(지금 저랑 대화할 때처럼).
+        const steps = (ai.progress || []).slice(-3).map((p) => `- ${p.length > 34 ? `${p.slice(0, 34)}...` : p}`)
+        const body = `Q. ${q || '사진 속 요구사항 보기'}${photos}\n\n${steps.length ? steps.join('\n') : '생각하는 중...'}`
+        return frame(title, steps.length ? `${ai.progress.length}단계` : '', body, hintBack)
       }
       if (ai.status === 'error') return frame('Claude', '', ai.error, hintBack)
       if (ai.status !== 'done') {
@@ -163,7 +167,7 @@ export function render(state, data) {
       else if (steps) hint = `누르기: 할 일 ${steps}개 저장${ai.detail ? ' · 길게: 전체 답' : ''}`
       else if (ai.detail) hint = detail ? '쓸기: 쪽 넘김 · 길게: 요약 · 두 번: 뒤로' : '쓸기: 쪽 넘김 · 길게: 전체 답(코드)'
       else hint = '쓸기: 쪽 넘김 · 두 번: 뒤로'
-      return frame(detail ? 'Claude 전체 답' : 'Claude', `${page + 1}/${pages.length}`, pages[page], hint)
+      return frame(detail ? `${title} 전체 답` : title, `${page + 1}/${pages.length}`, pages[page], hint)
     }
 
     case 'cards': {

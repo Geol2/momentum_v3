@@ -9,9 +9,19 @@ import { dateKey } from '../lib/data.js'
 import { useAuth } from '../lib/useAuth.js'
 import { connectGlasses, isInEvenApp } from './bridge.js'
 import Preview from './Preview.jsx'
+import ProjectsPanel from './ProjectsPanel.jsx'
 import { gradeCard, initialState, reduce, render } from './screens.js'
 
 const PROGRESS_KEY = 'g2_card_progress'
+const PROJECT_KEY = 'g2_ai_project'
+const JOB_POLL_MS = 1500
+const JOB_MAX_MS = 15 * 60 * 1000
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+function loadProject() {
+  try { return localStorage.getItem(PROJECT_KEY) || '' } catch { return '' }
+}
 
 // 카드 진도는 이 기기에만 저장합니다(서버 API가 아직 없음).
 function loadProgress() {
@@ -60,6 +70,10 @@ export default function G2App() {
   // Claude 대화 기록 (이어서 묻기). 앱을 닫으면 사라집니다.
   const historyRef = useRef([])
   const [speak, setSpeak] = useState(false)
+  // Claude가 읽을 프로젝트. 바꾸면 대화가 섞이지 않게 새 대화로 시작합니다.
+  const [project, setProjectState] = useState(loadProject)
+  // 새 질문·새 대화를 누르면 이전 질문의 진행 상황 확인을 멈춥니다.
+  const askSeqRef = useRef(0)
   const [glasses, setGlasses] = useState(null)
   const [lastGesture, setLastGesture] = useState('')
 
@@ -175,15 +189,31 @@ export default function G2App() {
       setData((d) => ({ ...d, ai: { status: 'error', question: q, error: LOGIN_NEEDED } }))
       return
     }
-    setData((d) => ({ ...d, ai: { status: 'loading', question: q, imageCount: images.length } }))
+    const seq = ++askSeqRef.current
+    setData((d) => ({ ...d, ai: { status: 'loading', question: q, imageCount: images.length, project, progress: [] } }))
     try {
-      const { answer, detail, steps } = await aiApi.ask(q, historyRef.current, images)
+      const { jobId } = await aiApi.startJob({ question: q, history: historyRef.current, images, project: project || null })
+      let job
+      for (const started = Date.now(); ; ) {
+        await sleep(JOB_POLL_MS)
+        if (seq !== askSeqRef.current) return   // 그사이 새 질문/새 대화
+        job = await aiApi.job(jobId)
+        if (job.status !== 'running') break
+        if (Date.now() - started > JOB_MAX_MS) throw new Error('timeout')
+        const progress = job.progress || []
+        setData((d) => (d.ai.status === 'loading' ? { ...d, ai: { ...d.ai, progress } } : d))
+      }
+      if (job.status === 'error') {
+        setData((d) => ({ ...d, ai: { status: 'error', question: q, error: job.error || '답을 받지 못했어요.' } }))
+        return
+      }
+      const { answer, detail, steps } = job
       // 사진은 다시 보내지 않습니다(비용). 대신 대화 기록에 "사진을 봤다"는 사실과 답 전문을 남깁니다.
       const asked = images.length ? `${q}\n[사진 ${images.length}장 첨부]`.trim() : q
       let full = detail ? `${answer}\n@@상세@@\n${detail}` : answer
       if (steps?.length) full += `\n@@할일@@\n- ${steps.join('\n- ')}`
       historyRef.current = [...historyRef.current, { role: 'user', text: asked }, { role: 'assistant', text: full }]
-      setData((d) => ({ ...d, ai: { status: 'done', question: q, answer, detail: detail || null, steps: steps || [], todoSave: 'idle', savedSteps: 0 } }))
+      setData((d) => ({ ...d, ai: { status: 'done', question: q, answer, detail: detail || null, steps: steps || [], todoSave: 'idle', savedSteps: 0, project, readCount: (job.progress || []).length } }))
       // 새 답은 항상 요약 첫 쪽부터
       setState((s) => (s.screen === 'ask' ? { ...s, page: 0, view: 'summary' } : s))
       if (speak && 'speechSynthesis' in window) {
@@ -194,15 +224,24 @@ export default function G2App() {
         window.speechSynthesis.speak(u)
       }
     } catch (e) {
-      setData((d) => ({ ...d, ai: { status: 'error', question: q, error: errorText(e) } }))
+      if (seq !== askSeqRef.current) return
+      const error = e?.message === 'timeout' ? '15분이 지나도 답이 없어요. 다시 물어봐 주세요.' : errorText(e)
+      setData((d) => ({ ...d, ai: { status: 'error', question: q, error } }))
     }
-  }, [speak])
+  }, [speak, project])
 
   const resetClaude = useCallback(() => {
+    askSeqRef.current++
     historyRef.current = []
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
     setData((d) => ({ ...d, ai: { status: 'idle' } }))
   }, [])
+
+  const setProject = useCallback((name) => {
+    setProjectState(name)
+    try { if (name) localStorage.setItem(PROJECT_KEY, name); else localStorage.removeItem(PROJECT_KEY) } catch { /* 저장 불가 */ }
+    resetClaude()
+  }, [resetClaude])
 
   // 키보드
   useEffect(() => {
@@ -310,6 +349,8 @@ export default function G2App() {
           speak={speak}
           onSpeakChange={setSpeak}
           onSaveSteps={() => runEffect({ type: 'saveSteps' })}
+          project={project}
+          onProjectChange={setProject}
         />}
       </div>
     </div>
@@ -334,7 +375,7 @@ async function shrinkPhoto(file) {
 }
 
 // 폰 화면의 질문 입력칸. 안경에는 키보드·카메라가 없어서 질문과 사진은 폰에서 보냅니다.
-function AskBox({ ai, busy, turns, onAsk, onReset, speak, onSpeakChange, onSaveSteps }) {
+function AskBox({ ai, busy, turns, onAsk, onReset, speak, onSpeakChange, onSaveSteps, project, onProjectChange }) {
   const [text, setText] = useState('')
   const [photos, setPhotos] = useState([])
   const [photoError, setPhotoError] = useState('')
@@ -364,8 +405,11 @@ function AskBox({ ai, busy, turns, onAsk, onReset, speak, onSpeakChange, onSaveS
     setPhotos([])
   }
   return (
-    <form onSubmit={submit} style={{ marginTop: 20, borderTop: '1px solid #222831', paddingTop: 16 }}>
-      <label htmlFor="g2-ask" style={{ display: 'block', fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
+    <div style={{ marginTop: 20, borderTop: '1px solid #222831', paddingTop: 16 }}>
+      {/* 프로젝트 패널에도 form이 있어서, 질문 form 밖에 둡니다(form 중첩 금지). */}
+      <ProjectsPanel selected={project} onSelect={onProjectChange} disabled={busy} />
+      <form onSubmit={submit}>
+      <label htmlFor="g2-ask" style={{ display: 'block', fontSize: 14, fontWeight: 600, margin: '12px 0 8px' }}>
         Claude에게 묻기 {turns > 0 && <span style={{ color: '#9aa0aa', fontWeight: 400 }}>· 이어서 묻는 중 ({turns}번째 대화)</span>}
       </label>
       <textarea
@@ -375,7 +419,8 @@ function AskBox({ ai, busy, turns, onAsk, onReset, speak, onSpeakChange, onSaveS
         // 폰 키보드의 줄바꿈과 겹치지 않게, PC에서만 Ctrl/Cmd+Enter로 보냅니다.
         onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit(e) }}
         rows={3}
-        placeholder={photos.length ? '예: 이 요구사항대로 고치려면? (비우면 기본 질문)' : '예: JPA에서 N+1 문제 해결법?'}
+        placeholder={photos.length ? '예: 이 요구사항대로 고치려면? (비우면 기본 질문)'
+          : project ? `예: ${project}에서 로그인 처리는 어디서 해?` : '예: JPA에서 N+1 문제 해결법?'}
         style={{
           width: '100%', boxSizing: 'border-box', background: '#12151c', color: '#e8e8ea',
           border: '1px solid #2a2f3a', borderRadius: 8, padding: 10, fontSize: 15, resize: 'vertical',
@@ -433,8 +478,14 @@ function AskBox({ ai, busy, turns, onAsk, onReset, speak, onSpeakChange, onSaveS
           )}
         </section>
       )}
+      {ai.status === 'loading' && ai.progress?.length > 0 && (
+        <ul style={{ margin: '12px 0 0', paddingLeft: 18, fontSize: 13, color: '#9aa0aa', lineHeight: 1.6 }}>
+          {ai.progress.slice(-6).map((p, i) => <li key={`${i}-${p}`}>{p}</li>)}
+        </ul>
+      )}
       {ai.status === 'error' && <p style={{ color: '#ffb4a8', fontSize: 14, marginTop: 12 }}>{ai.error}</p>}
-    </form>
+      </form>
+    </div>
   )
 }
 

@@ -159,6 +159,26 @@ export const aiApi = {
   // 허용된 계정만 true. 스토어에서 받은 다른 사용자에게는 메뉴 자체를 숨깁니다.
   status: () => apiFetch('/api/ai/status'),
   ask: (question, history = [], images = []) => apiFetch('/api/ai/ask', { method: 'POST', body: JSON.stringify({ question, history, images }) }),
+  // 프로젝트를 읽으며 답하면 1~3분 걸리기도 해서(Cloudflare 100초 제한) 백그라운드로 돌리고 물어봅니다.
+  // project: 읽게 할 프로젝트 이름(없으면 일반 질문)
+  startJob: ({ question, history = [], images = [], project = null }) =>
+    apiFetch('/api/ai/jobs', { method: 'POST', body: JSON.stringify({ question, history, images, project }) }),
+  // { status: 'running' | 'done' | 'error', progress: ['읽기: src/App.jsx', ...], answer, detail, steps, error }
+  job: (id) => apiFetch(`/api/ai/jobs/${encodeURIComponent(id)}`),
+}
+
+// Claude가 읽을 프로젝트 — GitHub 저장소(서버가 클론) 또는 zip 업로드(출장 등)
+export const aiProjectsApi = {
+  list: () => apiFetch('/api/ai/projects'),
+  addGit: (url, name) => apiFetch('/api/ai/projects/git', { method: 'POST', body: JSON.stringify({ url, name: name || null }) }),
+  sync: (name) => apiFetch(`/api/ai/projects/${encodeURIComponent(name)}/sync`, { method: 'POST' }),
+  upload: (name, file) => {
+    const form = new FormData()
+    form.append('name', name)
+    form.append('file', file)
+    return apiFetch('/api/ai/projects/upload', { method: 'POST', body: form })
+  },
+  remove: (name) => apiFetch(`/api/ai/projects/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 }
 
 // Unified search across the account's diaries / todos / notes.
