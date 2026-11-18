@@ -143,26 +143,30 @@ export default function G2App() {
     effects.forEach(runEffect)
   }, [runEffect])
 
-  // 폰 화면에서 입력한 질문을 보내고, 답을 안경의 'Claude' 화면에 띄웁니다.
-  const askClaude = useCallback(async (question) => {
+  // 폰 화면에서 입력한 질문(+사진)을 보내고, 요약은 안경에, 전체 답은 폰에 띄웁니다.
+  const askClaude = useCallback(async (question, images = []) => {
     const q = question.trim()
-    if (!q) return
-    const toAsk = { screen: 'ask', page: 0 }
+    if (!q && !images.length) return
+    const toAsk = { screen: 'ask', page: 0, view: 'summary' }
     stateRef.current = toAsk
     setState(toAsk)
     if (!getToken()) {
       setData((d) => ({ ...d, ai: { status: 'error', question: q, error: LOGIN_NEEDED } }))
       return
     }
-    setData((d) => ({ ...d, ai: { status: 'loading', question: q } }))
+    setData((d) => ({ ...d, ai: { status: 'loading', question: q, imageCount: images.length } }))
     try {
-      const { answer } = await aiApi.ask(q, historyRef.current)
-      historyRef.current = [...historyRef.current, { role: 'user', text: q }, { role: 'assistant', text: answer }]
-      setData((d) => ({ ...d, ai: { status: 'done', question: q, answer } }))
-      // 새 답은 항상 첫 쪽부터
-      setState((s) => (s.screen === 'ask' ? { ...s, page: 0 } : s))
+      const { answer, detail } = await aiApi.ask(q, historyRef.current, images)
+      // 사진은 다시 보내지 않습니다(비용). 대신 대화 기록에 "사진을 봤다"는 사실과 답 전문을 남깁니다.
+      const asked = images.length ? `${q}\n[사진 ${images.length}장 첨부]`.trim() : q
+      const full = detail ? `${answer}\n@@상세@@\n${detail}` : answer
+      historyRef.current = [...historyRef.current, { role: 'user', text: asked }, { role: 'assistant', text: full }]
+      setData((d) => ({ ...d, ai: { status: 'done', question: q, answer, detail: detail || null } }))
+      // 새 답은 항상 요약 첫 쪽부터
+      setState((s) => (s.screen === 'ask' ? { ...s, page: 0, view: 'summary' } : s))
       if (speak && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel()
+        // 코드(전체 답)는 읽어 주면 알아듣기 어려워서 요약만 읽습니다.
         const u = new SpeechSynthesisUtterance(answer)
         u.lang = 'ko-KR'
         window.speechSynthesis.speak(u)
@@ -263,6 +267,7 @@ export default function G2App() {
         </p>
 
         <AskBox
+          ai={data.ai}
           busy={data.ai.status === 'loading'}
           turns={historyRef.current.length / 2}
           onAsk={askClaude}
@@ -275,14 +280,52 @@ export default function G2App() {
   )
 }
 
-// 폰 화면의 질문 입력칸. 안경에는 키보드가 없어서 질문은 폰에서 칩니다.
-function AskBox({ busy, turns, onAsk, onReset, speak, onSpeakChange }) {
+const MAX_PHOTOS = 6
+// Claude는 긴 변이 1568px를 넘는 사진을 어차피 줄여서 봅니다. 미리 줄이면 업로드가 빠르고
+// 모니터 글자도 충분히 읽힙니다.
+const PHOTO_MAX_SIDE = 1568
+
+async function shrinkPhoto(file) {
+  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' })
+  const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(bmp.width, bmp.height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(bmp.width * scale)
+  canvas.height = Math.round(bmp.height * scale)
+  canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height)
+  bmp.close?.()
+  const url = canvas.toDataURL('image/jpeg', 0.85)
+  return { mediaType: 'image/jpeg', data: url.slice(url.indexOf(',') + 1), preview: url }
+}
+
+// 폰 화면의 질문 입력칸. 안경에는 키보드·카메라가 없어서 질문과 사진은 폰에서 보냅니다.
+function AskBox({ ai, busy, turns, onAsk, onReset, speak, onSpeakChange }) {
   const [text, setText] = useState('')
+  const [photos, setPhotos] = useState([])
+  const [photoError, setPhotoError] = useState('')
+  const cameraRef = useRef(null)
+  const albumRef = useRef(null)
+
+  const addPhotos = async (files) => {
+    setPhotoError('')
+    const list = [...(files || [])].filter((f) => f.type.startsWith('image/'))
+    const room = MAX_PHOTOS - photos.length
+    if (list.length > room) setPhotoError(`사진은 ${MAX_PHOTOS}장까지예요.`)
+    try {
+      const shrunk = await Promise.all(list.slice(0, Math.max(0, room)).map(shrinkPhoto))
+      setPhotos((p) => [...p, ...shrunk].slice(0, MAX_PHOTOS))
+    } catch (e) {
+      console.error('[g2] 사진 처리 실패', e)
+      setPhotoError('사진을 읽지 못했어요. 다른 사진으로 해 보세요.')
+    }
+  }
+
+  const canSend = !busy && (text.trim() || photos.length)
   const submit = (e) => {
     e.preventDefault()
-    if (busy || !text.trim()) return
-    onAsk(text)
+    if (!canSend) return
+    onAsk(text, photos.map(({ mediaType, data }) => ({ mediaType, data })))
     setText('')
+    setPhotos([])
   }
   return (
     <form onSubmit={submit} style={{ marginTop: 20, borderTop: '1px solid #222831', paddingTop: 16 }}>
@@ -296,14 +339,39 @@ function AskBox({ busy, turns, onAsk, onReset, speak, onSpeakChange }) {
         // 폰 키보드의 줄바꿈과 겹치지 않게, PC에서만 Ctrl/Cmd+Enter로 보냅니다.
         onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit(e) }}
         rows={3}
-        placeholder="예: JPA에서 N+1 문제 해결법?"
+        placeholder={photos.length ? '예: 이 요구사항대로 고치려면? (비우면 기본 질문)' : '예: JPA에서 N+1 문제 해결법?'}
         style={{
           width: '100%', boxSizing: 'border-box', background: '#12151c', color: '#e8e8ea',
           border: '1px solid #2a2f3a', borderRadius: 8, padding: 10, fontSize: 15, resize: 'vertical',
         }}
       />
+      {photos.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+          {photos.map((p, i) => (
+            <div key={p.preview.slice(-32) + i} style={{ position: 'relative' }}>
+              <img src={p.preview} alt={`사진 ${i + 1}`} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 6, border: '1px solid #2a2f3a' }} />
+              <button
+                type="button"
+                aria-label={`사진 ${i + 1} 빼기`}
+                onClick={() => setPhotos((ps) => ps.filter((_, j) => j !== i))}
+                style={{ position: 'absolute', top: -6, right: -6, width: 22, height: 22, borderRadius: 11, border: 0, background: '#e8e8ea', color: '#0b0d12', fontSize: 13, cursor: 'pointer' }}
+              >x</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {photoError && <p style={{ color: '#ffb4a8', fontSize: 13, margin: '6px 0 0' }}>{photoError}</p>}
+
+      {/* capture가 있으면 바로 카메라, 없으면 앨범/파일 선택 */}
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden
+        onChange={(e) => { addPhotos(e.target.files); e.target.value = '' }} />
+      <input ref={albumRef} type="file" accept="image/*" multiple hidden
+        onChange={(e) => { addPhotos(e.target.files); e.target.value = '' }} />
+
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 8 }}>
-        <button type="submit" disabled={busy || !text.trim()} style={{ ...btn, opacity: busy || !text.trim() ? 0.5 : 1 }}>
+        <button type="button" onClick={() => cameraRef.current?.click()} disabled={busy || photos.length >= MAX_PHOTOS} style={btn}>사진 찍기</button>
+        <button type="button" onClick={() => albumRef.current?.click()} disabled={busy || photos.length >= MAX_PHOTOS} style={btn}>앨범</button>
+        <button type="submit" disabled={!canSend} style={{ ...btn, opacity: canSend ? 1 : 0.5 }}>
           {busy ? '생각하는 중...' : '보내기 (안경에 표시)'}
         </button>
         <button type="button" onClick={onReset} disabled={busy} style={btn}>새 대화</button>
@@ -312,6 +380,23 @@ function AskBox({ busy, turns, onAsk, onReset, speak, onSpeakChange }) {
           폰으로 읽어 주기
         </label>
       </div>
+      <p style={{ fontSize: 12, color: '#6b717c', margin: '8px 0 0' }}>
+        모니터는 정면에서, 글자가 선명하게 찍어 주세요. 코드가 길면 여러 장으로 나눠 찍으면 돼요.
+      </p>
+
+      {ai.status === 'done' && (
+        <section style={{ marginTop: 16 }}>
+          <h2 style={{ fontSize: 14, margin: '0 0 6px' }}>답변{ai.detail ? ' (안경: 요약 · 길게 누르면 전체)' : ''}</h2>
+          <pre style={answerBox}>{ai.answer}</pre>
+          {ai.detail && (
+            <>
+              <h2 style={{ fontSize: 14, margin: '12px 0 6px' }}>전체 답 / 수정 코드</h2>
+              <pre style={answerBox}>{ai.detail}</pre>
+            </>
+          )}
+        </section>
+      )}
+      {ai.status === 'error' && <p style={{ color: '#ffb4a8', fontSize: 14, marginTop: 12 }}>{ai.error}</p>}
     </form>
   )
 }
@@ -328,6 +413,12 @@ function ScaledPreview({ page }) {
     return () => ro.disconnect()
   }, [])
   return <div ref={ref} style={{ width: '100%' }}><Preview page={page} scale={scale} /></div>
+}
+
+const answerBox = {
+  margin: 0, padding: 12, background: '#12151c', border: '1px solid #2a2f3a', borderRadius: 8,
+  color: '#e8e8ea', fontSize: 13, lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "D2Coding", monospace',
 }
 
 const btn = {

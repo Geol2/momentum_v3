@@ -88,6 +88,12 @@ export function paginate(text) {
   return pages.length ? pages : ['']
 }
 
+function askPages(state, ai) {
+  if (state.view === 'detail' && ai.detail) return paginate(ai.detail)
+  const q = ai.question ? `Q. ${ai.question}\n\n` : ''
+  return paginate(`${q}${ai.answer}`)
+}
+
 // ---------- 카드 복습 (라이트너) ----------
 
 export function buildQueue(deck, progress, now = Date.now()) {
@@ -133,15 +139,20 @@ export function render(state, data) {
       const hintBack = '두 번 누르기: 뒤로'
       if (ai.status === 'loading') {
         const q = ai.question.length > 60 ? `${ai.question.slice(0, 60)}...` : ai.question
-        return frame('Claude', '', `Q. ${q}\n\n생각하는 중...`, hintBack)
+        const photos = ai.imageCount ? `\n(사진 ${ai.imageCount}장)` : ''
+        return frame('Claude', '', `Q. ${q || '사진 속 요구사항 보기'}${photos}\n\n생각하는 중...`, hintBack)
       }
       if (ai.status === 'error') return frame('Claude', '', ai.error, hintBack)
       if (ai.status !== 'done') {
         return frame('Claude에게 묻기', '', '폰 화면에 질문을 입력하세요.\n\n답은 여기에 떠요.\n이어서 물어보면 앞 대화를 기억해요.', hintBack)
       }
-      const pages = paginate(`Q. ${ai.question}\n\n${ai.answer}`)
+      const pages = askPages(state, ai)
       const page = clamp(state.page ?? 0, pages.length - 1)
-      return frame('Claude', `${page + 1}/${pages.length}`, pages[page], '쓸기: 쪽 넘김 · 두 번: 뒤로')
+      const detail = state.view === 'detail'
+      const hint = ai.detail
+        ? (detail ? '쓸기: 쪽 넘김 · 길게: 요약 · 두 번: 뒤로' : '쓸기: 쪽 넘김 · 길게: 전체 답(코드)')
+        : '쓸기: 쪽 넘김 · 두 번: 뒤로'
+      return frame(detail ? 'Claude 전체 답' : 'Claude', `${page + 1}/${pages.length}`, pages[page], hint)
     }
 
     case 'cards': {
@@ -257,7 +268,11 @@ export function reduce(state, gesture, data) {
     case 'ask': {
       const ai = data.ai || {}
       if (ai.status !== 'done') return stay(state)
-      const max = paginate(`Q. ${ai.question}\n\n${ai.answer}`).length - 1
+      // 길게 누르기: 요약 <-> 전체 답(코드) 전환. 폐쇄망 PC에서 타이핑하면서 안경으로 코드를 봅니다.
+      if (gesture === 'long' && ai.detail) {
+        return stay({ ...state, view: state.view === 'detail' ? 'summary' : 'detail', page: 0 })
+      }
+      const max = askPages(state, ai).length - 1
       if (gesture === 'up') return stay({ ...state, page: clamp((state.page ?? 0) - 1, max) })
       if (gesture === 'down') return stay({ ...state, page: clamp((state.page ?? 0) + 1, max) })
       return stay(state)
