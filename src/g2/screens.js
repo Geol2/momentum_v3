@@ -10,6 +10,7 @@ import { SCREEN_W, text, windowAround } from './layout.js'
 
 const HOME_ITEMS = [
   { key: 'todos', label: '오늘 할 일' },
+  { key: 'ask', label: 'Claude에게 묻기' },
   ...DECKS.map((d) => ({ key: `deck:${d.id}`, label: `${d.name} 카드` })),
   { key: 'memo', label: '메모' },
   { key: 'font', label: '글꼴 테스트' },
@@ -41,6 +42,51 @@ function cursorLines(items, cursor, size, toLine) {
 }
 
 const clamp = (v, max) => Math.max(0, Math.min(max, v))
+
+// ---------- 긴 글 쪽 나누기 ----------
+
+// 미리보기 기준(20px, 본문 폭 564px) 한 줄에 한글 약 28자. 실제 안경 글꼴은 조금 다를 수
+// 있어서 여유를 둡니다. 영문·숫자·기호는 한글의 절반 남짓 폭으로 계산합니다.
+const LINE_UNITS = 26
+const PAGE_LINES = 6
+
+function charUnits(ch) {
+  return /[\u0000-\u00ff]/.test(ch) ? 0.6 : 1
+}
+
+function wrapLine(line) {
+  if (!line) return ['']
+  const out = []
+  let cur = ''
+  let units = 0
+  for (const ch of line) {
+    const u = charUnits(ch)
+    if (units + u > LINE_UNITS && cur) {
+      // 단어 중간에서 끊기지 않게, 줄 뒤쪽에 공백이 있으면 거기서 자릅니다.
+      const cut = cur.lastIndexOf(' ')
+      if (cut > cur.length * 0.6) {
+        out.push(cur.slice(0, cut))
+        cur = cur.slice(cut + 1)
+        units = [...cur].reduce((n, c) => n + charUnits(c), 0)
+      } else {
+        out.push(cur)
+        cur = ''
+        units = 0
+      }
+    }
+    cur += ch
+    units += u
+  }
+  out.push(cur)
+  return out
+}
+
+export function paginate(text) {
+  const lines = String(text ?? '').split('\n').flatMap(wrapLine)
+  const pages = []
+  for (let i = 0; i < lines.length; i += PAGE_LINES) pages.push(lines.slice(i, i + PAGE_LINES).join('\n'))
+  return pages.length ? pages : ['']
+}
 
 // ---------- 카드 복습 (라이트너) ----------
 
@@ -80,6 +126,22 @@ export function render(state, data) {
         return `${t.done ? '[x]' : '[ ]'} ${t.text}${when}`
       })
       return frame('오늘 할 일', `${done}/${todos.length} 완료`, body, '누르기: 완료 표시 · 두 번: 뒤로')
+    }
+
+    case 'ask': {
+      const ai = data.ai || {}
+      const hintBack = '두 번 누르기: 뒤로'
+      if (ai.status === 'loading') {
+        const q = ai.question.length > 60 ? `${ai.question.slice(0, 60)}...` : ai.question
+        return frame('Claude', '', `Q. ${q}\n\n생각하는 중...`, hintBack)
+      }
+      if (ai.status === 'error') return frame('Claude', '', ai.error, hintBack)
+      if (ai.status !== 'done') {
+        return frame('Claude에게 묻기', '', '폰 화면에 질문을 입력하세요.\n\n답은 여기에 떠요.\n이어서 물어보면 앞 대화를 기억해요.', hintBack)
+      }
+      const pages = paginate(`Q. ${ai.question}\n\n${ai.answer}`)
+      const page = clamp(state.page ?? 0, pages.length - 1)
+      return frame('Claude', `${page + 1}/${pages.length}`, pages[page], '쓸기: 쪽 넘김 · 두 번: 뒤로')
     }
 
     case 'cards': {
@@ -151,6 +213,7 @@ export function reduce(state, gesture, data) {
       const item = HOME_ITEMS[state.cursor]
       if (item.key.startsWith('deck:')) return stay(startDeck(item.key.slice(5), data.progress))
       if (item.key === 'todos') return { state: { screen: 'todos', cursor: 0 }, effects: [{ type: 'loadTodos' }] }
+      if (item.key === 'ask') return stay({ screen: 'ask', page: 0 })
       if (item.key === 'memo') return { state: { screen: 'memo', idx: 0 }, effects: [{ type: 'loadNotes' }] }
       return stay({ screen: item.key })
     }
@@ -189,6 +252,15 @@ export function reduce(state, gesture, data) {
         },
         effects: [{ type: 'grade', cardId, known }],
       }
+    }
+
+    case 'ask': {
+      const ai = data.ai || {}
+      if (ai.status !== 'done') return stay(state)
+      const max = paginate(`Q. ${ai.question}\n\n${ai.answer}`).length - 1
+      if (gesture === 'up') return stay({ ...state, page: clamp((state.page ?? 0) - 1, max) })
+      if (gesture === 'down') return stay({ ...state, page: clamp((state.page ?? 0) + 1, max) })
+      return stay(state)
     }
 
     case 'memo': {

@@ -151,6 +151,12 @@ export const pushApi = {
   test: () => apiFetch('/api/push/test', { method: 'POST' }),
 }
 
+// G2 안경 "Claude에게 묻기". Claude API 키는 백엔드에만 있고, 여기서는 우리 서버만 부릅니다.
+// history: [{ role: 'user' | 'assistant', text }] — 이어서 묻기용 이전 대화
+export const aiApi = {
+  ask: (question, history = []) => apiFetch('/api/ai/ask', { method: 'POST', body: JSON.stringify({ question, history }) }),
+}
+
 // Unified search across the account's diaries / todos / notes.
 export const searchApi = {
   query: ({ q, from, to, types } = {}) => {

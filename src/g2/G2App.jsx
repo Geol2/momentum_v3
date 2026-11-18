@@ -4,7 +4,7 @@
 //    (이때 폰 화면에는 이 미리보기가 그대로 보입니다)
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Login from '../components/Login.jsx'
-import { ApiError, getToken, notesApi, todosApi } from '../lib/api.js'
+import { aiApi, ApiError, getToken, notesApi, todosApi } from '../lib/api.js'
 import { dateKey } from '../lib/data.js'
 import { useAuth } from '../lib/useAuth.js'
 import { connectGlasses, isInEvenApp } from './bridge.js'
@@ -30,6 +30,9 @@ const LOGIN_NEEDED = '로그인이 필요해요.\n폰 화면에서 로그인하�
 
 function errorText(e) {
   if (e instanceof ApiError && e.status === 401) return LOGIN_NEEDED
+  // 400/429/503 등은 서버가 사용자에게 보여줄 문장을 message로 보냅니다(예: 오늘 질문 횟수 초과).
+  if (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.message && e.message !== 'network') return e.message
+  if (e instanceof ApiError && e.status === 503) return e.message || 'AI 기능이 꺼져 있어요.'
   // 0: 네트워크 오류, 5xx: 개발 중 백엔드(9090)가 꺼져 있으면 Vite 프록시가 5xx를 돌려줍니다.
   if (e instanceof ApiError && (e.status === 0 || e.status >= 500)) return '서버에 연결할 수 없어요.'
   return '불러오지 못했어요.'
@@ -53,7 +56,10 @@ const BUTTONS = [
 export default function G2App() {
   const auth = useAuth()
   const [state, setState] = useState(initialState)
-  const [data, setData] = useState(() => ({ todos: null, notes: null, progress: loadProgress() }))
+  const [data, setData] = useState(() => ({ todos: null, notes: null, progress: loadProgress(), ai: { status: 'idle' } }))
+  // Claude 대화 기록 (이어서 묻기). 앱을 닫으면 사라집니다.
+  const historyRef = useRef([])
+  const [speak, setSpeak] = useState(false)
   const [glasses, setGlasses] = useState(null)
   const [lastGesture, setLastGesture] = useState('')
 
@@ -136,6 +142,41 @@ export default function G2App() {
     setState(next)
     effects.forEach(runEffect)
   }, [runEffect])
+
+  // 폰 화면에서 입력한 질문을 보내고, 답을 안경의 'Claude' 화면에 띄웁니다.
+  const askClaude = useCallback(async (question) => {
+    const q = question.trim()
+    if (!q) return
+    const toAsk = { screen: 'ask', page: 0 }
+    stateRef.current = toAsk
+    setState(toAsk)
+    if (!getToken()) {
+      setData((d) => ({ ...d, ai: { status: 'error', question: q, error: LOGIN_NEEDED } }))
+      return
+    }
+    setData((d) => ({ ...d, ai: { status: 'loading', question: q } }))
+    try {
+      const { answer } = await aiApi.ask(q, historyRef.current)
+      historyRef.current = [...historyRef.current, { role: 'user', text: q }, { role: 'assistant', text: answer }]
+      setData((d) => ({ ...d, ai: { status: 'done', question: q, answer } }))
+      // 새 답은 항상 첫 쪽부터
+      setState((s) => (s.screen === 'ask' ? { ...s, page: 0 } : s))
+      if (speak && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel()
+        const u = new SpeechSynthesisUtterance(answer)
+        u.lang = 'ko-KR'
+        window.speechSynthesis.speak(u)
+      }
+    } catch (e) {
+      setData((d) => ({ ...d, ai: { status: 'error', question: q, error: errorText(e) } }))
+    }
+  }, [speak])
+
+  const resetClaude = useCallback(() => {
+    historyRef.current = []
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+    setData((d) => ({ ...d, ai: { status: 'idle' } }))
+  }, [])
 
   // 키보드
   useEffect(() => {
@@ -220,8 +261,58 @@ export default function G2App() {
           키보드: ↑/↓ 쓸기 · Enter 누르기 · Esc 두 번 누르기 · L 길게 누르기
           {lastGesture && ` · 마지막 입력: ${lastGesture}`}
         </p>
+
+        <AskBox
+          busy={data.ai.status === 'loading'}
+          turns={historyRef.current.length / 2}
+          onAsk={askClaude}
+          onReset={resetClaude}
+          speak={speak}
+          onSpeakChange={setSpeak}
+        />
       </div>
     </div>
+  )
+}
+
+// 폰 화면의 질문 입력칸. 안경에는 키보드가 없어서 질문은 폰에서 칩니다.
+function AskBox({ busy, turns, onAsk, onReset, speak, onSpeakChange }) {
+  const [text, setText] = useState('')
+  const submit = (e) => {
+    e.preventDefault()
+    if (busy || !text.trim()) return
+    onAsk(text)
+    setText('')
+  }
+  return (
+    <form onSubmit={submit} style={{ marginTop: 20, borderTop: '1px solid #222831', paddingTop: 16 }}>
+      <label htmlFor="g2-ask" style={{ display: 'block', fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
+        Claude에게 묻기 {turns > 0 && <span style={{ color: '#9aa0aa', fontWeight: 400 }}>· 이어서 묻는 중 ({turns}번째 대화)</span>}
+      </label>
+      <textarea
+        id="g2-ask"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        // 폰 키보드의 줄바꿈과 겹치지 않게, PC에서만 Ctrl/Cmd+Enter로 보냅니다.
+        onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit(e) }}
+        rows={3}
+        placeholder="예: JPA에서 N+1 문제 해결법?"
+        style={{
+          width: '100%', boxSizing: 'border-box', background: '#12151c', color: '#e8e8ea',
+          border: '1px solid #2a2f3a', borderRadius: 8, padding: 10, fontSize: 15, resize: 'vertical',
+        }}
+      />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 8 }}>
+        <button type="submit" disabled={busy || !text.trim()} style={{ ...btn, opacity: busy || !text.trim() ? 0.5 : 1 }}>
+          {busy ? '생각하는 중...' : '보내기 (안경에 표시)'}
+        </button>
+        <button type="button" onClick={onReset} disabled={busy} style={btn}>새 대화</button>
+        <label style={{ fontSize: 13, color: '#9aa0aa', display: 'flex', gap: 6, alignItems: 'center' }}>
+          <input type="checkbox" checked={speak} onChange={(e) => onSpeakChange(e.target.checked)} />
+          폰으로 읽어 주기
+        </label>
+      </div>
+    </form>
   )
 }
 
