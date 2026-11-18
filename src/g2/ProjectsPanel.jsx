@@ -50,6 +50,12 @@ export default function ProjectsPanel({ selected, onSelect, disabled }) {
 
   useEffect(() => { load() }, [load])
 
+  // 비공개 저장소 가능 여부(서버 토큰). 예전 서버면 실패 → 공개만으로 안내
+  const [privateRepos, setPrivateRepos] = useState(false)
+  useEffect(() => {
+    aiProjectsApi.settings().then((s) => setPrivateRepos(!!s?.privateRepos)).catch(() => {})
+  }, [])
+
   // 받는 중인 프로젝트가 있으면 끝날 때까지 상태를 새로 봅니다.
   const syncing = projects?.some((p) => p.status === 'syncing')
   useEffect(() => {
@@ -178,7 +184,9 @@ export default function ProjectsPanel({ selected, onSelect, disabled }) {
           )}
 
           <form onSubmit={addGit} style={{ marginTop: 12 }}>
-            <label htmlFor="g2-git" style={sub}>GitHub 저장소 추가 (공개 저장소)</label>
+            <label htmlFor="g2-git" style={sub}>
+              GitHub 저장소 추가 {privateRepos ? '(공개·비공개)' : '(공개 저장소 · 비공개는 서버에 GitHub 토큰 설정 필요)'}
+            </label>
             <div style={{ display: 'flex', gap: 8 }}>
               <input id="g2-git" value={gitUrl} onChange={(e) => setGitUrl(e.target.value)}
                 placeholder="github.com/소유자/저장소" style={input} />

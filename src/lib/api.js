@@ -210,6 +210,8 @@ export const aiApi = {
 // Claude가 읽을 프로젝트 — GitHub 저장소(서버가 클론) 또는 zip 업로드(출장 등)
 export const aiProjectsApi = {
   list: () => apiFetch('/api/ai/projects'),
+  // { privateRepos }: 서버에 GitHub 토큰이 있어 비공개 저장소도 받을 수 있는지
+  settings: () => apiFetch('/api/ai/projects/settings'),
   addGit: (url, name) => apiFetch('/api/ai/projects/git', { method: 'POST', body: JSON.stringify({ url, name: name || null }) }),
   sync: (name) => apiFetch(`/api/ai/projects/${encodeURIComponent(name)}/sync`, { method: 'POST' }),
   // onProgress(0~1): 올라간 정도. 큰 zip은 몇 분 걸릴 수 있어 진행률을 보여 줍니다.
