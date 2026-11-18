@@ -60,8 +60,10 @@ export default function G2App() {
   // 안경 이벤트 콜백은 한 번만 등록하므로 최신 상태를 ref로 읽습니다.
   const stateRef = useRef(state)
   const dataRef = useRef(data)
+  const glassesRef = useRef(null)
   stateRef.current = state
   dataRef.current = data
+  glassesRef.current = glasses
 
   const userName = auth.user?.name || ''
   const page = render(state, { ...data, userName })
@@ -115,6 +117,11 @@ export default function G2App() {
           saveProgress(progress)
           return { ...d, progress }
         })
+        break
+      }
+      case 'exit': {
+        // 브라우저 미리보기에는 닫을 안경 화면이 없으므로 아무것도 하지 않습니다.
+        await glassesRef.current?.close()
         break
       }
       default:

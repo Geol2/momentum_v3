@@ -61,8 +61,10 @@ export async function connectGlasses() {
     })
   }
 
+  // 홈(루트) 화면에서 두 번 누르면 호출합니다. Even Hub 심사 규칙상 모드 1(시스템이
+  // 종료 확인을 띄움)이어야 하고, 모드 0이나 앱 자체 종료 대화상자는 반려됩니다.
   function close() {
-    return bridge.shutDownPageContainer(0)
+    return bridge.shutDownPageContainer(1)
   }
 
   return { show, onGesture, close }

@@ -66,7 +66,7 @@ export function render(state, data) {
         '달빛 서랍',
         data.userName || '',
         cursorLines(HOME_ITEMS, state.cursor, 6, (it) => it.label),
-        '쓸기: 이동 · 누르기: 열기',
+        '쓸기: 이동 · 누르기: 열기 · 두 번: 종료',
       )
 
     case 'todos': {
@@ -143,6 +143,8 @@ export function reduce(state, gesture, data) {
   switch (state.screen) {
     case 'home': {
       const max = HOME_ITEMS.length - 1
+      // 루트 화면의 두 번 누르기 = 앱 종료 (Even Hub 심사 필수 동작)
+      if (gesture === 'double') return { state, effects: [{ type: 'exit' }] }
       if (gesture === 'up') return stay({ ...state, cursor: clamp(state.cursor - 1, max) })
       if (gesture === 'down') return stay({ ...state, cursor: clamp(state.cursor + 1, max) })
       if (gesture !== 'tap') return stay(state)
