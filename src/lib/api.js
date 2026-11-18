@@ -156,6 +156,8 @@ export const pushApi = {
 // images: [{ mediaType: 'image/jpeg', data: base64 }] — 폐쇄망 PC 화면을 폰으로 찍은 사진
 // 응답: { answer: 안경용 요약, detail: 폰용 전체 답(코드 등) 또는 null, steps: 할 일로 저장할 작업 단계[] }
 export const aiApi = {
+  // 허용된 계정만 true. 스토어에서 받은 다른 사용자에게는 메뉴 자체를 숨깁니다.
+  status: () => apiFetch('/api/ai/status'),
   ask: (question, history = [], images = []) => apiFetch('/api/ai/ask', { method: 'POST', body: JSON.stringify({ question, history, images }) }),
 }
 

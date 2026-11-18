@@ -16,6 +16,11 @@ const HOME_ITEMS = [
   { key: 'font', label: '글꼴 테스트' },
 ]
 
+// Claude 메뉴는 서버가 허용한 계정에만 보입니다(비용은 키 주인이 내므로).
+function homeItems(data) {
+  return data?.aiEnabled ? HOME_ITEMS : HOME_ITEMS.filter((it) => it.key !== 'ask')
+}
+
 const SESSION_SIZE = 20
 const DAY = 24 * 60 * 60 * 1000
 // 상자 번호별 다음 복습까지의 간격(일). 라이트너 방식.
@@ -118,7 +123,7 @@ export function render(state, data) {
       return frame(
         '달빛 서랍',
         data.userName || '',
-        cursorLines(HOME_ITEMS, state.cursor, 6, (it) => it.label),
+        cursorLines(homeItems(data), state.cursor, 6, (it) => it.label),
         '쓸기: 이동 · 누르기: 열기 · 두 번: 종료',
       )
 
@@ -214,20 +219,21 @@ const stay = (state) => ({ state, effects: [] })
 
 export function reduce(state, gesture, data) {
   if (state.screen !== 'home' && gesture === 'double') {
-    const back = HOME_ITEMS.findIndex((it) =>
+    const back = homeItems(data).findIndex((it) =>
       it.key === state.screen || it.key === `deck:${state.deckId}`)
     return home(Math.max(0, back))
   }
 
   switch (state.screen) {
     case 'home': {
-      const max = HOME_ITEMS.length - 1
+      const items = homeItems(data)
+      const max = items.length - 1
       // 루트 화면의 두 번 누르기 = 앱 종료 (Even Hub 심사 필수 동작)
       if (gesture === 'double') return { state, effects: [{ type: 'exit' }] }
       if (gesture === 'up') return stay({ ...state, cursor: clamp(state.cursor - 1, max) })
       if (gesture === 'down') return stay({ ...state, cursor: clamp(state.cursor + 1, max) })
       if (gesture !== 'tap') return stay(state)
-      const item = HOME_ITEMS[state.cursor]
+      const item = items[clamp(state.cursor, max)]
       if (item.key.startsWith('deck:')) return stay(startDeck(item.key.slice(5), data.progress))
       if (item.key === 'todos') return { state: { screen: 'todos', cursor: 0 }, effects: [{ type: 'loadTodos' }] }
       if (item.key === 'ask') return stay({ screen: 'ask', page: 0 })

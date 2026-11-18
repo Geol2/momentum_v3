@@ -236,6 +236,19 @@ export default function G2App() {
     glasses?.show(page)
   }, [glasses, page])
 
+  // 이 계정이 Claude를 쓸 수 있는지 서버에 묻습니다. 실패하면 꺼진 것으로 봅니다.
+  useEffect(() => {
+    if (auth.status !== 'authenticated') {
+      setData((d) => ({ ...d, aiEnabled: false }))
+      return
+    }
+    let cancelled = false
+    aiApi.status()
+      .then((r) => { if (!cancelled) setData((d) => ({ ...d, aiEnabled: !!r?.enabled })) })
+      .catch(() => { if (!cancelled) setData((d) => ({ ...d, aiEnabled: false })) })
+    return () => { cancelled = true }
+  }, [auth.status])
+
   // 로그인 상태가 바뀌면 열려 있는 화면의 데이터를 다시 불러옵니다.
   useEffect(() => {
     if (auth.status !== 'authenticated') return
@@ -288,7 +301,7 @@ export default function G2App() {
           {lastGesture && ` · 마지막 입력: ${lastGesture}`}
         </p>
 
-        <AskBox
+        {data.aiEnabled && <AskBox
           ai={data.ai}
           busy={data.ai.status === 'loading'}
           turns={historyRef.current.length / 2}
@@ -297,7 +310,7 @@ export default function G2App() {
           speak={speak}
           onSpeakChange={setSpeak}
           onSaveSteps={() => runEffect({ type: 'saveSteps' })}
-        />
+        />}
       </div>
     </div>
   )
