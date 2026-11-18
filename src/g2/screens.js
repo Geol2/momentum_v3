@@ -52,7 +52,9 @@ const clamp = (v, max) => Math.max(0, Math.min(max, v))
 
 // 미리보기 기준(20px, 본문 폭 564px) 한 줄에 한글 약 28자. 실제 안경 글꼴은 조금 다를 수
 // 있어서 여유를 둡니다. 영문·숫자·기호는 한글의 절반 남짓 폭으로 계산합니다.
-const LINE_UNITS = 26
+// 한 쪽이 글 상자보다 길면 안경이 스스로 한 줄씩 스크롤해 버려서(앱은 모름), 어떤 쓸기는
+// 한 줄만 움직이고 어떤 쓸기는 쪽이 넘어가 헷갈립니다. 그래서 줄 폭을 넉넉히 좁게 잡습니다.
+const LINE_UNITS = 24
 const PAGE_LINES = 6
 
 function charUnits(ch) {
@@ -67,11 +69,17 @@ function wrapLine(line) {
   for (const ch of line) {
     const u = charUnits(ch)
     if (units + u > LINE_UNITS && cur) {
-      // 단어 중간에서 끊기지 않게, 줄 뒤쪽에 공백이 있으면 거기서 자릅니다.
-      const cut = cur.lastIndexOf(' ')
-      if (cut > cur.length * 0.6) {
-        out.push(cur.slice(0, cut))
-        cur = cur.slice(cut + 1)
+      // 단어 중간에서 끊기지 않게, 줄 뒤쪽에 공백이 있으면 거기서 자릅니다. 공백이 없으면
+      // 코드 이름(OrderRepository.findAll...)이 가운데서 갈리지 않게 . ( / _ , 뒤에서 자릅니다.
+      const space = cur.lastIndexOf(' ')
+      const punct = Math.max(...['.', '(', '/', '_', ','].map((c) => cur.lastIndexOf(c)))
+      if (space > cur.length * 0.6) {
+        out.push(cur.slice(0, space))
+        cur = cur.slice(space + 1)
+        units = [...cur].reduce((n, c) => n + charUnits(c), 0)
+      } else if (punct > cur.length * 0.5) {
+        out.push(cur.slice(0, punct + 1))
+        cur = cur.slice(punct + 1)
         units = [...cur].reduce((n, c) => n + charUnits(c), 0)
       } else {
         out.push(cur)
@@ -184,7 +192,7 @@ export function render(state, data) {
         // 마이크가 있으면 요약에서 누르기 = 말하기, 전체 답에서 누르기 = 할 일 저장
         if (detail) hint = save ? `${save} · 길게: 요약` : '쓸기: 쪽 넘김 · 길게: 요약'
         else hint = more ? '누르기: 말하기 · 길게: 전체 답' : '누르기: 말하기 · 쓸기: 쪽 넘김'
-      } else if (save) hint = `${save}${ai.detail ? ' · 길게: 전체 답' : ''}`
+      } else if (save) hint = `${save}${ai.detail || steps ? (detail ? ' · 길게: 요약' : ' · 길게: 전체 답') : ''}`
       else if (ai.detail) hint = detail ? '쓸기: 쪽 넘김 · 길게: 요약 · 두 번: 뒤로' : '쓸기: 쪽 넘김 · 길게: 전체 답(코드)'
       else hint = '쓸기: 쪽 넘김 · 두 번: 뒤로'
       return frame(detail ? `${title} 전체 답` : title, `${page + 1}/${pages.length}`, pages[page], hint)

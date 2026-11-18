@@ -23,6 +23,7 @@ export async function connectGlasses() {
   // 같은 화면을 다시 보내지 않도록 마지막으로 보낸 내용을 기억합니다.
   // (화면 전체 갱신은 수백 ms가 걸려서, 불필요한 rebuild는 깜빡임으로 보입니다.)
   let lastSent = ''
+  let lastPayload = null
   let queue = Promise.resolve()
 
   function show(page) {
@@ -36,12 +37,33 @@ export async function connectGlasses() {
         const res = await bridge.createStartUpPageContainer(payload)
         if (res !== StartUpPageCreateResult.success) console.warn('[g2] startup 실패', res)
         started = true
-      } else {
+      } else if (!(await upgradeTexts(lastPayload, payload))) {
         const ok = await bridge.rebuildPageContainer(payload)
         if (!ok) console.warn('[g2] rebuild 실패')
       }
+      lastPayload = payload
     }).catch((e) => console.error('[g2] 화면 전송 오류', e))
     return queue
+  }
+
+  // 배치는 그대로고 글자만 바뀌었으면(쪽 넘김, 진행 상황, 카드 넘기기) 바뀐 글 상자만 고칩니다.
+  // 화면 전체를 다시 만드는 것보다 훨씬 빨라서, 연달아 쓸어도 반응이 끊기지 않습니다.
+  // 배치가 달라졌거나 고치기에 실패하면 false → 전체 다시 그리기.
+  async function upgradeTexts(prev, next) {
+    if (!prev || !sameLayout(prev, next)) return false
+    for (let i = 0; i < next.textObject.length; i++) {
+      const a = prev.textObject[i]
+      const b = next.textObject[i]
+      if (a.content === b.content && a.textColor === b.textColor) continue
+      const ok = await bridge.textContainerUpgrade({
+        containerID: b.containerID,
+        containerName: b.containerName,
+        content: b.content,
+        ...(b.textColor != null ? { textColor: b.textColor } : {}),
+      })
+      if (!ok) return false
+    }
+    return true
   }
 
   function onGesture(cb) {
@@ -87,6 +109,13 @@ export async function connectGlasses() {
   }
 
   return { show, onGesture, close, startMic, stopMic }
+}
+
+// 글자(content)와 밝기(textColor) 말고 모두 같으면 같은 배치입니다.
+function sameLayout(a, b) {
+  if (a.containerTotalNum !== b.containerTotalNum || a.textObject.length !== b.textObject.length) return false
+  const strip = ({ content, textColor, ...rest }) => JSON.stringify(rest)
+  return a.textObject.every((t, i) => strip(t) === strip(b.textObject[i]))
 }
 
 // 호스트가 PCM을 Uint8Array, 숫자 배열, base64 문자열 중 하나로 줍니다(SDK 문서).
