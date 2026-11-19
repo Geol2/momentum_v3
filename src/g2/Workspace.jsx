@@ -5,7 +5,7 @@
 // 좁은 화면(폰)에서는 왼쪽이 서랍으로 접히고, 안경 미리보기는 펼침 버튼으로 엽니다.
 // 대화는 서버(DB)에 저장되고, 안경은 '가장 최근 질문'을 따라가므로 어느 화면에서 물어도 같이 보입니다.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { aiConversationsApi, ApiError, todosApi } from '../lib/api.js'
+import { aiApi, aiConversationsApi, ApiError, todosApi } from '../lib/api.js'
 import { dateKey } from '../lib/dates.js'
 import ProjectManager, { useProjects } from './ProjectsPanel.jsx'
 
@@ -60,6 +60,12 @@ export default function Workspace({
   const [managing, setManaging] = useState(false)
   const [showGlasses, setShowGlasses] = useState(false)
   const endRef = useRef(null)
+
+  // 누가 답하는지(구독 / 한도라 API). 질문이 끝날 때마다 다시 봅니다.
+  const [engine, setEngine] = useState(null)
+  useEffect(() => {
+    aiApi.status().then((r) => setEngine(r?.engine || null)).catch(() => {})
+  }, [version])
 
   const loadConversations = useCallback(async () => {
     try {
@@ -148,6 +154,7 @@ export default function Workspace({
           </li>
         ))}
       </ul>
+      <EngineInfo engine={engine} />
     </nav>
   )
 
@@ -217,6 +224,25 @@ export default function Workspace({
   )
 }
 
+const hhmm = (iso) => {
+  const d = new Date(iso)
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+// 지금 누가 답하는지: 구독(서버의 Claude Code) 먼저, 한도에 걸리면 API 키
+function EngineInfo({ engine }) {
+  if (!engine) return null
+  const sub = engine.subscription
+  let text
+  if (!sub?.installed) text = engine.api ? 'API 키로 답해요' : '답할 수 있는 방법이 없어요'
+  else if (sub.pausedUntil) {
+    text = engine.api
+      ? `구독 쉬는 중(${sub.reason}) · ${hhmm(sub.pausedUntil)}까지 API로 답해요`
+      : `구독 쉬는 중(${sub.reason}) · API 키가 없어 ${hhmm(sub.pausedUntil)} 이후 다시 물어봐 주세요`
+  } else text = engine.api ? '구독으로 답해요 · 한도에 걸리면 API로' : '구독으로 답해요'
+  return <p className="ws-engine" title="구독 = 서버의 Claude Code(구독 계정), API = API 키(사용한 만큼 청구)">{text}</p>
+}
+
 // 질문·답 한 쌍. 답 = 안경용 요약, 전체 답(코드), 할 일로 저장할 단계
 function Turn({ turn }) {
   const [save, setSave] = useState({ status: 'idle', done: 0 })
@@ -238,6 +264,7 @@ function Turn({ turn }) {
     <div className="ws-turn">
       <div className="ws-q">{turn.question}{turn.imageCount ? <em> · 사진 {turn.imageCount}장</em> : null}</div>
       <div className="ws-a">
+        {turn.engine && <span className={`ws-badge ${turn.engine}`}>{turn.engine === 'subscription' ? '구독' : 'API'}</span>}
         <pre>{turn.answer}</pre>
         {turn.detail && (
           <details open>
@@ -385,6 +412,9 @@ const CSS = `
 @keyframes wsPulse { 50% { opacity:.25 } }
 @media (prefers-reduced-motion: reduce) { .ws-dot { animation:none } }
 .ws-err { color:#ffb4a8; font-size:13px; }
+.ws-engine { margin:20px 4px 0; padding-top:12px; border-top:1px solid var(--line); font-size:12px; color:var(--muted); line-height:1.5; }
+.ws-badge { display:inline-block; font-size:11px; padding:0 6px; border-radius:4px; margin-bottom:4px; border:1px solid var(--line); color:var(--muted); }
+.ws-badge.subscription { color:#c8ffd6; border-color:rgba(77,255,122,.35); }
 .ws-compose { border-top:1px solid var(--line); padding:12px 24px 16px; }
 .ws-compose textarea { width:100%; box-sizing:border-box; background:var(--panel); color:var(--text); border:1px solid #2a2f3a; border-radius:10px; padding:10px 12px; font-size:15px; resize:vertical; min-height:48px; max-height:40vh; font-family:inherit; }
 .ws-compose-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px; }
