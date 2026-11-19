@@ -2,16 +2,20 @@
   "package_id": "com.geol2.momentum",
   "edition": "202601",
   "name": "달빛 서랍",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "min_sdk_version": "0.0.16",
   "entrypoint": "index.html",
   "permissions": [
     {
       "name": "network",
-      "desc": "달빛 서랍 계정의 오늘 할 일과 메모를 불러오고, 할 일 완료 표시를 저장하기 위해 달빛 서랍 서버에 접속합니다.",
+      "desc": "달빛 서랍 계정의 오늘 할 일·메모·대화를 불러오고 저장하며, 음성 질문을 받아 적어 AI 답변을 받기 위해 달빛 서랍 서버에 접속합니다.",
       "whitelist": [
         "https://api.geol2.com"
       ]
+    },
+    {
+      "name": "g2-microphone",
+      "desc": "안경을 누르고 말한 질문을 받아 적기 위해, 누른 동안에만 안경 마이크를 켭니다. 녹음은 받아쓰기에만 쓰고 저장하지 않습니다."
     }
   ],
   "supported_languages": [
