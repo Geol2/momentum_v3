@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "build:g2": "node scripts/build-g2.mjs",
-    "pack:g2": "node scripts/build-g2.mjs && evenhub pack evenhub/app.json dist-g2 -o evenhub/momentum-g2.ehpk"
+    "pack:g2": "node scripts/build-g2.mjs && evenhub pack evenhub/app.json dist-g2 -o evenhub/momentum-g2.ehpk",
+    "sync:claude": "node scripts/sync-claude-sessions.mjs"
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "^0.0.16",
