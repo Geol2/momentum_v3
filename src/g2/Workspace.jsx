@@ -213,7 +213,8 @@ export default function Workspace({
 
   const pick = (fn) => (...args) => { setDrawer(false); fn(...args) }
   const ready = (projects || []).filter((p) => p.status === 'ready')
-  const isCode = (c) => !!c?.externalId
+  // 밖에서 가져온 대화 중 Claude Code 세션만 따로 묶음. chat- 은 데스크톱 앱 채팅을 MCP로 저장한 것 → 모멘텀 질문 쪽
+  const isCode = (c) => !!c?.externalId && !c.externalId.startsWith('chat-')
   const projectConvs = (conversations || []).filter((c) => !isCode(c) && (c.project || GENERAL) === conv.project)
   const codeConvs = (conversations || []).filter(isCode)
   // 제목 앞 [프로젝트] 로 묶기
