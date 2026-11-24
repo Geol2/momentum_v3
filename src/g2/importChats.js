@@ -49,6 +49,9 @@ function fromClaudeAi(list) {
     let cur = null
     for (const m of msgsOf(c)) {
       const t = msgText(m).trim()
+      // 도구 결과·자동 알림처럼 사람이 쓴 게 아닌 '사용자' 메시지는 새 질문으로 치지 않음
+      const onlyTool = Array.isArray(m.content) && m.content.length && m.content.every((b) => b && (b.type === 'tool_result' || b.type === 'tool_use'))
+      if (isHuman(m) && (onlyTool || (t && isNoise(t)))) continue
       if (isHuman(m)) { if (cur) turns.push(cur); cur = { question: t || '(파일만 첨부)', answer: '', at: m.created_at || m.createdAt || null } }
       else if (cur) cur.answer = (cur.answer ? cur.answer + '\n\n' : '') + t
     }
