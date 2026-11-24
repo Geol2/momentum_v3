@@ -342,7 +342,8 @@ export default function G2App() {
   const pollPin = useCallback(async () => {
     let pin
     try { pin = await aiConversationsApi.glassesPin() } catch { return }
-    const key = pin ? `${pin.conversationId}:${pin.turnId}:${pin.at}` : null
+    // 같은 답을 다시 알려 줘도(30초마다) 화면을 다시 뺏지 않도록 시각은 빼고 비교합니다.
+    const key = pin ? `${pin.conversationId}:${pin.turnId}` : null
     const first = pinSeenRef.current === undefined
     if (key === pinSeenRef.current) return
     pinSeenRef.current = key

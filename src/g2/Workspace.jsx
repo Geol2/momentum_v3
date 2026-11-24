@@ -104,10 +104,14 @@ export default function Workspace({
   const lastTurnId = turns.length ? turns[turns.length - 1].id : null
   useEffect(() => { setPinned(null) }, [conv.id])
   useEffect(() => {
-    if (!toGlasses || !conv.id || !lastTurnId) return
-    aiConversationsApi.pinToGlasses(conv.id, pinned ?? lastTurnId)
+    if (!toGlasses || !conv.id || !lastTurnId) return undefined
+    const send = () => aiConversationsApi.pinToGlasses(conv.id, pinned ?? lastTurnId)
       .then(() => setPinErr(''))
       .catch((e) => setPinErr(`안경에 띄우지 못했어요: ${e?.status === 404 ? '서버에 아직 이 기능이 없어요(백엔드 배포 확인)' : errMsg(e)}`))
+    send()
+    // 서버는 이 값을 메모리에만 둬서, 배포·재시작하면 사라집니다 → 켜져 있는 동안 30초마다 다시 알려 줍니다.
+    const t = setInterval(() => { if (!document.hidden) send() }, 30000)
+    return () => clearInterval(t)
   }, [toGlasses, conv.id, lastTurnId, pinned])
   const switchGlasses = () => {
     const on = !toGlasses
