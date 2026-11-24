@@ -195,7 +195,10 @@ export function render(state, data) {
       } else if (save) hint = `${save}${ai.detail || steps ? (detail ? ' · 길게: 요약' : ' · 길게: 전체 답') : ''}`
       else if (ai.detail) hint = detail ? '쓸기: 쪽 넘김 · 길게: 요약 · 두 번: 뒤로' : '쓸기: 쪽 넘김 · 길게: 전체 답(코드)'
       else hint = '쓸기: 쪽 넘김 · 두 번: 뒤로'
-      return frame(detail ? `${title} 전체 답` : title, `${page + 1}/${pages.length}`, pages[page], hint)
+      const nav = ai.pinNav
+      const right = nav ? `답 ${nav.idx + 1}/${nav.total} · ${page + 1}/${pages.length}쪽` : `${page + 1}/${pages.length}`
+      if (nav && !detail && !save) hint = `쓸기: 쪽·이전/다음 답${ai.detail ? ' · 길게: 전체 답' : ''}`
+      return frame(detail ? `${title} 전체 답` : title, right, pages[page], hint)
     }
 
     case 'cards': {
@@ -335,8 +338,13 @@ export function reduce(state, gesture, data) {
         return stay({ ...state, view: state.view === 'detail' ? 'summary' : 'detail', page: 0 })
       }
       const max = askPages(state, ai).length - 1
-      if (gesture === 'up') return stay({ ...state, page: clamp((state.page ?? 0) - 1, max) })
-      if (gesture === 'down') return stay({ ...state, page: clamp((state.page ?? 0) + 1, max) })
+      const pg = state.page ?? 0
+      // 폰·PC에서 고른 대화: 첫 쪽에서 위로 = 이전 답, 마지막 쪽에서 아래로 = 다음 답
+      const nav = ai.pinNav
+      if (nav && gesture === 'up' && pg === 0 && nav.idx > 0) return { state, effects: [{ type: 'pinNav', dir: -1 }] }
+      if (nav && gesture === 'down' && pg >= max && nav.idx < nav.total - 1) return { state, effects: [{ type: 'pinNav', dir: 1 }] }
+      if (gesture === 'up') return stay({ ...state, page: clamp(pg - 1, max) })
+      if (gesture === 'down') return stay({ ...state, page: clamp(pg + 1, max) })
       return stay(state)
     }
 

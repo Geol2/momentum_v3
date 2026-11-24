@@ -173,6 +173,11 @@ export default function G2App() {
         })
         break
       }
+      case 'pinNav': {
+        // '안경에 띄우기'로 연 대화에서 이전/다음 답으로 넘기기
+        showPinRef.current?.(fx.dir)
+        break
+      }
       case 'saveSteps': {
         // 같은 화면에서 저장 중/완료 표시를 보여 주고, 단계 순서대로 하나씩 만듭니다(목록 순서 유지).
         const ai = dataRef.current.ai
@@ -283,6 +288,7 @@ export default function G2App() {
       const base = {
         jobId: job.id, conversationId: job.conversationId ?? null, question: job.question, project: job.project,
         imageCount: job.imageCount, turns: job.turns, progress: job.progress || [],
+        pinNav: job.pinNav || null, // 고른 대화에서 몇 번째 답인지 { idx, total }
       }
       if (job.status === 'running') return { ...d, ai: { ...base, status: 'loading' } }
       if (job.status === 'error') return { ...d, ai: { ...base, status: 'error', error: job.error || '답을 받지 못했어요.' } }
@@ -338,31 +344,53 @@ export default function G2App() {
     }
   }, [applyJob, setConv, bump])
 
-  // 폰·PC에서 '안경에 띄우기'로 고른 답을 따라갑니다(켰을 때만 서버에 남아 있음).
+  // 폰·PC에서 '안경에 띄우기'로 고른 대화를 따라갑니다(켰을 때만 서버에 남아 있음).
+  // 안경에서 맨 위/맨 아래 쪽에서 더 쓸면 그 대화의 이전/다음 답으로 넘어가요(오래된 답도 볼 수 있게).
+  const pinRef = useRef(null) // { key, conversationId, project, turns, idx, jobAtPin }
+  const showPinRef = useRef(null)
+  const showPin = useCallback((dir = 0, toScreen = true) => {
+    const P = pinRef.current
+    if (!P || !P.turns.length) return
+    P.idx = Math.max(0, Math.min(P.turns.length - 1, P.idx + dir))
+    const t = P.turns[P.idx]
+    applyJob({
+      id: `pin:${t.id}`, status: 'done', conversationId: P.conversationId, project: P.project,
+      question: t.question, answer: t.answer, detail: t.detail, steps: t.steps, imageCount: t.imageCount,
+      turns: P.turns.length, pinNav: { idx: P.idx, total: P.turns.length },
+    })
+    if (toScreen) {
+      // 이전 답으로 갈 땐 그 답의 첫 쪽부터
+      const toAsk = { screen: 'ask', page: 0, view: 'summary' }
+      stateRef.current = toAsk
+      setState(toAsk)
+    }
+    bump()
+  }, [applyJob, bump])
+  showPinRef.current = showPin
+
   const pollPin = useCallback(async () => {
     let pin
     try { pin = await aiConversationsApi.glassesPin() } catch { return }
     // 같은 답을 다시 알려 줘도(30초마다) 화면을 다시 뺏지 않도록 시각은 빼고 비교합니다.
     const key = pin ? `${pin.conversationId}:${pin.turnId}` : null
-    const first = pinSeenRef.current === undefined
-    if (key === pinSeenRef.current) return
-    pinSeenRef.current = key
-    if (!pin || first && !pin) return
-    try {
-      const d = await aiConversationsApi.get(pin.conversationId)
-      const turns = d?.turns || []
-      const t = turns.find((x) => x.id === pin.turnId) || turns[turns.length - 1]
-      if (!t) return
-      applyJob({
-        id: `pin:${t.id}`, status: 'done', conversationId: pin.conversationId, project: d.conversation?.project || '',
-        question: t.question, answer: t.answer, detail: t.detail, steps: t.steps, imageCount: t.imageCount, turns: turns.length,
-      })
-      const toAsk = { screen: 'ask', page: 0, view: 'summary' }
-      stateRef.current = toAsk
-      setState(toAsk)
-      bump()
-    } catch { pinSeenRef.current = undefined }
-  }, [applyJob, bump])
+    if (!pin) { pinRef.current = null; pinSeenRef.current = null; return }
+    if (key !== pinSeenRef.current) {
+      pinSeenRef.current = key
+      try {
+        const d = await aiConversationsApi.get(pin.conversationId)
+        const turns = d?.turns || []
+        if (!turns.length) return
+        const at = turns.findIndex((x) => x.id === pin.turnId)
+        pinRef.current = { key, conversationId: pin.conversationId, project: d.conversation?.project || '', turns, idx: at >= 0 ? at : turns.length - 1, jobAtPin: seenRef.current.id }
+        showPin(0, true)
+      } catch { pinSeenRef.current = undefined }
+      return
+    }
+    // 같은 고른 답인데 안경 내용이 다른 걸로 바뀌어 있으면(앱을 막 열었을 때 등) 다시 띄움.
+    // 단, 그사이 새로 질문했으면 새 질문이 우선입니다.
+    const P = pinRef.current
+    if (P && !String(dataRef.current.ai?.jobId || '').startsWith('pin:') && seenRef.current.id === P.jobAtPin) showPin(0, false)
+  }, [showPin])
 
   useEffect(() => {
     if (!data.aiEnabled) return undefined
