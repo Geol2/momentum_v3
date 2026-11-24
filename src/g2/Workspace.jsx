@@ -100,17 +100,20 @@ export default function Workspace({
   // 안경에 띄우기: 켜 두면 지금 보는 대화의 마지막 답(또는 '안경에'를 누른 답)이 안경에 떠요. 끄면 원래대로.
   const [toGlasses, setToGlasses] = useState(() => { try { return localStorage.getItem('g2_to_glasses') === '1' } catch { return false } })
   const [pinned, setPinned] = useState(null) // 고른 답 id (없으면 마지막 답)
+  const [pinErr, setPinErr] = useState('')
   const lastTurnId = turns.length ? turns[turns.length - 1].id : null
   useEffect(() => { setPinned(null) }, [conv.id])
   useEffect(() => {
     if (!toGlasses || !conv.id || !lastTurnId) return
-    aiConversationsApi.pinToGlasses(conv.id, pinned ?? lastTurnId).catch(() => {})
+    aiConversationsApi.pinToGlasses(conv.id, pinned ?? lastTurnId)
+      .then(() => setPinErr(''))
+      .catch((e) => setPinErr(`안경에 띄우지 못했어요: ${e?.status === 404 ? '서버에 아직 이 기능이 없어요(백엔드 배포 확인)' : errMsg(e)}`))
   }, [toGlasses, conv.id, lastTurnId, pinned])
   const switchGlasses = () => {
     const on = !toGlasses
     setToGlasses(on)
     try { localStorage.setItem('g2_to_glasses', on ? '1' : '0') } catch { /* 저장 불가 */ }
-    if (!on) { setPinned(null); aiConversationsApi.unpinGlasses().catch(() => {}) }
+    if (!on) { setPinned(null); setPinErr(''); aiConversationsApi.unpinGlasses().catch(() => {}) }
   }
   const pinTurn = (id) => {
     setPinned(id)
@@ -232,6 +235,8 @@ export default function Workspace({
         <main className="ws-main">
           <div className="ws-chat" aria-live="polite">
             {error && <p className="ws-err">{error} <button type="button" className="ws-link" onClick={() => setError('')}>닫기</button></p>}
+            {toGlasses && pinErr && <p className="ws-err">{pinErr}</p>}
+            {toGlasses && !pinErr && conv.id && !lastTurnId && <p className="ws-engine">이 대화에 아직 답이 없어서 안경에 띄울 게 없어요.</p>}
             {turns.length === 0 && !live && (
               <div className="ws-empty">
                 <p>{conv.project ? `${conv.project} 프로젝트에 대해 물어보세요.` : '무엇이든 물어보세요.'}</p>
