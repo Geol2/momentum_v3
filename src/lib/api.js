@@ -220,6 +220,8 @@ export const aiConversationsApi = {
   // { conversation, turns: [{ id, question, imageCount, answer, detail, steps, createdAt }] }
   get: (id) => apiFetch(`/api/ai/conversations/${id}`),
   rename: (id, title) => apiFetch(`/api/ai/conversations/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+  // 밖에서 가져온 대화: { externalId, title, turns: [{ question, answer, at }] } → { conversation, added }
+  importChat: (c) => apiFetch('/api/ai/conversations/import', { method: 'POST', body: JSON.stringify(c) }),
   remove: (id) => apiFetch(`/api/ai/conversations/${id}`, { method: 'DELETE' }),
 }
 

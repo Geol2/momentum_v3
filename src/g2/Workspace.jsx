@@ -6,6 +6,7 @@
 // 대화는 서버(DB)에 저장되고, 안경은 '가장 최근 질문'을 따라가므로 어느 화면에서 물어도 같이 보입니다.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { aiApi, aiConversationsApi, ApiError, todosApi } from '../lib/api.js'
+import { parseChatFiles } from './importChats.js'
 import { dateKey } from '../lib/dates.js'
 import ProjectManager, { useProjects } from './ProjectsPanel.jsx'
 
@@ -115,9 +116,36 @@ export default function Workspace({
     } catch (e) { setError(errMsg(e)) }
   }
 
+  // Claude 대화 가져오기: claude.ai 내보내기 zip / conversations.json / Claude Code .jsonl
+  const importRef = useRef(null)
+  const [importing, setImporting] = useState('')
+  async function importFiles(files) {
+    if (!files?.length) return
+    setError(''); setImporting('파일 읽는 중...')
+    try {
+      const chats = await parseChatFiles([...files])
+      if (!chats.length) { setImporting(''); setError('가져올 대화를 찾지 못했어요.'); return }
+      let added = 0
+      for (let i = 0; i < chats.length; i++) {
+        setImporting(`가져오는 중 ${i + 1}/${chats.length}`)
+        const r = await aiConversationsApi.importChat(chats[i])
+        added += r?.added || 0
+      }
+      setImporting(`대화 ${chats.length}개 확인 · 새 질문 ${added}개 추가`)
+      loadConversations()
+      setTimeout(() => setImporting(''), 5000)
+    } catch (e) { setImporting(''); setError(errMsg(e)) }
+  }
+
   const sidebar = (
     <nav className="ws-side" aria-label="프로젝트와 대화">
       <button type="button" className="ws-new" onClick={pick(() => onNewChat(conv.project))}>+ 새 대화</button>
+      <button type="button" className="ws-link" onClick={() => importRef.current?.click()} disabled={!!importing && !importing.startsWith('대화')}
+        title="claude.ai 내보내기 zip(설정 > 개인정보 > 데이터 내보내기) 또는 Claude Code 세션 .jsonl">
+        Claude 대화 가져오기
+      </button>
+      <input ref={importRef} type="file" accept=".zip,.json,.jsonl" multiple hidden onChange={(e) => { importFiles(e.target.files); e.target.value = '' }} />
+      {importing && <p className="ws-engine">{importing}</p>}
 
       <div className="ws-sec">
         <span>프로젝트</span>
