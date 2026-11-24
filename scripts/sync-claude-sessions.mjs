@@ -137,7 +137,7 @@ async function runOnce() {
       state[p] = `${st.size}:${st.mtimeMs}`
     } catch (e) { console.error(`✗ ${s.title}: ${e.message}`) }
   }
-  if (DRY) return
+  if (DRY) { console.log(`세션 파일 ${files.length}개 확인 (--dry: 보내지 않음)`); return }
   fs.writeFileSync(STATE, JSON.stringify(state))
   console.log(`[${new Date().toLocaleTimeString('ko-KR')}] 세션 ${sent}개 확인, 새 질문 ${added}개 올림`)
 }
