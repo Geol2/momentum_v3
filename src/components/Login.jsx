@@ -209,9 +209,13 @@ const MODE_LABEL = { login: '로그인', signup: '회원가입', forgot: '비밀
 // backdrop: 뒤에 깔 배경(메인 앱은 별·풍경 사진 StarField). 여기서 StarField를 직접 가져오지 않는 이유:
 // G2 안경 앱도 이 로그인 화면을 쓰는데, StarField가 풍경 사진(Unsplash) 주소 목록을 끌고 들어와
 // 안경 앱이 허용 목록(app.json whitelist)에 없는 주소에 접속하게 되고 Even Hub 심사에서 반려됩니다.
+const LAST_EMAIL_KEY = 'momentum_last_email'
+
 export default function Login({ onLogin, onSignup, onRequestCode, onForgotPassword, onResetPassword, expired = false, backdrop = null }) {
   const [mode, setMode] = useState('login') // 'login' | 'signup' | 'forgot'
-  const [email, setEmail] = useState('')
+  // 한 번 로그인에 성공한 이메일은 기억해 두었다가 다음에 채워 둡니다(비밀번호는 저장하지 않음 —
+  // 비밀번호는 브라우저·폰의 비밀번호 관리자가 채우도록 autoComplete를 달아 둠).
+  const [email, setEmail] = useState(() => { try { return localStorage.getItem(LAST_EMAIL_KEY) || '' } catch { return '' } })
   const [password, setPassword] = useState('') // forgot 모드에서는 "새 비밀번호"로 씁니다
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
@@ -277,6 +281,7 @@ export default function Login({ onLogin, onSignup, onRequestCode, onForgotPasswo
       setSubmitting(true)
       try {
         await onLogin(email, password)
+        try { localStorage.setItem(LAST_EMAIL_KEY, email.trim()) } catch { /* 저장 불가 */ }
       } catch (err) {
         setErrorMsg(messageFor(err))
       } finally {
@@ -384,10 +389,11 @@ export default function Login({ onLogin, onSignup, onRequestCode, onForgotPasswo
           )}
           <input className="login-field" style={inputStyle} type="email" placeholder="이메일" value={email}
                  onChange={(e) => { setEmail(e.target.value); if (needsCode && codeSent) resetCodeFlow() }}
-                 required disabled={needsCode && codeSent} autoComplete="email" />
+                 required disabled={needsCode && codeSent} name="username" autoComplete={mode === 'login' ? 'username' : 'email'} />
           {/* forgot 모드에서는 코드를 받은 뒤에야 "새 비밀번호"를 물어봅니다. */}
           {(mode !== 'forgot' || codeSent) && (
-            <input className="login-field" style={inputStyle} type="password"
+            <input className="login-field" style={inputStyle} type="password" name="password"
+                   autoFocus={mode === 'login' && !!email}
                    placeholder={mode === 'login' ? '비밀번호' : mode === 'forgot' ? '새 비밀번호 (6자 이상)' : '비밀번호 (6자 이상)'}
                    value={password} onChange={(e) => setPassword(e.target.value)}
                    required minLength={mode === 'login' ? undefined : 6}
