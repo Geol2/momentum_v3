@@ -65,6 +65,13 @@ export default function Workspace({
   const [listTab, setListTab] = useState('chat')
   const [pcAgents, setPcAgents] = useState([])
   const [pcJobs, setPcJobs] = useState([])
+  // Claude Code 프로젝트 묶음 접기(브라우저에 기억)
+  const [folded, setFolded] = useState(() => { try { return JSON.parse(localStorage.getItem('g2_code_folded') || '{}') } catch { return {} } })
+  const toggleFold = (name) => setFolded((f) => {
+    const n = { ...f, [name]: !f[name] }
+    try { localStorage.setItem('g2_code_folded', JSON.stringify(n)) } catch { /* 무시 */ }
+    return n
+  })
 
   // 누가 답하는지(구독 / 한도라 API). 질문이 끝날 때마다 다시 봅니다.
   const [engine, setEngine] = useState(null)
@@ -228,9 +235,12 @@ export default function Workspace({
   useEffect(() => { if (codeMode) setListTab('code') }, [codeMode])
 
   const rename = async (c) => {
-    const t = window.prompt('대화 이름', c.title)
+    // Claude Code 대화는 제목 앞 [프로젝트] 로 묶이므로, 이름만 바꾸고 그 묶음 표시는 그대로 둡니다.
+    const m = /^\[([^\]]+)\]\s*/.exec(c.title || '')
+    const t = window.prompt('대화 이름', m ? c.title.slice(m[0].length) : c.title)
     if (t == null || !t.trim()) return
-    try { await aiConversationsApi.rename(c.id, t.trim()); loadConversations() } catch (e) { setError(errMsg(e)) }
+    const name = m && !/^\[[^\]]+\]/.test(t.trim()) ? `[${m[1]}] ${t.trim()}` : t.trim()
+    try { await aiConversationsApi.rename(c.id, name); loadConversations() } catch (e) { setError(errMsg(e)) }
   }
   const remove = async (c) => {
     if (!window.confirm(`"${c.title}" 대화를 지울까요?`)) return
@@ -326,8 +336,10 @@ export default function Workspace({
           {conversations && codeConvs.length === 0 && <p className="ws-dim">아직 없어요. PC에서 sync 스크립트를 돌리거나 "Claude 대화 가져오기"를 쓰세요.</p>}
           {codeGroups.map((g) => (
             <div key={g.name}>
-              <div className="ws-sec"><span>{g.name}</span></div>
-              <ul className="ws-list ws-convs">
+              <button type="button" className="ws-sec ws-fold" onClick={() => toggleFold(g.name)} aria-expanded={!folded[g.name]}>
+                <span>{folded[g.name] ? '▸' : '▾'} {g.name} <em>{g.items.length}</em></span>
+              </button>
+              {!folded[g.name] && <ul className="ws-list ws-convs">
                 {g.items.map((c) => (
                   <li key={c.id} className="ws-conv">
                   <button type="button" className={`ws-item${c.id === conv.id ? ' on' : ''}`} onClick={pick(() => onSelectConversation(c))}>
@@ -340,7 +352,7 @@ export default function Workspace({
                   </span>
                 </li>
                 ))}
-              </ul>
+              </ul>}
             </div>
           ))}
         </>
@@ -684,6 +696,8 @@ const CSS = `
 .ws-tabs { display:flex; gap:4px; margin:12px 0 6px; }
 .ws-tabs button { flex:1; padding:7px 6px; border-radius:8px; border:1px solid #2a2f3a; background:transparent; color:var(--dim, #8b93a5); font-size:13px; cursor:pointer; }
 .ws-tabs button.on { background:var(--panel); color:var(--text); border-color:#3b82f6; }
+.ws-fold { width:100%; background:none; border:0; padding:0; cursor:pointer; text-align:left; color:inherit; font:inherit; }
+.ws-fold em { font-style:normal; opacity:.6; margin-left:4px; }
 .ws-cc { font-weight:600; color:#c084fc; }
 .ws-compose textarea { width:100%; box-sizing:border-box; background:var(--panel); color:var(--text); border:1px solid #2a2f3a; border-radius:10px; padding:10px 12px; font-size:15px; resize:vertical; min-height:48px; max-height:40vh; font-family:inherit; }
 .ws-compose-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px; }
