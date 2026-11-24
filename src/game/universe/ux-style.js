@@ -101,6 +101,21 @@ const CSS = `
 .mu-tiltbtn{position:absolute;right:14px;bottom:100%;margin-bottom:8px;height:30px;padding:0 12px;border:1px solid var(--g2);background:rgba(1,22,11,.82);color:var(--g);
   font-family:inherit;font-weight:700;font-size:11px;cursor:pointer;text-shadow:var(--glow)}
 .mu-tiltbtn[hidden]{display:none}
+.mu-neobtn{position:absolute;right:68px;bottom:100%;margin-bottom:8px;height:30px;padding:0 10px;border:1px solid #c98a3a;background:rgba(30,16,2,.85);color:#ffce6e;
+  font-family:inherit;font-weight:700;font-size:11px;cursor:pointer}
+.mu-neobtn.on{background:rgba(255,206,110,.25)}
+.mu-neobtn[hidden],.mu-neop[hidden]{display:none}
+.mu-neop{position:absolute;right:10px;bottom:calc(100% + 46px);width:min(92vw,360px);max-height:min(60vh,460px);overflow:auto;z-index:8;padding:10px 12px;
+  background:rgba(14,8,1,.95);border:1px solid #c98a3a;box-shadow:0 0 16px rgba(255,170,60,.25);font-size:11px;color:#f3e2c0}
+.mu-neop .t{font-weight:800;color:#ffce6e;font-size:12px;margin-bottom:2px}
+.mu-neop p{margin:4px 0;color:#c9b38a;font-size:10.5px}
+.mu-neop p.src{margin-top:8px;color:#8a7a5a}
+.mu-neop button{display:block;width:100%;text-align:left;margin:5px 0;padding:6px 8px;border:1px solid rgba(201,138,58,.45);background:rgba(40,24,6,.7);color:#f3e2c0;font-family:inherit;font-size:10.5px;cursor:pointer}
+.mu-neop button.on{border-color:#ffce6e;background:rgba(255,206,110,.18)}
+.mu-neop button.past{opacity:.65}
+.mu-neop button b{color:#ffe2a8;font-size:11.5px;margin-right:6px}
+.mu-neop button i{font-style:normal;color:#ff8a6a;border:1px solid #ff8a6a;padding:0 4px;font-size:9.5px}
+.mu-neop button span{display:block;margin-top:2px;color:#d8c49c}
 .mu-scalebar{position:absolute;left:14px;bottom:100%;margin-bottom:8px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;pointer-events:none;
   font-size:10px;color:#cfffe2;text-shadow:0 0 3px #000,0 0 6px #000;font-variant-numeric:tabular-nums}
 .mu-sb-bar{display:block;height:5px;border:1.5px solid var(--g);border-top:0;box-shadow:0 2px 4px rgba(0,0,0,.6);transition:width .12s linear}

@@ -173,6 +173,11 @@ export const settingsApi = {
 }
 
 // Web Push subscriptions — one row per browser, used for 할 일 시간 알림.
+// 우주 탐험: 지구 근접 소행성(NASA JPL 자료를 서버가 받아 6시간 캐시)
+export const spaceApi = {
+  neo: () => apiFetch('/api/space/neo'),
+}
+
 export const pushApi = {
   publicKey: () => apiFetch('/api/push/public-key'),
   subscribe: (sub) => apiFetch('/api/push/subscriptions', { method: 'POST', body: JSON.stringify(sub) }),

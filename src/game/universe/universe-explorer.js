@@ -32,6 +32,7 @@ import day2kUrl from './earth-day-2k.webp';
 import relief2kUrl from './earth-relief-2k.webp';
 import moonUrl from './moon-map.webp';
 import { loadDepth, nearestStation, drawStations } from './ux-subway.js';
+import { loadNeo, neoList, drawNeo, sizeText, whenText, LD_AU } from './neo.js';
 // 실제 크기 비교(3D)가 있는 거대한 별
 const GIANT_NAMES = new Set(['스티븐슨 2-18', 'UY 방패자리', '에타 카리나이']);
 import { LY, AU, MLY, R_OBS, C, DEG, S_MIN, S_MAX, S_START, clamp, smooth, band, P, TODAY, SUN, skyPosM, MOON, GC, ANDROMEDA, M33, LMC, SMC, LG_CENTER, VIRGO, GA, LANI, camAt, LEVELS } from './ux-consts.js';
@@ -78,6 +79,8 @@ export function mountUniverseExplorer(container, opts = {}) {
       <div class="mu-scalebar" aria-label="축척"><span class="mu-sb-lab"></span><span class="mu-sb-bar"></span></div>
       <button class="mu-citybtn" hidden aria-label="3D 건물 보기">3D 건물</button>
       <button class="mu-tiltbtn" hidden aria-label="지구 기울여 보기">2D</button>
+      <button class="mu-neobtn" hidden aria-label="지구 근접 소행성">근접 소행성</button>
+      <div class="mu-neop" hidden></div>
       <div class="mu-focusbar" hidden>
         <button class="mu-back">← 태양계로</button>
         <button class="mu-speed">SPD · 1초=1시간</button>
@@ -989,6 +992,30 @@ export function mountUniverseExplorer(container, opts = {}) {
     earth.setTilt(earth.tilt > 0 ? 0 : TILT_3D);
     store.earth2D = earth.tilt === 0; save(); tiltLabel();
   });
+  // 지구 근접 소행성 목록 (NASA JPL)
+  let neoSel = null;
+  const btnNeo = $('.mu-neobtn'), neoP = $('.mu-neop');
+  for (const ev of ['wheel', 'touchstart', 'pointerdown']) neoP.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
+  const renderNeo = () => {
+    const L = neoList();
+    if (!L) { neoP.innerHTML = '<div class="t">지구 근접 소행성</div><p>불러오는 중… (로그인 필요)</p>'; return; }
+    const now = Date.now();
+    const rows = L.map((it) => `<button data-d="${it.des}" class="${it.des === neoSel ? 'on' : ''} ${it.t < now ? 'past' : ''}">
+      <b>${it.name.replace(/^\(|\)$/g, '')}</b>${it.pha ? '<i>잠재적 위험</i>' : ''}
+      <span>${whenText(it, now)}</span>
+      <span>최소 ${(it.distAu / LD_AU).toFixed(2)} 달 거리 (${Math.round(it.distAu * 149597870.7).toLocaleString('ko-KR')}km) · ${it.vRel.toFixed(1)}km/s · ${sizeText(it)}</span></button>`).join('');
+    neoP.innerHTML = `<div class="t">지구 근접 소행성 · 지난 7일~앞으로 60일</div><p>0.05 AU(달 거리 약 19배) 안으로 오는 것 · 탭하면 궤적 강조</p>${rows || '<p>없음</p>'}<p class="src">자료: NASA/JPL CNEOS · 궤적은 궤도 요소로 계산한 근사</p>`;
+  };
+  btnNeo.addEventListener('click', () => {
+    neoP.hidden = !neoP.hidden; btnNeo.classList.toggle('on', !neoP.hidden);
+    if (!neoP.hidden) { renderNeo(); loadNeo()?.then(renderNeo); }
+  });
+  neoP.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-d]'); if (!b) return;
+    neoSel = neoSel === b.dataset.d ? null : b.dataset.d; renderNeo();
+    const it = neoList()?.find((x) => x.des === neoSel);
+    if (it) { setTarget(9.4); toast(`${it.name.replace(/^\(|\)$/g, '')} — 달 거리 ×${(it.distAu / LD_AU).toFixed(1)}`); }
+  });
   // 3D 동네 (지표를 최대로 확대했을 때)
   const btnCity = $('.mu-citybtn');
   btnCity.addEventListener('click', () => {
@@ -1264,6 +1291,9 @@ export function mountUniverseExplorer(container, opts = {}) {
     const lv = LEVELS[idx];
     btnCity.hidden = !(earth.gl && s < 3.75 && idx === 0 && !focus);
     btnTilt.hidden = !(earth.gl && earth.setTilt && idx <= 1 && !focus);
+    btnNeo.hidden = !(earth.gl && s > 6.3 && s < 11.2 && !focus);
+    if (btnNeo.hidden && !neoP.hidden) { neoP.hidden = true; btnNeo.classList.remove('on'); }
+    btnNeo.style.marginBottom = btnTilt.hidden ? '8px' : (btnCity.hidden ? '46px' : '84px');
     btnTilt.style.marginBottom = btnCity.hidden ? '8px' : '46px';
     const fmtCoord = (v, pos, neg) => `${Math.abs(v).toFixed(2)}°${v >= 0 ? pos : neg}`;
     let locLine = '';
@@ -2248,6 +2278,8 @@ export function mountUniverseExplorer(container, opts = {}) {
             }
           }
         }
+        // 지구 근접 소행성 궤적 (지구 주변~달 바깥 단계)
+        if (earth.gl && s > 6.3 && s < 11.2) { loadNeo(); drawNeo(octx, earth, X, Y, er, W, H, Date.now(), neoSel); }
         if (er > 5) {
           if (!earth.gl) earth.draw(ctx, X, Y, er, time, dpr, W, H, Math.abs(targetS - s) > 0.003 || zoomVel !== 0);
           ctx = octx;

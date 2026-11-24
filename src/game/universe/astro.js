@@ -5,7 +5,7 @@
 const DEG = Math.PI / 180
 export const EARTH_RADIUS_KM = 6371
 
-const daysJ2000 = (date) => date.getTime() / 86400000 + 2440587.5 - 2451545.0
+export const daysJ2000 = (date) => date.getTime() / 86400000 + 2440587.5 - 2451545.0
 const gmstDeg = (n) => (((280.46061837 + 360.98564736629 * n) % 360) + 360) % 360
 
 /** 태양의 황경(도) */
@@ -16,7 +16,7 @@ function sunEclLon(n) {
 }
 
 /** 황도 좌표(λ, β) → 지구 고정 단위벡터 */
-function eclToEcef(lamDeg, betaDeg, n) {
+export function eclToEcef(lamDeg, betaDeg, n) {
   const eps = (23.439 - 0.0000004 * n) * DEG
   const l = lamDeg * DEG, b = betaDeg * DEG
   const xe = Math.cos(b) * Math.cos(l), ye = Math.cos(b) * Math.sin(l), ze = Math.sin(b)
