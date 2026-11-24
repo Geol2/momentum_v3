@@ -10,6 +10,7 @@
 //   node scripts/sync-claude-sessions.mjs --watch 10      # 10분마다 반복
 //   node scripts/sync-claude-sessions.mjs --dry           # 보내지 않고 무엇을 보낼지만 출력
 //   node scripts/sync-claude-sessions.mjs --since 7       # 최근 7일 안에 바뀐 세션만
+//   node scripts/sync-claude-sessions.mjs --since 1 --log # 훅용: 결과를 임시 폴더 momentum-sync.log에
 //
 // 환경 변수
 //   MOMENTUM_API       백엔드 주소 (기본 https://api.geol2.com)
@@ -26,6 +27,22 @@ import { pathToFileURL } from 'node:url'
 const args = process.argv.slice(2)
 const flag = (n) => args.includes(n)
 const opt = (n, d) => { const i = args.indexOf(n); return i >= 0 && args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : d }
+
+// ~/.momentum.env 가 있으면 직접 읽어요(KEY=값, 앞의 export 는 있어도 됨).
+// 그래서 훅이 cmd·PowerShell·bash 어느 셸로 실행돼도 `node 이파일` 한 줄이면 됩니다.
+try {
+  for (const ln of fs.readFileSync(path.join(os.homedir(), '.momentum.env'), 'utf8').split(/\r?\n/)) {
+    const m = ln.match(/^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/)
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim().replace(/^(['"])(.*)\1$/, '$2')
+  }
+} catch { /* 파일 없음 */ }
+
+// --log: 출력을 임시 폴더의 momentum-sync.log 에 남김 (Windows면 %TEMP%\momentum-sync.log)
+if (flag('--log')) {
+  const logFile = path.join(os.tmpdir(), 'momentum-sync.log')
+  const write = (...a) => { try { fs.appendFileSync(logFile, a.join(' ') + '\n') } catch { /* 무시 */ } }
+  console.log = write; console.error = write
+}
 
 const API = (process.env.MOMENTUM_API || 'https://api.geol2.com').replace(/\/$/, '')
 const ROOT = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects')
