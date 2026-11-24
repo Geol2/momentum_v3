@@ -124,6 +124,50 @@ export default function Workspace({
     if (!toGlasses) { setToGlasses(true); try { localStorage.setItem('g2_to_glasses', '1') } catch { /* */ } }
   }
 
+  // 대화 내보내기: 다른 곳(다른 AI, 메모 앱 등)에 붙여 쓰도록 마크다운으로
+  const toMarkdown = (c, ts) => [
+    `# ${c.title}`,
+    `${c.project ? `프로젝트: ${c.project} · ` : ''}${new Date(c.createdAt).toLocaleString('ko-KR')}`,
+    '',
+    ...ts.flatMap((t) => [`## Q. ${t.question}`, '', t.answer, ...(t.detail ? ['', t.detail] : []),
+      ...(t.steps?.length ? ['', '할 일:', ...t.steps.map((x, i) => `${i + 1}. ${x}`)] : []), '']),
+  ].join('\n')
+  const download = (name, text, type) => {
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([text], { type }))
+    a.download = name; document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+  }
+  const safeName = (t) => (t || '대화').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 60)
+  const [exportMsg, setExportMsg] = useState('')
+  async function exportOne(mode) {
+    if (!detail?.conversation) return
+    const md = toMarkdown(detail.conversation, turns)
+    try {
+      if (mode === 'copy') { await navigator.clipboard.writeText(md); setExportMsg('복사했어요') }
+      else if (mode === 'share' && navigator.share) await navigator.share({ title: detail.conversation.title, text: md })
+      else { download(`${safeName(detail.conversation.title)}.md`, md, 'text/markdown'); setExportMsg('파일로 받았어요') }
+    } catch (e) { if (e?.name !== 'AbortError') setExportMsg('내보내지 못했어요') }
+    setTimeout(() => setExportMsg(''), 3000)
+  }
+  async function exportAll() {
+    setImporting('전체 대화 모으는 중...')
+    try {
+      const list = await aiConversationsApi.list()
+      const all = []
+      for (let i = 0; i < list.length; i++) {
+        setImporting(`전체 대화 모으는 중 ${i + 1}/${list.length}`)
+        const d = await aiConversationsApi.get(list[i].id)
+        all.push({ ...d.conversation, turns: d.turns })
+      }
+      const stamp = new Date().toISOString().slice(0, 10)
+      download(`claude-대화-${stamp}.json`, JSON.stringify(all, null, 2), 'application/json')
+      download(`claude-대화-${stamp}.md`, all.map((c) => toMarkdown(c, c.turns)).join('\n\n---\n\n'), 'text/markdown')
+      setImporting(`대화 ${all.length}개를 파일로 받았어요`)
+      setTimeout(() => setImporting(''), 5000)
+    } catch (e) { setImporting(''); setError(errMsg(e)) }
+  }
+
   const pick = (fn) => (...args) => { setDrawer(false); fn(...args) }
   const ready = (projects || []).filter((p) => p.status === 'ready')
   const projectConvs = (conversations || []).filter((c) => (c.project || GENERAL) === conv.project)
@@ -171,6 +215,7 @@ export default function Workspace({
         title="claude.ai 내보내기 zip(설정 > 개인정보 > 데이터 내보내기) 또는 Claude Code 세션 .jsonl">
         Claude 대화 가져오기
       </button>
+      <button type="button" className="ws-link" onClick={exportAll} title="모든 대화를 JSON·마크다운 파일로">전체 대화 내보내기</button>
       <input ref={importRef} type="file" accept=".zip,.json,.jsonl" multiple hidden onChange={(e) => { importFiles(e.target.files); e.target.value = '' }} />
       {importing && <p className="ws-engine">{importing}</p>}
 
@@ -222,6 +267,13 @@ export default function Workspace({
           <strong>{title}</strong>
           <span>{conv.project ? `프로젝트 ${conv.project} · Claude가 코드를 직접 읽어요` : '일반 질문'}</span>
         </div>
+        {turns.length > 0 && (
+          <span className="ws-export">
+            <button type="button" className="ws-link" onClick={() => exportOne('copy')}>복사</button>
+            <button type="button" className="ws-link" onClick={() => exportOne(navigator.share ? 'share' : 'file')}>{navigator.share ? '공유' : '파일'}</button>
+            {exportMsg && <em>{exportMsg}</em>}
+          </span>
+        )}
         <button type="button" className={`ws-btn ws-pin${toGlasses ? ' on' : ''}`} onClick={switchGlasses} aria-pressed={toGlasses}
           title="켜면 지금 보는 대화의 답이 안경에 떠요">
           {toGlasses ? '안경에 띄우는 중' : '안경에 띄우기'}
@@ -442,6 +494,8 @@ const CSS = `
 .ws-head strong { font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .ws-head span, .ws-status { font-size:12px; color:var(--muted); }
 .ws-status { white-space:nowrap; }
+.ws-export { display:flex; gap:10px; align-items:center; font-size:13px; white-space:nowrap; }
+.ws-export em { color:#6fd3a0; font-style:normal; font-size:12px; }
 .ws-pin.on { border-color:#6fd3a0; color:#6fd3a0; }
 .ws-pin-one { float:right; font-size:12px; }
 .ws-pin-one.on { color:#6fd3a0; text-decoration:none; }
