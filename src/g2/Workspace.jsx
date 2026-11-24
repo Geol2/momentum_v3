@@ -265,8 +265,9 @@ export default function Workspace({
         <button type="button" className="ws-menu" onClick={() => setDrawer((o) => !o)} aria-expanded={drawer}>☰ 대화</button>
         <div className="ws-head">
           <strong>{title}</strong>
-          <span>{conv.project ? `프로젝트 ${conv.project} · Claude가 코드를 직접 읽어요` : '일반 질문'}</span>
+          <span>{conv.project ? <>프로젝트 {conv.project}<em className="ws-sub-long"> · Claude가 코드를 직접 읽어요</em></> : '일반 질문'}</span>
         </div>
+        <div className="ws-tools">
         {turns.length > 0 && (
           <span className="ws-export">
             <button type="button" className="ws-link" onClick={() => exportOne('copy')}>복사</button>
@@ -276,11 +277,12 @@ export default function Workspace({
         )}
         <button type="button" className={`ws-btn ws-pin${toGlasses ? ' on' : ''}`} onClick={switchGlasses} aria-pressed={toGlasses}
           title="켜면 지금 보는 대화의 답이 안경에 떠요">
-          {toGlasses ? '안경에 띄우는 중' : '안경에 띄우기'}
+          <span className="ws-dot-sw" aria-hidden="true" />{toGlasses ? '안경에 띄우는 중' : '안경에 띄우기'}
         </button>
         <button type="button" className="ws-glass-toggle" onClick={() => setShowGlasses((o) => !o)} aria-expanded={showGlasses}>
-          안경 화면 {showGlasses ? '▲' : '▼'}
+          미리보기 {showGlasses ? '▲' : '▼'}
         </button>
+        </div>
         <span className="ws-status">{status}</span>
       </header>
 
@@ -476,7 +478,7 @@ function Composer({ busy, project, onAsk, speak, onSpeakChange }) {
         <button type="button" className="ws-btn" onClick={() => cameraRef.current?.click()} disabled={busy || photos.length >= MAX_PHOTOS}>사진 찍기</button>
         <button type="button" className="ws-btn" onClick={() => albumRef.current?.click()} disabled={busy || photos.length >= MAX_PHOTOS}>앨범</button>
         <label className="ws-speak">
-          <input type="checkbox" checked={speak} onChange={(e) => onSpeakChange(e.target.checked)} /> 폰으로 읽어 주기
+          <input type="checkbox" checked={speak} onChange={(e) => onSpeakChange(e.target.checked)} /> <span className="ws-long">폰으로 </span>읽어 주기
         </label>
         <button type="submit" className="ws-btn ws-send" disabled={!canSend}>{busy ? '답을 기다리는 중...' : '보내기'}</button>
       </div>
@@ -496,6 +498,10 @@ const CSS = `
 .ws-status { white-space:nowrap; }
 .ws-export { display:flex; gap:10px; align-items:center; font-size:13px; white-space:nowrap; }
 .ws-export em { color:#6fd3a0; font-style:normal; font-size:12px; }
+.ws-tools { display:flex; align-items:center; gap:10px; }
+.ws-head em { font-style:normal; }
+.ws-dot-sw { display:inline-block; width:8px; height:8px; border-radius:50%; background:#555; margin-right:6px; vertical-align:1px; }
+.ws-pin.on .ws-dot-sw { background:#6fd3a0; box-shadow:0 0 6px #6fd3a0; }
 .ws-pin.on { border-color:#6fd3a0; color:#6fd3a0; }
 .ws-pin-one { float:right; font-size:12px; }
 .ws-pin-one.on { color:#6fd3a0; text-decoration:none; }
@@ -576,5 +582,23 @@ const CSS = `
   .ws-q { max-width:92%; }
   .ws-actions { display:flex; position:static; transform:none; background:none; justify-content:flex-end; }
   .ws-glasses { position:static; width:auto; max-height:45dvh; flex:none; border:0; border-bottom:1px solid var(--line); border-radius:0; box-shadow:none; order:-1; }
+  /* 폰: 1줄 = 메뉴·제목, 2줄 = 버튼 줄(가로로 밀어 보기) */
+  .ws-top { flex-wrap:wrap; row-gap:8px; min-height:0; }
+  .ws-menu { padding:6px 10px; font-size:13px; }
+  .ws-head strong { font-size:15px; }
+  .ws-head span { font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ws-sub-long, .ws-long { display:none; }
+  .ws-tools { order:3; width:100%; gap:6px; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+  .ws-tools::-webkit-scrollbar { display:none; }
+  .ws-tools .ws-btn, .ws-tools .ws-glass-toggle, .ws-export .ws-link {
+    flex:none; height:32px; padding:0 12px; font-size:13px; border-radius:16px; display:inline-flex; align-items:center;
+    background:rgba(255,255,255,.04); border:1px solid var(--line); color:var(--text); text-decoration:none; }
+  .ws-tools .ws-pin.on { border-color:#6fd3a0; color:#6fd3a0; background:rgba(111,211,160,.1); }
+  .ws-export { gap:6px; order:2; }
+  .ws-pin { order:0; }
+  .ws-glass-toggle { order:1; }
+  .ws-compose-row { gap:6px; flex-wrap:wrap; }
+  .ws-compose-row .ws-btn { padding:7px 10px; font-size:13px; }
+  .ws-turn .ws-pin-one { font-size:12px; }
 }
 `
