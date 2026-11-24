@@ -29,17 +29,26 @@ async function unzip(buf, want) {
 }
 
 // ── claude.ai 내보내기: [{ uuid, name, chat_messages: [{ sender, text, content, created_at }] }] ──
-const msgText = (m) => {
-  if (typeof m.content === 'string') return m.content
-  if (Array.isArray(m.content) && m.content.length) {
-    const t = m.content.filter((c) => c && c.type === 'text' && c.text).map((c) => c.text).join('\n')
-    if (t.trim()) return t
+// 메시지에서 글자 뽑기 — 내보내기 형식마다 위치가 달라서 넓게 찾음
+// (content 문자열/배열, text, parts, message.content …). 생각(thinking)·도구·이미지 블록은 뺌
+const SKIP_TYPES = /^(thinking|redacted_thinking|tool_use|tool_result|image|document|server_tool_use|web_search_tool_result)$/
+function deepText(v, depth = 0) {
+  if (v == null || depth > 6) return ''
+  if (typeof v === 'string') return v
+  if (Array.isArray(v)) return v.map((x) => deepText(x, depth + 1)).filter(Boolean).join('\n')
+  if (typeof v === 'object') {
+    if (typeof v.type === 'string' && SKIP_TYPES.test(v.type)) return ''
+    for (const k of ['text', 'content', 'parts', 'value', 'message', 'body']) {
+      if (v[k] != null) { const t = deepText(v[k], depth + 1); if (t.trim()) return t }
+    }
   }
-  return m.text || ''
+  return ''
 }
+const msgText = (m) => deepText(m.content) || deepText(m.text) || deepText(m.message) || deepText(m.parts) || ''
 // 내보내기 형식이 바뀌어도 읽히도록: 메시지 배열(chat_messages / messages)과 보낸 쪽(sender / role)을 넓게 받음
-const msgsOf = (c) => c?.chat_messages || c?.messages || null
-const isHuman = (m) => m.sender === 'human' || m.role === 'user' || m.role === 'human' || m.author === 'human'
+const msgsOf = (c) => c?.chat_messages || c?.messages || c?.chatMessages || null
+const roleOf = (m) => m.sender || m.role || m.author?.role || m.author || m.message?.role || m.type
+const isHuman = (m) => ['human', 'user'].includes(roleOf(m))
 const isConv = (c) => c && typeof c === 'object' && Array.isArray(msgsOf(c))
 function fromClaudeAi(list) {
   const out = []
