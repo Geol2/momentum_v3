@@ -299,6 +299,7 @@ export default function G2App() {
 
   // 어느 화면(이 폰, PC 브라우저 등)에서 물었든 가장 최근 질문을 따라갑니다.
   // 새 질문이 생기면 안경을 Claude 화면으로 넘기고, 답이 오면 요약 첫 쪽부터 보여 줍니다.
+  const pinSeenRef = useRef(undefined) // 마지막으로 띄운 '안경에 띄우기' 답
   const pollLatest = useCallback(async () => {
     if (pendingRef.current) return
     let job
@@ -338,7 +339,6 @@ export default function G2App() {
   }, [applyJob, setConv, bump])
 
   // 폰·PC에서 '안경에 띄우기'로 고른 답을 따라갑니다(켰을 때만 서버에 남아 있음).
-  const pinSeenRef = useRef(undefined)
   const pollPin = useCallback(async () => {
     let pin
     try { pin = await aiConversationsApi.glassesPin() } catch { return }
@@ -368,9 +368,10 @@ export default function G2App() {
     let stop = false
     ;(async () => {
       while (!stop) {
-        if (isInEvenApp() || !document.hidden) await pollPin()
         // 일반 브라우저 탭이 가려져 있으면 쉽니다. Even 앱은 폰 화면이 꺼져도 안경이 쓰므로 계속 봅니다.
-        if (isInEvenApp() || !document.hidden) await pollLatest()
+        // 최근 질문을 먼저 보고, 그다음 '안경에 띄우기'로 고른 답을 봅니다.
+        // (반대 순서면 앱을 연 직후 최근 질문이 고른 답을 덮어써서 안경에 안 떴어요)
+        if (isInEvenApp() || !document.hidden) { await pollLatest(); await pollPin() }
         await wakeableSleep(dataRef.current.ai.status === 'loading' ? POLL_RUNNING_MS : POLL_IDLE_MS, wakeRef)
       }
     })()
