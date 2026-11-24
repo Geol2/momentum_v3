@@ -213,6 +213,15 @@ export const aiApi = {
 }
 
 // Claude 대화 — 프로젝트마다 여러 개, 서버(DB)에 저장. 어느 화면에서 이어 물어도 같은 대화.
+// 모멘텀 → PC Claude Code 중계. PC에서 scripts/pc-agent.mjs 를 켜 두면 그 PC의 세션으로 이어 물을 수 있어요(읽기 전용).
+export const pcApi = {
+  // [{ id, name, lastSeen, sessions: [{ sessionId, cwd, title, updatedAt }] }] — 지금 연결된 PC
+  agents: () => apiFetch('/api/ai/pc/agents'),
+  // [{ id, agentId, sessionId, cwd, question, status: queued|running|done|error, answer, error, createdAt }]
+  jobs: () => apiFetch('/api/ai/pc/jobs'),
+  ask: (agentId, sessionId, question) => apiFetch('/api/ai/pc/jobs', { method: 'POST', body: JSON.stringify({ agentId, sessionId, question }) }),
+}
+
 export const aiConversationsApi = {
   // [{ id, project, title, createdAt, updatedAt }] 최근 대화가 먼저
   list: () => apiFetch('/api/ai/conversations'),

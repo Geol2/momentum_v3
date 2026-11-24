@@ -5,7 +5,7 @@
 // 좁은 화면(폰)에서는 왼쪽이 서랍으로 접히고, 안경 미리보기는 펼침 버튼으로 엽니다.
 // 대화는 서버(DB)에 저장되고, 안경은 '가장 최근 질문'을 따라가므로 어느 화면에서 물어도 같이 보입니다.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { aiApi, aiConversationsApi, ApiError, todosApi } from '../lib/api.js'
+import { aiApi, aiConversationsApi, ApiError, pcApi, todosApi } from '../lib/api.js'
 import { parseChatFiles } from './importChats.js'
 import { dateKey } from '../lib/dates.js'
 import ProjectManager, { useProjects } from './ProjectsPanel.jsx'
@@ -61,6 +61,10 @@ export default function Workspace({
   const [managing, setManaging] = useState(false)
   const [showGlasses, setShowGlasses] = useState(false)
   const endRef = useRef(null)
+  // 대화 목록 탭: 'chat' 모멘텀에서 한 질문 / 'code' PC Claude Code 등 밖에서 가져온 대화
+  const [listTab, setListTab] = useState('chat')
+  const [pcAgents, setPcAgents] = useState([])
+  const [pcJobs, setPcJobs] = useState([])
 
   // 누가 답하는지(구독 / 한도라 API). 질문이 끝날 때마다 다시 봅니다.
   const [engine, setEngine] = useState(null)
@@ -107,6 +111,17 @@ export default function Workspace({
     document.addEventListener('visibilitychange', onVis)
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis) }
   }, [conv.id])
+
+  // PC 에이전트(연결된 PC)와 PC로 보낸 질문 상태. 화면을 보는 동안 5초마다 확인.
+  const loadPc = useCallback(async () => {
+    try { setPcAgents(await pcApi.agents() || []) } catch { setPcAgents([]) }
+    try { setPcJobs(await pcApi.jobs() || []) } catch { /* 무시 */ }
+  }, [])
+  useEffect(() => {
+    loadPc()
+    const t = setInterval(() => { if (!document.hidden) loadPc() }, 5000)
+    return () => clearInterval(t)
+  }, [loadPc])
 
   // 이 대화에서 진행 중인 질문(안경과 같은 상태). 새 대화의 첫 질문은 id가 아직 없을 수 있습니다.
   const live = (ai.status === 'loading' || ai.status === 'error')
@@ -191,8 +206,26 @@ export default function Workspace({
 
   const pick = (fn) => (...args) => { setDrawer(false); fn(...args) }
   const ready = (projects || []).filter((p) => p.status === 'ready')
-  const projectConvs = (conversations || []).filter((c) => (c.project || GENERAL) === conv.project)
+  const isCode = (c) => !!c?.externalId
+  const projectConvs = (conversations || []).filter((c) => !isCode(c) && (c.project || GENERAL) === conv.project)
+  const codeConvs = (conversations || []).filter(isCode)
+  // 제목 앞 [프로젝트] 로 묶기
+  const codeGroups = []
+  for (const c of codeConvs) {
+    const m = /^\[([^\]]+)\]\s*/.exec(c.title || '')
+    const g = m ? m[1] : '기타'
+    let grp = codeGroups.find((x) => x.name === g)
+    if (!grp) codeGroups.push(grp = { name: g, items: [] })
+    grp.items.push({ ...c, short: m ? c.title.slice(m[0].length) : c.title })
+  }
+  const curConv = (conversations || []).find((c) => c.id === conv.id) || detail?.conversation
+  const codeMode = isCode(curConv)
+  const sessionId = codeMode ? curConv.externalId : null
+  const pcAgent = sessionId ? pcAgents.find((a) => a.sessions?.some((x) => x.sessionId === sessionId)) : null
+  const myPcJobs = sessionId ? pcJobs.filter((j) => j.sessionId === sessionId).slice().reverse() : []
   const title = conv.id ? (detail?.conversation?.title || '대화') : '새 대화'
+
+  useEffect(() => { if (codeMode) setListTab('code') }, [codeMode])
 
   const rename = async (c) => {
     const t = window.prompt('대화 이름', c.title)
@@ -258,23 +291,60 @@ export default function Workspace({
         ))}
       </ul>
 
+      <div className="ws-tabs" role="tablist">
+        <button type="button" role="tab" aria-selected={listTab === 'chat'} className={listTab === 'chat' ? 'on' : ''} onClick={() => setListTab('chat')}>모멘텀 질문</button>
+        <button type="button" role="tab" aria-selected={listTab === 'code'} className={listTab === 'code' ? 'on' : ''} onClick={() => setListTab('code')}>
+          Claude Code{codeConvs.length ? ` ${codeConvs.length}` : ''}
+        </button>
+      </div>
+      {listTab === 'chat' ? (
+        <>
       <div className="ws-sec"><span>대화 · {conv.project || '일반 질문'}</span></div>
-      <ul className="ws-list ws-convs">
-        {conversations === null && <li className="ws-dim">불러오는 중...</li>}
-        {conversations && projectConvs.length === 0 && <li className="ws-dim">아직 대화가 없어요.</li>}
-        {projectConvs.map((c) => (
-          <li key={c.id} className="ws-conv">
-            <button type="button" className={`ws-item${c.id === conv.id ? ' on' : ''}`} onClick={pick(() => onSelectConversation(c))}>
-              <span className="ws-title">{c.title}</span>
-              <span className="ws-time">{ago(c.updatedAt)}</span>
-            </button>
-            <span className="ws-actions">
-              <button type="button" aria-label={`${c.title} 이름 바꾸기`} onClick={() => rename(c)}>이름</button>
-              <button type="button" aria-label={`${c.title} 지우기`} onClick={() => remove(c)}>삭제</button>
-            </span>
-          </li>
-        ))}
-      </ul>
+        <ul className="ws-list ws-convs">
+          {conversations === null && <li className="ws-dim">불러오는 중...</li>}
+          {conversations && projectConvs.length === 0 && <li className="ws-dim">아직 대화가 없어요.</li>}
+          {projectConvs.map((c) => (
+            <li key={c.id} className="ws-conv">
+              <button type="button" className={`ws-item${c.id === conv.id ? ' on' : ''}`} onClick={pick(() => onSelectConversation(c))}>
+                <span className="ws-title">{c.title}</span>
+                <span className="ws-time">{ago(c.updatedAt)}</span>
+              </button>
+              <span className="ws-actions">
+                <button type="button" aria-label={`${c.title} 이름 바꾸기`} onClick={() => rename(c)}>이름</button>
+                <button type="button" aria-label={`${c.title} 지우기`} onClick={() => remove(c)}>삭제</button>
+              </span>
+            </li>
+          ))}
+        </ul>
+        </>
+      ) : (
+        <>
+          <p className="ws-engine">
+            {pcAgents.length ? <>연결된 PC: {pcAgents.map((a) => a.name).join(', ')} — 그 PC의 대화는 여기서 이어 물을 수 있어요(읽기 전용).</>
+              : <>PC Claude Code에서 가져온 대화예요. PC에서 pc-agent를 켜 두면 여기서 이어 물을 수 있어요.</>}
+          </p>
+          {conversations && codeConvs.length === 0 && <p className="ws-dim">아직 없어요. PC에서 sync 스크립트를 돌리거나 "Claude 대화 가져오기"를 쓰세요.</p>}
+          {codeGroups.map((g) => (
+            <div key={g.name}>
+              <div className="ws-sec"><span>{g.name}</span></div>
+              <ul className="ws-list ws-convs">
+                {g.items.map((c) => (
+                  <li key={c.id} className="ws-conv">
+                  <button type="button" className={`ws-item${c.id === conv.id ? ' on' : ''}`} onClick={pick(() => onSelectConversation(c))}>
+                    <span className="ws-title">{c.short}</span>
+                    <span className="ws-time">{ago(c.updatedAt)}</span>
+                  </button>
+                  <span className="ws-actions">
+                    <button type="button" aria-label={`${c.title} 이름 바꾸기`} onClick={() => rename(c)}>이름</button>
+                    <button type="button" aria-label={`${c.title} 지우기`} onClick={() => remove(c)}>삭제</button>
+                  </span>
+                </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </>
+      )}
       <EngineInfo engine={engine} />
     </nav>
   )
@@ -286,7 +356,7 @@ export default function Workspace({
         <button type="button" className="ws-menu" onClick={() => setDrawer((o) => !o)} aria-expanded={drawer}>☰ 대화</button>
         <div className="ws-head">
           <strong>{title}</strong>
-          <span>{conv.project ? <>프로젝트 {conv.project}<em className="ws-sub-long"> · Claude가 코드를 직접 읽어요</em></> : '일반 질문'}</span>
+          <span>{codeMode ? <><b className="ws-cc">Claude Code</b>{pcAgent ? ` · ${pcAgent.name}에 연결됨` : ' · PC 연결 안 됨'}</> : conv.project ? <>프로젝트 {conv.project}<em className="ws-sub-long"> · Claude가 코드를 직접 읽어요</em></> : '일반 질문'}</span>
         </div>
         <div className="ws-tools">
         {turns.length > 0 && (
@@ -339,9 +409,25 @@ export default function Workspace({
                 ) : <div className="ws-a ws-err">{live.error}</div>}
               </div>
             )}
+            {myPcJobs.filter((j) => j.status !== 'done' || !turns.some((t) => t.question?.trim() === j.question.trim())).map((j) => (
+              <div key={`pc-${j.id}`} className="ws-turn">
+                <div className="ws-q">{j.question}</div>
+                {j.status === 'queued' || j.status === 'running' ? (
+                  <div className="ws-a ws-progress"><span className="ws-dot" aria-hidden="true" /> {j.status === 'queued' ? 'PC로 보내는 중...' : 'PC의 Claude Code가 답하는 중...'}</div>
+                ) : j.status === 'error' ? <div className="ws-a ws-err">{j.error}</div>
+                  : <div className="ws-a" style={{ whiteSpace: 'pre-wrap' }}>{j.answer}</div>}
+              </div>
+            ))}
             <div ref={endRef} />
           </div>
-          <Composer busy={ai.status === 'loading'} project={conv.project} onAsk={onAsk} speak={speak} onSpeakChange={onSpeakChange} />
+          {codeMode ? (
+            <PcComposer agent={pcAgent} busy={myPcJobs.some((j) => j.status === 'queued' || j.status === 'running')}
+              onAsk={async (q) => {
+                try { await pcApi.ask(pcAgent.id, sessionId, q); loadPc() } catch (e) { setError(errMsg(e)) }
+              }} />
+          ) : (
+            <Composer busy={ai.status === 'loading'} project={conv.project} onAsk={onAsk} speak={speak} onSpeakChange={onSpeakChange} />
+          )}
         </main>
 
         <aside className={`ws-glasses${showGlasses ? ' open' : ''}`} aria-label="안경 화면">{glassesPane}</aside>
@@ -431,6 +517,32 @@ function Turn({ turn, onGlasses, onGlassesNow }) {
 }
 
 // 입력칸: 질문 + 사진(모니터를 찍어 보내기)
+// PC Claude Code 대화에서 쓰는 입력창: 질문이 그 PC의 같은 세션으로 가요(읽기 전용).
+// 모멘텀 Claude로 물으면 세션 기록과 순서가 어긋나므로, 이 대화에서는 PC로만 보냅니다.
+function PcComposer({ agent, busy, onAsk }) {
+  const [text, setText] = useState('')
+  const can = !!agent && !busy && text.trim()
+  const submit = (e) => {
+    e.preventDefault()
+    if (!can) return
+    onAsk(text.trim())
+    setText('')
+  }
+  return (
+    <form className="ws-compose" onSubmit={submit}>
+      <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2}
+        placeholder={agent ? `${agent.name}의 Claude Code에게 이어서 묻기 (코드 읽기만 해요)` : 'PC에서 pc-agent를 켜면 여기서 이어 물을 수 있어요'}
+        disabled={!agent}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && window.matchMedia('(pointer: fine)').matches) submit(e)
+        }} />
+      <div className="ws-compose-row">
+        <button type="submit" className="ws-btn ws-send" disabled={!can}>{busy ? 'PC가 답하는 중...' : agent ? 'PC로 보내기' : 'PC 연결 안 됨'}</button>
+      </div>
+    </form>
+  )
+}
+
 function Composer({ busy, project, onAsk, speak, onSpeakChange }) {
   const [text, setText] = useState('')
   const [photos, setPhotos] = useState([])
@@ -569,6 +681,10 @@ const CSS = `
 .ws-badge { display:inline-block; font-size:11px; padding:0 6px; border-radius:4px; margin-bottom:4px; border:1px solid var(--line); color:var(--muted); }
 .ws-badge.subscription { color:#c8ffd6; border-color:rgba(77,255,122,.35); }
 .ws-compose { border-top:1px solid var(--line); padding:12px 24px 16px; }
+.ws-tabs { display:flex; gap:4px; margin:12px 0 6px; }
+.ws-tabs button { flex:1; padding:7px 6px; border-radius:8px; border:1px solid #2a2f3a; background:transparent; color:var(--dim, #8b93a5); font-size:13px; cursor:pointer; }
+.ws-tabs button.on { background:var(--panel); color:var(--text); border-color:#3b82f6; }
+.ws-cc { font-weight:600; color:#c084fc; }
 .ws-compose textarea { width:100%; box-sizing:border-box; background:var(--panel); color:var(--text); border:1px solid #2a2f3a; border-radius:10px; padding:10px 12px; font-size:15px; resize:vertical; min-height:48px; max-height:40vh; font-family:inherit; }
 .ws-compose-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px; }
 .ws-speak { font-size:13px; color:var(--muted); display:flex; gap:6px; align-items:center; }
