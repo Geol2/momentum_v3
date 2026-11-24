@@ -386,9 +386,25 @@ export default function G2App() {
       } catch { pinSeenRef.current = undefined }
       return
     }
+    // 고른 대화에 새 답이 붙었으면(PC Claude Code에서 이어 물은 답 등) 보고 있던 답과 상관없이 최신 답으로 넘어갑니다.
+    // 대화 내역은 너무 자주 받지 않도록 8초에 한 번만 확인.
+    const P = pinRef.current
+    if (P && Date.now() - (P.checkedAt || 0) > 8000) {
+      P.checkedAt = Date.now()
+      try {
+        const d = await aiConversationsApi.get(P.conversationId)
+        const turns = d?.turns || []
+        if (pinRef.current === P && turns.length > P.turns.length) {
+          P.turns = turns
+          P.idx = turns.length - 1
+          P.jobAtPin = seenRef.current.id
+          showPin(0, true)
+          return
+        }
+      } catch { /* 다음 차례에 */ }
+    }
     // 같은 고른 답인데 안경 내용이 다른 걸로 바뀌어 있으면(앱을 막 열었을 때 등) 다시 띄움.
     // 단, 그사이 새로 질문했으면 새 질문이 우선입니다.
-    const P = pinRef.current
     if (P && !String(dataRef.current.ai?.jobId || '').startsWith('pin:') && seenRef.current.id === P.jobAtPin) showPin(0, false)
   }, [showPin])
 
