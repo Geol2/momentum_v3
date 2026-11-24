@@ -87,6 +87,27 @@ export default function Workspace({
     return () => { cancelled = true }
   }, [conv.id, version])
 
+  // PC Claude Code 동기화처럼 다른 곳에서 들어온 대화도 곧바로 보이도록, 화면을 보고 있는 동안 10초마다 조용히 다시 불러옵니다.
+  // (실패해도 오류를 띄우지 않고, 질문 수가 바뀌었을 때만 화면을 갱신)
+  useEffect(() => {
+    const tick = async () => {
+      if (document.hidden) return
+      try {
+        const list = await aiConversationsApi.list()
+        setConversations((prev) => (JSON.stringify(prev) === JSON.stringify(list) ? prev : list))
+        if (conv.id) {
+          const d = await aiConversationsApi.get(conv.id)
+          setDetail((prev) => (prev?.conversation?.id === d?.conversation?.id && prev?.turns?.length === d?.turns?.length
+            && prev?.turns?.at(-1)?.answer === d?.turns?.at(-1)?.answer ? prev : d))
+        }
+      } catch { /* 다음 차례에 다시 */ }
+    }
+    const t = setInterval(tick, 10000)
+    const onVis = () => { if (!document.hidden) tick() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis) }
+  }, [conv.id])
+
   // 이 대화에서 진행 중인 질문(안경과 같은 상태). 새 대화의 첫 질문은 id가 아직 없을 수 있습니다.
   const live = (ai.status === 'loading' || ai.status === 'error')
     && (ai.conversationId == null ? !conv.id : ai.conversationId === conv.id) ? ai : null
