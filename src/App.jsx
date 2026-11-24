@@ -345,7 +345,16 @@ export default function App() {
   )
 
   if (auth.status === 'booting') {
-    return <StarField background={displayedBackground} />
+    return (
+      <>
+        <StarField background={displayedBackground} />
+        {auth.reconnecting && (
+          <div style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(28px + env(safe-area-inset-bottom))', textAlign: 'center', color: 'rgba(255,255,255,.8)', fontSize: 13 }}>
+            서버에 연결하는 중이에요… 로그인은 그대로 유지돼요
+          </div>
+        )}
+      </>
+    )
   }
   if (auth.status === 'anonymous') {
     return (

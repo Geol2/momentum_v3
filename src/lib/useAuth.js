@@ -21,14 +21,22 @@ export function useAuth() {
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired)
   }, [])
 
+  // 앱을 열 때 저장된 토큰으로 자동 로그인.
+  // 토큰이 정말 무효일 때(401·403)만 로그아웃합니다. 서버가 재시작 중이라 연결이 안 되거나(네트워크 오류)
+  // 502·503이 나는 동안에는 토큰을 지우지 않고 잠시 뒤 다시 시도해요 — 예전엔 이때 로그아웃돼 버렸어요.
+  const [bootTry, setBootTry] = useState(0)
   useEffect(() => {
-    if (status !== 'booting') return
-    let cancelled = false
+    if (status !== 'booting') return undefined
+    let cancelled = false, timer = null
     apiFetch('/api/auth/me')
       .then((u) => { if (!cancelled) { setUser(u); setStatus('authenticated') } })
-      .catch(() => { if (!cancelled) { clearToken(); setUser(null); setStatus('anonymous') } })
-    return () => { cancelled = true }
-  }, [status])
+      .catch((e) => {
+        if (cancelled) return
+        if (e?.status === 401 || e?.status === 403) { clearToken(); setUser(null); setStatus('anonymous'); return }
+        timer = setTimeout(() => setBootTry((n) => n + 1), Math.min(15000, 2000 * (bootTry + 1)))
+      })
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [status, bootTry])
 
   const login = useCallback(async (email, password) => {
     const { token, user: u } = await apiFetch('/api/auth/login', {
@@ -87,5 +95,5 @@ export function useAuth() {
     setStatus('anonymous')
   }, [])
 
-  return { status, user, expired, login, signup, requestCode, forgotPassword, resetPassword, logout }
+  return { status, user, expired, reconnecting: status === 'booting' && bootTry > 0, login, signup, requestCode, forgotPassword, resetPassword, logout }
 }
