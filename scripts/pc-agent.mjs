@@ -120,7 +120,11 @@ function runClaude(job) {
     const env = { ...process.env }
     delete env.ANTHROPIC_API_KEY // 구독 로그인으로 실행
     delete env.MOMENTUM_PASSWORD
-    const child = spawn('claude', argv, { cwd: job.cwd, env, shell: process.platform === 'win32', windowsHide: true })
+    // Windows는 claude 가 .cmd 라 셸로 실행해야 해요. 인자는 위에서 검사한 고정 값뿐이라 한 줄로 이어 붙여도 안전합니다
+    // (질문은 표준 입력으로 가므로 셸에 닿지 않음).
+    const child = process.platform === 'win32'
+      ? spawn(['claude', ...argv].join(' '), { cwd: job.cwd, env, shell: true, windowsHide: true })
+      : spawn('claude', argv, { cwd: job.cwd, env })
     let out = '', err = ''
     const timer = setTimeout(() => { child.kill(); err += '\n시간 초과(15분)' }, RUN_TIMEOUT_MS)
     child.stdout.on('data', (d) => { out += d })
