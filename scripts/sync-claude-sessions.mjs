@@ -21,6 +21,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const args = process.argv.slice(2)
 const flag = (n) => args.includes(n)
@@ -145,4 +146,5 @@ const main = async () => {
   await runOnce()
   if (WATCH) setInterval(() => runOnce().catch((e) => console.error(e.message)), WATCH * 60000)
 }
-if (import.meta.url === `file://${process.argv[1]}`) main().catch((e) => { console.error(e.message); process.exit(1) })
+// Windows 경로(D:\...)도 맞게 비교하도록 URL로 바꿔서 비교
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main().catch((e) => { console.error(e.message); process.exit(1) })
