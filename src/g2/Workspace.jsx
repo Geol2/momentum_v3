@@ -333,6 +333,11 @@ export default function Workspace({
             {pcAgents.length ? <>연결된 PC: {pcAgents.map((a) => a.name).join(', ')} — 그 PC의 대화는 여기서 이어 물을 수 있어요(읽기 전용).</>
               : <>PC Claude Code에서 가져온 대화예요. PC에서 pc-agent를 켜 두면 여기서 이어 물을 수 있어요.</>}
           </p>
+          {pcAgents.length > 0 && (
+            <NewPcChat agents={pcAgents} jobs={pcJobs} codeConvs={codeConvs}
+              onSent={loadPc} onError={(e) => setError(errMsg(e))}
+              onOpen={(c) => { setDrawer(false); onSelectConversation(c) }} />
+          )}
           {conversations && codeConvs.length === 0 && <p className="ws-dim">아직 없어요. PC에서 sync 스크립트를 돌리거나 "Claude 대화 가져오기"를 쓰세요.</p>}
           {codeGroups.map((g) => (
             <div key={g.name}>
@@ -529,6 +534,59 @@ function Turn({ turn, onGlasses, onGlassesNow }) {
 }
 
 // 입력칸: 질문 + 사진(모니터를 찍어 보내기)
+// PC에서 새 Claude Code 대화 시작: PC·프로젝트 폴더를 고르고 질문 → 그 폴더에서 새 세션(읽기 전용).
+// 끝나면 동기화로 Claude Code 목록에 새 대화가 생기고, 여기서 바로 열 수 있어요.
+function NewPcChat({ agents, jobs, codeConvs, onSent, onError, onOpen }) {
+  const [open, setOpen] = useState(false)
+  const [agentId, setAgentId] = useState('')
+  const [cwd, setCwd] = useState('')
+  const [text, setText] = useState('')
+  const [mine, setMine] = useState([]) // 여기서 보낸 질문 id
+  const agent = agents.find((a) => a.id === agentId) || agents[0]
+  const dirs = [...new Set((agent?.sessions || []).map((x) => x.cwd))]
+  const dir = dirs.includes(cwd) ? cwd : dirs[0] || ''
+  const base = (d) => d.split(/[\\/]/).filter(Boolean).pop() || d
+  const myJobs = jobs.filter((j) => mine.includes(j.id))
+  const send = async (e) => {
+    e.preventDefault()
+    if (!agent || !dir || !text.trim()) return
+    try {
+      const j = await pcApi.askNew(agent.id, dir, text.trim())
+      setMine((m) => [j.id, ...m].slice(0, 5)); setText(''); onSent()
+    } catch (err) { onError(err) }
+  }
+  if (!open) return <button type="button" className="ws-new" onClick={() => setOpen(true)}>+ PC에서 새 대화</button>
+  return (
+    <form className="ws-newpc" onSubmit={send}>
+      {agents.length > 1 && (
+        <select value={agent?.id || ''} onChange={(e) => setAgentId(e.target.value)} aria-label="PC">
+          {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+      )}
+      <select value={dir} onChange={(e) => setCwd(e.target.value)} aria-label="프로젝트 폴더" title={dir}>
+        {dirs.map((d) => <option key={d} value={d}>{base(d)}</option>)}
+      </select>
+      <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder={`${agent?.name}의 ${base(dir)}에서 새로 묻기 (코드 읽기만 해요)`} />
+      <div className="ws-compose-row">
+        <button type="submit" className="ws-btn ws-send" disabled={!text.trim() || !dir}>PC로 보내기</button>
+        <button type="button" className="ws-link" onClick={() => setOpen(false)}>접기</button>
+      </div>
+      {myJobs.map((j) => {
+        const conv = j.sessionId && codeConvs.find((c) => c.externalId === j.sessionId)
+        return (
+          <div key={j.id} className="ws-newpc-job">
+            <div className="ws-q">{j.question}</div>
+            {j.status === 'error' ? <div className="ws-err">{j.error}</div>
+              : j.status !== 'done' ? <div className="ws-dim"><span className="ws-dot" aria-hidden="true" /> {j.status === 'queued' ? 'PC로 보내는 중...' : 'PC가 답하는 중...'}</div>
+              : conv ? <button type="button" className="ws-link" onClick={() => onOpen(conv)}>답 왔어요 — 대화 열기</button>
+              : <div className="ws-dim">답 왔어요. 목록에 곧 생겨요...</div>}
+          </div>
+        )
+      })}
+    </form>
+  )
+}
+
 // PC Claude Code 대화에서 쓰는 입력창: 질문이 그 PC의 같은 세션으로 가요(읽기 전용).
 // 모멘텀 Claude로 물으면 세션 기록과 순서가 어긋나므로, 이 대화에서는 PC로만 보냅니다.
 function PcComposer({ agent, busy, onAsk }) {
@@ -703,6 +761,10 @@ const CSS = `
 .ws-tabs { display:flex; gap:4px; margin:12px 0 6px; }
 .ws-tabs button { flex:1; padding:7px 6px; border-radius:8px; border:1px solid #2a2f3a; background:transparent; color:var(--dim, #8b93a5); font-size:13px; cursor:pointer; }
 .ws-tabs button.on { background:var(--panel); color:var(--text); border-color:var(--accent); }
+.ws-newpc { display:flex; flex-direction:column; gap:6px; margin:8px 0; padding:8px; border:1px solid var(--line); border-radius:10px; }
+.ws-newpc select, .ws-newpc textarea { width:100%; box-sizing:border-box; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:6px 8px; font:inherit; font-size:14px; }
+.ws-newpc-job { border-top:1px solid var(--line); padding-top:6px; font-size:13px; }
+.ws-newpc-job .ws-q { margin-bottom:4px; }
 .ws-fold { width:100%; background:none; border:0; padding:0; cursor:pointer; text-align:left; color:inherit; font:inherit; }
 .ws-fold em { font-style:normal; opacity:.6; margin-left:4px; }
 .ws-cc { font-weight:600; color:#c084fc; }

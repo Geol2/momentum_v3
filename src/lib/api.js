@@ -220,6 +220,8 @@ export const pcApi = {
   // [{ id, agentId, sessionId, cwd, question, status: queued|running|done|error, answer, error, createdAt }]
   jobs: () => apiFetch('/api/ai/pc/jobs'),
   ask: (agentId, sessionId, question) => apiFetch('/api/ai/pc/jobs', { method: 'POST', body: JSON.stringify({ agentId, sessionId, question }) }),
+  // 새 세션: 그 PC에서 쓰던 프로젝트 폴더(cwd)에서 새로 시작
+  askNew: (agentId, cwd, question) => apiFetch('/api/ai/pc/jobs', { method: 'POST', body: JSON.stringify({ agentId, cwd, question }) }),
 }
 
 export const aiConversationsApi = {
