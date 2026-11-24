@@ -4,7 +4,7 @@
 //    (이때 폰 화면에는 이 미리보기가 그대로 보입니다)
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Login from '../components/Login.jsx'
-import { aiApi, ApiError, getToken, notesApi, todosApi } from '../lib/api.js'
+import { aiApi, aiConversationsApi, ApiError, getToken, notesApi, todosApi } from '../lib/api.js'
 import { dateKey } from '../lib/dates.js'
 import { useAuth } from '../lib/useAuth.js'
 import { connectGlasses, isInEvenApp } from './bridge.js'
@@ -337,18 +337,45 @@ export default function G2App() {
     }
   }, [applyJob, setConv, bump])
 
+  // 폰·PC에서 '안경에 띄우기'로 고른 답을 따라갑니다(켰을 때만 서버에 남아 있음).
+  const pinSeenRef = useRef(undefined)
+  const pollPin = useCallback(async () => {
+    let pin
+    try { pin = await aiConversationsApi.glassesPin() } catch { return }
+    const key = pin ? `${pin.conversationId}:${pin.turnId}:${pin.at}` : null
+    const first = pinSeenRef.current === undefined
+    if (key === pinSeenRef.current) return
+    pinSeenRef.current = key
+    if (!pin || first && !pin) return
+    try {
+      const d = await aiConversationsApi.get(pin.conversationId)
+      const turns = d?.turns || []
+      const t = turns.find((x) => x.id === pin.turnId) || turns[turns.length - 1]
+      if (!t) return
+      applyJob({
+        id: `pin:${t.id}`, status: 'done', conversationId: pin.conversationId, project: d.conversation?.project || '',
+        question: t.question, answer: t.answer, detail: t.detail, steps: t.steps, imageCount: t.imageCount, turns: turns.length,
+      })
+      const toAsk = { screen: 'ask', page: 0, view: 'summary' }
+      stateRef.current = toAsk
+      setState(toAsk)
+      bump()
+    } catch { pinSeenRef.current = undefined }
+  }, [applyJob, bump])
+
   useEffect(() => {
     if (!data.aiEnabled) return undefined
     let stop = false
     ;(async () => {
       while (!stop) {
+        if (isInEvenApp() || !document.hidden) await pollPin()
         // 일반 브라우저 탭이 가려져 있으면 쉽니다. Even 앱은 폰 화면이 꺼져도 안경이 쓰므로 계속 봅니다.
         if (isInEvenApp() || !document.hidden) await pollLatest()
         await wakeableSleep(dataRef.current.ai.status === 'loading' ? POLL_RUNNING_MS : POLL_IDLE_MS, wakeRef)
       }
     })()
     return () => { stop = true }
-  }, [data.aiEnabled, pollLatest])
+  }, [data.aiEnabled, pollLatest, pollPin])
 
   // 이 화면에서 입력한 질문(+사진)을 보냅니다. 답은 위의 '최근 질문 따라가기'가 받아서
   // 이 화면과 안경(그리고 열려 있는 다른 화면)에 함께 띄웁니다.

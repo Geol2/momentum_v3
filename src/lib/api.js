@@ -221,6 +221,10 @@ export const aiConversationsApi = {
   get: (id) => apiFetch(`/api/ai/conversations/${id}`),
   rename: (id, title) => apiFetch(`/api/ai/conversations/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
   // 밖에서 가져온 대화: { externalId, title, turns: [{ question, answer, at }] } → { conversation, added }
+  // 안경에 띄우기(켤 때만): 폰·PC에서 보는 대화의 답 하나를 안경이 따라 보여 줍니다
+  glassesPin: () => apiFetch('/api/ai/glasses'),
+  pinToGlasses: (conversationId, turnId) => apiFetch('/api/ai/glasses', { method: 'PUT', body: JSON.stringify({ conversationId, turnId: turnId ?? null }) }),
+  unpinGlasses: () => apiFetch('/api/ai/glasses', { method: 'DELETE' }),
   importChat: (c) => apiFetch('/api/ai/conversations/import', { method: 'POST', body: JSON.stringify(c) }),
   remove: (id) => apiFetch(`/api/ai/conversations/${id}`, { method: 'DELETE' }),
 }

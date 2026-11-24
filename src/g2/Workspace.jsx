@@ -97,6 +97,26 @@ export default function Workspace({
     endRef.current?.scrollIntoView({ block: 'end' })
   }, [turns.length, live?.progress?.length, live?.status, conv.id])
 
+  // 안경에 띄우기: 켜 두면 지금 보는 대화의 마지막 답(또는 '안경에'를 누른 답)이 안경에 떠요. 끄면 원래대로.
+  const [toGlasses, setToGlasses] = useState(() => { try { return localStorage.getItem('g2_to_glasses') === '1' } catch { return false } })
+  const [pinned, setPinned] = useState(null) // 고른 답 id (없으면 마지막 답)
+  const lastTurnId = turns.length ? turns[turns.length - 1].id : null
+  useEffect(() => { setPinned(null) }, [conv.id])
+  useEffect(() => {
+    if (!toGlasses || !conv.id || !lastTurnId) return
+    aiConversationsApi.pinToGlasses(conv.id, pinned ?? lastTurnId).catch(() => {})
+  }, [toGlasses, conv.id, lastTurnId, pinned])
+  const switchGlasses = () => {
+    const on = !toGlasses
+    setToGlasses(on)
+    try { localStorage.setItem('g2_to_glasses', on ? '1' : '0') } catch { /* 저장 불가 */ }
+    if (!on) { setPinned(null); aiConversationsApi.unpinGlasses().catch(() => {}) }
+  }
+  const pinTurn = (id) => {
+    setPinned(id)
+    if (!toGlasses) { setToGlasses(true); try { localStorage.setItem('g2_to_glasses', '1') } catch { /* */ } }
+  }
+
   const pick = (fn) => (...args) => { setDrawer(false); fn(...args) }
   const ready = (projects || []).filter((p) => p.status === 'ready')
   const projectConvs = (conversations || []).filter((c) => (c.project || GENERAL) === conv.project)
@@ -195,6 +215,10 @@ export default function Workspace({
           <strong>{title}</strong>
           <span>{conv.project ? `프로젝트 ${conv.project} · Claude가 코드를 직접 읽어요` : '일반 질문'}</span>
         </div>
+        <button type="button" className={`ws-btn ws-pin${toGlasses ? ' on' : ''}`} onClick={switchGlasses} aria-pressed={toGlasses}
+          title="켜면 지금 보는 대화의 답이 안경에 떠요">
+          {toGlasses ? '안경에 띄우는 중' : '안경에 띄우기'}
+        </button>
         <button type="button" className="ws-glass-toggle" onClick={() => setShowGlasses((o) => !o)} aria-expanded={showGlasses}>
           안경 화면 {showGlasses ? '▲' : '▼'}
         </button>
@@ -214,7 +238,10 @@ export default function Workspace({
                 <p>답은 이 화면과 안경에 같이 떠요. 폰·PC·안경 마이크 어디서 이어 물어도 같은 대화예요.</p>
               </div>
             )}
-            {turns.map((t) => <Turn key={t.id} turn={t} />)}
+            {turns.map((t) => (
+              <Turn key={t.id} turn={t} onGlasses={() => pinTurn(t.id)}
+                onGlassesNow={toGlasses && (pinned ?? lastTurnId) === t.id} />
+            ))}
             {live && (
               <div className="ws-turn">
                 <div className="ws-q">{live.question || '사진 속 요구사항 보기'}{live.imageCount ? <em> · 사진 {live.imageCount}장</em> : null}</div>
@@ -272,7 +299,9 @@ function EngineInfo({ engine }) {
 }
 
 // 질문·답 한 쌍. 답 = 안경용 요약, 전체 답(코드), 할 일로 저장할 단계
-function Turn({ turn }) {
+const ENGINE_KO = { subscription: '구독', api: 'API', 'claude-code': 'Claude Code' }
+
+function Turn({ turn, onGlasses, onGlassesNow }) {
   const [save, setSave] = useState({ status: 'idle', done: 0 })
   const steps = turn.steps || []
   const saveSteps = async () => {
@@ -292,7 +321,10 @@ function Turn({ turn }) {
     <div className="ws-turn">
       <div className="ws-q">{turn.question}{turn.imageCount ? <em> · 사진 {turn.imageCount}장</em> : null}</div>
       <div className="ws-a">
-        {turn.engine && <span className={`ws-badge ${turn.engine}`}>{turn.engine === 'subscription' ? '구독' : 'API'}</span>}
+        {turn.engine && <span className={`ws-badge ${turn.engine}`}>{ENGINE_KO[turn.engine] || turn.engine}</span>}
+        <button type="button" className={`ws-link ws-pin-one${onGlassesNow ? ' on' : ''}`} onClick={onGlasses}>
+          {onGlassesNow ? '안경에 떠 있음' : '안경에'}
+        </button>
         <pre>{turn.answer}</pre>
         {turn.detail && (
           <details open>
@@ -401,6 +433,9 @@ const CSS = `
 .ws-head strong { font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .ws-head span, .ws-status { font-size:12px; color:var(--muted); }
 .ws-status { white-space:nowrap; }
+.ws-pin.on { border-color:#6fd3a0; color:#6fd3a0; }
+.ws-pin-one { float:right; font-size:12px; }
+.ws-pin-one.on { color:#6fd3a0; text-decoration:none; }
 .ws-menu, .ws-glass-toggle { display:none; background:none; border:1px solid var(--line); color:var(--text); border-radius:8px; padding:6px 10px; cursor:pointer; white-space:nowrap; }
 .ws-body { flex:1; min-height:0; display:grid; grid-template-columns:260px minmax(0,1fr) 360px; }
 .ws-side { border-right:1px solid var(--line); padding:12px; overflow-y:auto; background:var(--panel); }
