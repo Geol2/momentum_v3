@@ -650,6 +650,13 @@ const CSS = `
 .ws-pin.on { border-color:#6fd3a0; color:#6fd3a0; }
 .ws-pin-one { float:right; font-size:12px; }
 .ws-pin-one.on { color:#6fd3a0; text-decoration:none; }
+/* 스크롤바: 검은 바탕 + 안경 글자와 같은 초록 */
+.ws, .ws * { scrollbar-width:thin; scrollbar-color:var(--accent) #000; }
+.ws ::-webkit-scrollbar { width:10px; height:10px; }
+.ws ::-webkit-scrollbar-track { background:#000; }
+.ws ::-webkit-scrollbar-thumb { background:var(--accent); border-radius:6px; border:2px solid #000; }
+.ws ::-webkit-scrollbar-thumb:hover { background:#8dffaa; }
+.ws ::-webkit-scrollbar-corner { background:#000; }
 .ws-menu, .ws-glass-toggle { display:none; background:none; border:1px solid var(--line); color:var(--text); border-radius:8px; padding:6px 10px; cursor:pointer; white-space:nowrap; }
 .ws-body { flex:1; min-height:0; display:grid; grid-template-columns:260px minmax(0,1fr) 360px; }
 .ws-side { border-right:1px solid var(--line); padding:12px; overflow-y:auto; background:var(--panel); }
@@ -695,7 +702,7 @@ const CSS = `
 .ws-compose { border-top:1px solid var(--line); padding:12px 24px 16px; }
 .ws-tabs { display:flex; gap:4px; margin:12px 0 6px; }
 .ws-tabs button { flex:1; padding:7px 6px; border-radius:8px; border:1px solid #2a2f3a; background:transparent; color:var(--dim, #8b93a5); font-size:13px; cursor:pointer; }
-.ws-tabs button.on { background:var(--panel); color:var(--text); border-color:#3b82f6; }
+.ws-tabs button.on { background:var(--panel); color:var(--text); border-color:var(--accent); }
 .ws-fold { width:100%; background:none; border:0; padding:0; cursor:pointer; text-align:left; color:inherit; font:inherit; }
 .ws-fold em { font-style:normal; opacity:.6; margin-left:4px; }
 .ws-cc { font-weight:600; color:#c084fc; }
