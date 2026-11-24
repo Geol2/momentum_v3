@@ -30,24 +30,31 @@ async function unzip(buf, want) {
 
 // ── claude.ai 내보내기: [{ uuid, name, chat_messages: [{ sender, text, content, created_at }] }] ──
 const msgText = (m) => {
+  if (typeof m.content === 'string') return m.content
   if (Array.isArray(m.content) && m.content.length) {
     const t = m.content.filter((c) => c && c.type === 'text' && c.text).map((c) => c.text).join('\n')
     if (t.trim()) return t
   }
   return m.text || ''
 }
+// 내보내기 형식이 바뀌어도 읽히도록: 메시지 배열(chat_messages / messages)과 보낸 쪽(sender / role)을 넓게 받음
+const msgsOf = (c) => c?.chat_messages || c?.messages || null
+const isHuman = (m) => m.sender === 'human' || m.role === 'user' || m.role === 'human' || m.author === 'human'
+const isConv = (c) => c && typeof c === 'object' && Array.isArray(msgsOf(c))
 function fromClaudeAi(list) {
   const out = []
   for (const c of list || []) {
+    if (!isConv(c)) continue
     const turns = []
     let cur = null
-    for (const m of c.chat_messages || []) {
+    for (const m of msgsOf(c)) {
       const t = msgText(m).trim()
-      if (m.sender === 'human') { if (cur) turns.push(cur); cur = { question: t || '(파일만 첨부)', answer: '', at: m.created_at || null } }
+      if (isHuman(m)) { if (cur) turns.push(cur); cur = { question: t || '(파일만 첨부)', answer: '', at: m.created_at || m.createdAt || null } }
       else if (cur) cur.answer = (cur.answer ? cur.answer + '\n\n' : '') + t
     }
     if (cur) turns.push(cur)
-    if (turns.length) out.push({ externalId: `claude-ai:${c.uuid}`.slice(0, 80), title: `[claude.ai] ${c.name || turns[0].question.slice(0, 50)}`, turns })
+    const id = c.uuid || c.id || `${c.name || ''}-${turns[0].at || ''}`
+    if (turns.length) out.push({ externalId: `claude-ai:${id}`.slice(0, 80), title: `[claude.ai] ${c.name || c.title || turns[0].question.slice(0, 50)}`, turns })
   }
   return out
 }
@@ -89,19 +96,37 @@ function fromClaudeCode(text, fileName) {
   return [{ externalId: sid.slice(0, 80), title: `${proj ? `[${proj}] ` : '[Claude Code] '}${title || turns[0].question.replace(/\s+/g, ' ').slice(0, 50)}`, turns }]
 }
 
+// 아무 JSON에서 대화 찾기
+function convsInJson(j) {
+  if (Array.isArray(j)) return j.filter(isConv)
+  if (isConv(j)) return [j]
+  if (j && typeof j === 'object') for (const v of Object.values(j)) if (Array.isArray(v) && v.some(isConv)) return v.filter(isConv)
+  return []
+}
+function convsInText(text) {
+  try { return convsInJson(JSON.parse(text)) } catch { /* JSONL일 수 있음 */ }
+  const out = []
+  for (const ln of text.split('\n')) { if (!ln.trim()) continue; try { out.push(...convsInJson(JSON.parse(ln))) } catch { /* */ } }
+  return out
+}
+const isClaudeCodeJsonl = (text) => /"sessionId"\s*:/.test(text.slice(0, 5000)) && /"type"\s*:\s*"(user|assistant)"/.test(text.slice(0, 20000))
+
 /** 파일들 → 가져올 대화 목록 */
 export async function parseChatFiles(files) {
   const out = []
   for (const f of files) {
     const name = f.name.toLowerCase()
     if (name.endsWith('.zip')) {
-      const got = await unzip(await f.arrayBuffer(), (n) => /(^|\/)conversations\.json$/.test(n))
-      for (const t of Object.values(got)) out.push(...fromClaudeAi(JSON.parse(t)))
-    } else if (name.endsWith('.jsonl')) {
-      out.push(...fromClaudeCode(await f.text(), f.name))
+      // 내보내기 zip 안의 모든 .json/.jsonl을 훑어 대화가 든 파일만 씀(manifest.json 같은 건 건너뜀)
+      const got = await unzip(await f.arrayBuffer(), (n) => /\.(json|jsonl)$/i.test(n) && !n.endsWith('/'))
+      for (const [n, t] of Object.entries(got)) {
+        if (isClaudeCodeJsonl(t)) out.push(...fromClaudeCode(t, n.split('/').pop()))
+        else out.push(...fromClaudeAi(convsInText(t)))
+      }
     } else {
-      const j = JSON.parse(await f.text())
-      out.push(...fromClaudeAi(Array.isArray(j) ? j : [j]))
+      const t = await f.text()
+      if (isClaudeCodeJsonl(t)) out.push(...fromClaudeCode(t, f.name))
+      else out.push(...fromClaudeAi(convsInText(t)))
     }
   }
   return out

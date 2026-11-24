@@ -195,7 +195,7 @@ export default function Workspace({
     setError(''); setImporting('파일 읽는 중...')
     try {
       const chats = await parseChatFiles([...files])
-      if (!chats.length) { setImporting(''); setError('가져올 대화를 찾지 못했어요.'); return }
+      if (!chats.length) { setImporting(''); setError('가져올 대화를 찾지 못했어요. 내보내기로 받은 zip 파일을 통째로 고르거나, 그 안의 대화 파일(conversations.json 등)을 골라 주세요. manifest.json은 목록일 뿐이라 대화가 없어요.'); return }
       let added = 0
       for (let i = 0; i < chats.length; i++) {
         setImporting(`가져오는 중 ${i + 1}/${chats.length}`)
