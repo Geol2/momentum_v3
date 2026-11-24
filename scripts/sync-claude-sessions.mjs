@@ -59,8 +59,12 @@ const textOf = (content) => {
   return content.filter((b) => b && b.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('\n')
 }
 const isToolResult = (content) => Array.isArray(content) && content.some((b) => b && b.type === 'tool_result')
-// Claude Code가 자동으로 넣는 줄(명령 출력·시스템 알림 등)은 질문으로 치지 않음
-const isNoise = (t) => !t.trim() || /^<(local-command-stdout|command-name|command-message|system-reminder|local-command-caveat)/.test(t.trim()) || t.startsWith('Caveat: The messages below were generated')
+
+// 앱이 사용자 메시지에 덧붙이는 블록(시스템 알림·열린 문서 상태)은 지우고 진짜 질문만 남긴다
+const WRAPPERS = /<(system-reminder|artifact-view-context)\b[^>]*>[\s\S]*?<\/\1>|<artifact-content-authored-by-others\s*\/>/g
+const stripWrappers = (t) => t.replace(WRAPPERS, '').trim()
+// Claude Code가 자동으로 넣는 줄(명령 출력 등)은 질문으로 치지 않음
+const isNoise = (t) => !t.trim() || /^<(local-command-stdout|command-name|command-message|local-command-caveat)/.test(t.trim()) || t.startsWith('Caveat: The messages below were generated')
 
 export function parseSession(file) {
   const lines = fs.readFileSync(file, 'utf8').split('\n')
@@ -85,7 +89,7 @@ export function parseSession(file) {
     const msg = e.message
     if (!msg) continue
     if (e.type === 'user' && !e.isMeta && !isToolResult(msg.content)) {
-      const q = textOf(msg.content)
+      const q = stripWrappers(textOf(msg.content))
       if (isNoise(q)) continue
       close()
       cur = { question: q.trim(), parts: [], at: e.timestamp || null }
