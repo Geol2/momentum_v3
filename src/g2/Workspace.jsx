@@ -793,7 +793,8 @@ function Composer({ busy, project, onAsk, speak, onSpeakChange }) {
     const el = taRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 150)}px`
+    const max = Math.max(110, Math.round((window.visualViewport?.height || window.innerHeight) / 3))
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`
   }
 
   const addPhotos = async (files) => {
@@ -1064,7 +1065,7 @@ const CSS = MARKDOWN_CSS + `
 /* 입력창 한 줄: [+] [입력칸] [보내기] */
 .ws-bar { width:100%; display:flex; align-items:flex-end; gap:6px; padding:6px; border:1px solid var(--line); border-radius:18px; background:#11141b; box-sizing:border-box; }
 .ws-compose:focus-within .ws-bar { border-color:#33503f; }
-.ws-bar textarea { flex:1; min-width:0; border:0 !important; border-radius:0 !important; background:none !important; padding:8px 4px !important; min-height:0 !important; max-height:150px; resize:none; line-height:1.45; font-size:14px; color:var(--text); }
+.ws-bar textarea { flex:1; min-width:0; border:0 !important; border-radius:0 !important; background:none !important; padding:8px 4px !important; min-height:0 !important; max-height:40vh; resize:none; line-height:1.45; font-size:14px; color:var(--text); }
 .ws-bar textarea:focus { outline:none; }
 .ws-attach { position:relative; flex:none; }
 .ws-plus { width:36px; height:36px; border-radius:50%; border:1px solid var(--line); }
@@ -1083,6 +1084,15 @@ const CSS = MARKDOWN_CSS + `
 .ws.kb .ws-chat { padding-top:10px; }
 .ws.kb .ws-compose { padding-bottom:6px !important; }
 .ws.kb .ws-speak-on { display:none; }
+/* 키보드가 떠 있을 땐 여백을 바짝 줄여 대화 글을 한 줄이라도 더 보이게 */
+.ws.kb .ws-chat { padding:8px 14px 2px !important; }
+.ws.kb .ws-turn { margin-bottom:14px; }
+.ws.kb .ws-turn:last-of-type { margin-bottom:4px; }
+.ws.kb .ws-a-foot { margin-top:4px; }
+.ws.kb .ws-compose { padding:2px 8px 4px !important; }
+.ws.kb .ws-bar { padding:3px; border-radius:16px; }
+.ws.kb .ws-plus, .ws.kb .ws-sendbtn { width:32px; height:32px; }
+.ws.kb .ws-bar textarea { padding:6px 4px !important; }
 .ws-older { font-style:normal; color:var(--dim); font-size:12px; }
 .ws-pcstat { display:flex; align-items:center; gap:2px; margin:12px 4px 4px; font-size:12px; color:var(--dim); }
 .ws-pcstat.on { color:#8dffaa; }
