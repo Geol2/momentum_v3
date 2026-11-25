@@ -269,6 +269,34 @@ export default function Workspace({
 
   useEffect(() => { if (codeMode) setListTab('code') }, [codeMode])
 
+  // "This session is being continued…" 제목은 그 대화의 첫 실제 질문으로 한 번만 바꿔 둡니다(서버에 저장 → 다음부터는 그대로).
+  const fixingRef = useRef(new Set())
+  useEffect(() => {
+    if (listTab !== 'code' || !conversations) return
+    const todo = conversations.filter((c) => c.externalId && /^(\[[^\]]+\]\s*)?this session is being continued/i.test(c.title || '')
+      && !fixingRef.current.has(c.id)).slice(0, 20)
+    if (!todo.length) return
+    let stop = false
+    ;(async () => {
+      let changed = false
+      for (const c of todo) {
+        if (stop) break
+        fixingRef.current.add(c.id)
+        try {
+          const d = await aiConversationsApi.get(c.id)
+          const q = (d?.turns || []).map((t) => (t.question || '').trim())
+            .find((x) => x && !/^this session is being continued/i.test(x))
+          if (!q) continue
+          const pre = /^\[[^\]]+\]/.exec(c.title || '')?.[0]
+          await aiConversationsApi.rename(c.id, `${pre ? `${pre} ` : ''}${q.replace(/\s+/g, ' ').slice(0, 50)}`)
+          changed = true
+        } catch { /* 다음에 다시 */ }
+      }
+      if (changed && !stop) loadConversations()
+    })()
+    return () => { stop = true }
+  }, [listTab, conversations, loadConversations])
+
   const rename = async (c) => {
     // Claude Code 대화는 제목 앞 [프로젝트] 로 묶이므로, 이름만 바꾸고 그 묶음 표시는 그대로 둡니다.
     const m = /^\[([^\]]+)\]\s*/.exec(c.title || '')
