@@ -10,6 +10,8 @@ import Markdown, { MARKDOWN_CSS } from './Markdown.jsx'
 import ChangePassword from '../components/ChangePassword.jsx'
 import DeviceTokens from '../components/DeviceTokens.jsx'
 import ApiKey from '../components/ApiKey.jsx'
+// 작은 SVG라 번들에 바로 들어가요(안경 앱 패키지에도 따로 파일 없이 보임)
+import logoUrl from './icon.svg'
 import { parseChatFiles } from './importChats.js'
 import { dateKey } from '../lib/dates.js'
 import ProjectManager, { useProjects } from './ProjectsPanel.jsx'
@@ -484,7 +486,7 @@ export default function Workspace({
       <header className="ws-top">
         <button type="button" className="ws-menu ws-iconbtn" onClick={() => setDrawer((o) => !o)} aria-expanded={drawer} aria-label="대화 목록"><Icon d={I.menu} /></button>
         <div className="ws-head">
-          <span className="ws-brand">모멘텀</span>
+          <span className="ws-brand"><img src={logoUrl} alt="" width="20" height="20" className="ws-logo" />모멘텀</span>
           <span className="ws-crumb" aria-hidden="true">/</span>
           <strong title={title}>{title}</strong>
           <span className={`ws-chip${codeMode ? ' cc' : ''}`}>
@@ -930,6 +932,7 @@ const CSS = MARKDOWN_CSS + `
 .ws { --q:#18231f; --qline:#26352f; font-size:14px; }
 .ws-top { padding:10px 20px; min-height:56px; gap:10px; }
 .ws-head { flex-direction:row; align-items:center; gap:10px; }
+.ws-logo { border-radius:5px; vertical-align:-4px; margin-right:7px; }
 .ws-brand { font-weight:700; font-size:15px; color:#f4f5f7; white-space:nowrap; }
 .ws-crumb { color:var(--dim); }
 .ws-head strong { font-size:14px; font-weight:500; color:#d8dce2; }
