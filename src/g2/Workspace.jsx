@@ -54,6 +54,9 @@ const I = {
   eye: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>,
 }
 
+// Claude Code가 긴 대화를 요약하고 이어 간 세션은 첫 질문이 요약문이라 제목이 "This session is being continued…" 로 붙어요.
+const cleanTitle = (t) => (/^this session is being continued/i.test(t || '') ? '이어서 한 세션' : (t || '(제목 없음)'))
+
 // 대화 목록 날짜 묶음: 오늘 / 어제 / 이번 주 / 이번 달 / 이전
 function dateGroup(iso) {
   const d = new Date(iso), now = new Date()
@@ -255,7 +258,7 @@ export default function Workspace({
     const g = m ? m[1] : '기타'
     let grp = codeGroups.find((x) => x.name === g)
     if (!grp) codeGroups.push(grp = { name: g, items: [] })
-    grp.items.push({ ...c, short: m ? c.title.slice(m[0].length) : c.title })
+    grp.items.push({ ...c, short: cleanTitle(m ? c.title.slice(m[0].length) : c.title) })
   }
   const curConv = (conversations || []).find((c) => c.id === conv.id) || detail?.conversation
   const codeMode = isCode(curConv)
@@ -374,10 +377,11 @@ export default function Workspace({
         </>
       ) : (
         <>
-          <p className="ws-engine">
-            {pcAgents.length ? <>연결된 PC: {pcAgents.map((a) => a.name).join(', ')} — 그 PC의 대화는 여기서 이어 물을 수 있어요(읽기 전용).</>
-              : <>PC Claude Code에서 가져온 대화예요. PC에서 pc-agent를 켜 두면 여기서 이어 물을 수 있어요.</>}
-          </p>
+          <div className={`ws-pcstat${pcAgents.length ? ' on' : ''}`}
+            title={pcAgents.length ? '이 PC의 대화는 여기서 이어 물을 수 있어요(코드 읽기만)' : 'PC에서 pc-agent를 켜 두면 여기서 이어 물을 수 있어요'}>
+            <span className="ws-dot-sw" aria-hidden="true" />
+            {pcAgents.length ? <>{pcAgents.map((a) => a.name).join(', ')} 연결됨</> : 'PC 연결 안 됨'}
+          </div>
           {pcAgents.length > 0 && (
             <NewPcChat agents={pcAgents} jobs={pcJobs} codeConvs={codeConvs}
               onSent={loadPc} onError={(e) => setError(errMsg(e))}
@@ -616,7 +620,7 @@ function NewPcChat({ agents, jobs, codeConvs, onSent, onError, onOpen }) {
       setMine((m) => [j.id, ...m].slice(0, 5)); setText(''); onSent()
     } catch (err) { onError(err) }
   }
-  if (!open) return <button type="button" className="ws-new" onClick={() => setOpen(true)}>+ PC에서 새 대화</button>
+  if (!open) return <button type="button" className="ws-ghost" onClick={() => setOpen(true)}>+ PC에서 새 대화</button>
   return (
     <form className="ws-newpc" onSubmit={send}>
       {agents.length > 1 && (
@@ -831,6 +835,8 @@ const CSS = MARKDOWN_CSS + `
 .ws-newpc-job .ws-q { margin-bottom:4px; }
 .ws-fold { width:100%; background:none; border:0; padding:0; cursor:pointer; text-align:left; color:inherit; font:inherit; }
 .ws-fold em { font-style:normal; opacity:.6; margin-left:4px; }
+.ws-fold { margin:12px 4px 2px !important; padding:4px 2px !important; color:var(--muted) !important; font-size:12px !important; }
+.ws-fold:hover { color:var(--text) !important; }
 .ws-cc { font-weight:600; color:#c084fc; }
 .ws-compose textarea { width:100%; box-sizing:border-box; background:var(--panel); color:var(--text); border:1px solid #2a2f3a; border-radius:10px; padding:10px 12px; font-size:15px; resize:vertical; min-height:48px; max-height:40vh; font-family:inherit; }
 .ws-compose-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px; }
@@ -920,6 +926,16 @@ const CSS = MARKDOWN_CSS + `
 .ws-send:hover { background:#36a364; }
 .ws-send:disabled { background:#24402f; color:#9fb8a8; cursor:default; }
 .ws-glasses { background:#0e1116; }
+.ws-pcstat { display:flex; align-items:center; gap:2px; margin:12px 4px 4px; font-size:12px; color:var(--dim); }
+.ws-pcstat.on { color:#8dffaa; }
+.ws-pcstat.on .ws-dot-sw { background:var(--accent); box-shadow:0 0 6px var(--accent); }
+.ws-ghost { width:100%; margin:4px 0 6px; padding:7px 10px; text-align:left; background:none; border:1px dashed #2f3a46; border-radius:8px; color:var(--muted); font-size:12.5px; cursor:pointer; }
+.ws-ghost:hover { border-color:rgba(77,255,122,.4); color:#c8ffd6; }
+.ws-side .ws-time { font-size:11px; color:#6f7682; }
+.ws-side .ws-engine { font-size:11.5px; }
+.ws-side::-webkit-scrollbar { width:6px; }
+.ws-side::-webkit-scrollbar-thumb { border:0; background:rgba(77,255,122,.45); }
+.ws-side::-webkit-scrollbar-thumb:hover { background:var(--accent); }
 @media (max-width: 1180px) {
   .ws-body { grid-template-columns:240px minmax(0,1fr); }
   .ws-glass-toggle { display:inline-block; }

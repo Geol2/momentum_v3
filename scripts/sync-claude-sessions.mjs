@@ -101,7 +101,9 @@ export function parseSession(file) {
   }
   close()
   const proj = cwd ? path.basename(cwd) : ''
-  const base = title || (turns[0]?.question || '').replace(/\s+/g, ' ').slice(0, 60)
+  // 요약 후 이어진 세션은 첫 질문이 요약문이라, 제목은 그다음 실제 질문에서 가져옴
+  const firstReal = turns.find((t) => !/^this session is being continued/i.test(t.question.trim()))
+  const base = title || (firstReal?.question || turns[0]?.question || '').replace(/\s+/g, ' ').slice(0, 60)
   return { sessionId, title: (proj ? `[${proj}] ` : '') + base, turns }
 }
 
