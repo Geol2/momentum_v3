@@ -173,6 +173,13 @@ export function render(state, data) {
       if (it.status === 'error') return frame('통역', '', it.error || '통역을 시작하지 못했어요.', '두 번 누르기: 뒤로')
       const lines = (it.lines || []).slice(-3).map((l) => `· ${l.korean || l.original}`)
       let body = lines.length ? lines.join('\n') : '상대가 영어로 말하면\n여기에 한국어로 떠요.'
+      if (it.status === 'listening') {
+        // 소리 크기: 막대 2칸 이상이면 말로 알아듣고 서버로 보내요.
+        const m = it.meter || 0
+        body += `\n\n소리 ${'■'.repeat(m)}${'□'.repeat(5 - m)}`
+        if (it.missed) body += ` · 못 알아들음 ${it.missed}`
+      }
+      if (it.lastError) body += `\n\n오류: ${it.lastError}`
       if (it.suggesting) body += '\n\n추천 대답 만드는 중...'
       else if (it.suggestion?.english) body += `\n\n추천: ${it.suggestion.english}${it.suggestion.korean ? `\n(${it.suggestion.korean})` : ''}`
       return frame('통역', right, body, '누르기: 대답 추천 · 두 번: 끝')

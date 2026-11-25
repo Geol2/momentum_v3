@@ -19,8 +19,10 @@ const CONV_KEY = 'g2_ai_conv'       // 지금 대화 { id, project }
 // 최근 질문 확인 간격: 답을 기다리는 중이면 자주, 아니면 가끔(다른 화면에서 새로 물었는지)
 const POLL_RUNNING_MS = 1500
 const POLL_IDLE_MS = 3000
-// 통역: 이 크기(16bit 진폭 RMS)보다 크면 말하는 중으로 봄
-const INTERP_RMS = 450
+// 통역: 조용할 때 소리(잡음) 크기를 계속 재서, 그보다 충분히 크면 말하는 중으로 봄.
+// 고정값 하나로는 안경 마이크에 멀리서 들어오는 상대 목소리를 놓쳐요.
+const INTERP_RMS_MIN = 120 // 아무리 조용해도 이보다는 커야 말로 봄
+const INTERP_RMS_RATIO = 2.5 // 잡음의 몇 배면 말로 볼지
 function rms16(bytes) {
   const n = Math.floor(bytes.length / 2)
   if (!n) return 0
@@ -251,7 +253,7 @@ export default function G2App() {
         }
         const it = interpRef.current
         if (it.on) break
-        Object.assign(it, { on: true, seg: [], segMs: 0, silence: 0, speaking: false, pre: [], queue: [], sending: false })
+        Object.assign(it, { on: true, seg: [], segMs: 0, silence: 0, speaking: false, pre: [], queue: [], sending: false, floor: 0, peak: 0, lastLevelAt: 0 })
         setData((d) => ({ ...d, interp: { status: 'starting', lines: d.interp?.lines || [], suggestion: null } }))
         const send = async () => {
           if (it.sending || !it.queue.length) return
@@ -261,7 +263,9 @@ export default function G2App() {
           try {
             const r = await aiApi.interpretChunk(pcm, MIC_RATE)
             if (r?.original) {
-              setData((d) => ({ ...d, interp: { ...d.interp, lines: [...(d.interp?.lines || []), r].slice(-20), suggestion: null } }))
+              setData((d) => ({ ...d, interp: { ...d.interp, lastError: null, lines: [...(d.interp?.lines || []), r].slice(-20), suggestion: null } }))
+            } else {
+              setData((d) => ({ ...d, interp: { ...d.interp, lastError: null, missed: (d.interp?.missed || 0) + 1 } }))
             }
           } catch (e) {
             setData((d) => ({ ...d, interp: { ...d.interp, lastError: errorText(e) } }))
@@ -287,7 +291,19 @@ export default function G2App() {
           await g.startMic((chunk) => {
             if (!it.on) return
             const ms = (chunk.length / 2 / MIC_RATE) * 1000
-            const loud = rms16(chunk) > INTERP_RMS
+            const level = rms16(chunk)
+            const limit = Math.max(INTERP_RMS_MIN, it.floor * INTERP_RMS_RATIO)
+            const loud = it.floor > 0 && level > limit
+            // 말 안 할 때만 잡음 크기를 천천히 따라감(처음 값은 바로 씀)
+            if (!loud) it.floor = it.floor ? it.floor * 0.95 + level * 0.05 : level
+            // 안경 화면은 1초에 한 번만 갱신(소리 크기 표시)
+            it.peak = Math.max(it.peak, level)
+            const now = Date.now()
+            if (now - it.lastLevelAt >= 1000) {
+              const meter = Math.min(5, Math.round((it.peak / limit) * 2))
+              it.lastLevelAt = now; it.peak = 0
+              setData((d) => (d.interp?.meter === meter ? d : { ...d, interp: { ...d.interp, meter } }))
+            }
             if (loud) { it.silence = 0; if (!it.speaking) { it.speaking = true; it.seg = [...it.pre]; it.segMs = it.pre.length * ms } }
             else it.silence += ms
             if (it.speaking) { it.seg.push(chunk); it.segMs += ms }
