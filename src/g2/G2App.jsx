@@ -10,6 +10,7 @@ import { useAuth } from '../lib/useAuth.js'
 import { connectGlasses, isInEvenApp } from './bridge.js'
 import Preview from './Preview.jsx'
 import Workspace from './Workspace.jsx'
+import ApiKey from '../components/ApiKey.jsx'
 import { gradeCard, initialState, reduce, render } from './screens.js'
 
 const PROGRESS_KEY = 'g2_card_progress'
@@ -511,6 +512,9 @@ export default function G2App() {
   }, [glasses, page])
 
   // 이 계정이 Claude를 쓸 수 있는지 서버에 묻습니다. 실패하면 꺼진 것으로 봅니다.
+  // statusTick: 내 API 키를 등록·삭제하면 다시 묻기
+  const [statusTick, setStatusTick] = useState(0)
+  const [keyOpen, setKeyOpen] = useState(false)
   useEffect(() => {
     if (auth.status !== 'authenticated') {
       setData((d) => ({ ...d, aiEnabled: false, voiceEnabled: false }))
@@ -521,7 +525,7 @@ export default function G2App() {
       .then((r) => { if (!cancelled) setData((d) => ({ ...d, aiEnabled: !!r?.enabled, voiceEnabled: !!r?.voice })) })
       .catch(() => { if (!cancelled) setData((d) => ({ ...d, aiEnabled: false, voiceEnabled: false })) })
     return () => { cancelled = true }
-  }, [auth.status])
+  }, [auth.status, statusTick])
 
   // 로그인 상태가 바뀌면 열려 있는 화면의 데이터를 다시 불러옵니다.
   useEffect(() => {
@@ -600,6 +604,13 @@ export default function G2App() {
       <div style={{ maxWidth: 620, margin: '0 auto' }}>
         <h1 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 4px' }}>G2 화면 미리보기</h1>
         <p style={{ fontSize: 13, color: '#9aa0aa', margin: '0 0 16px' }}>{statusLine}</p>
+        {auth.status === 'authenticated' && (
+          <div style={{ margin: '0 0 16px', padding: '12px 14px', border: '1px solid rgba(77,255,122,0.3)', borderRadius: 10, background: 'rgba(77,255,122,0.05)', fontSize: 13, lineHeight: 1.6 }}>
+            Claude에게 물어보려면 <b>내 Anthropic API 키</b>를 등록하세요. 사용료는 그 키 계정으로 청구돼요.
+            <div><button type="button" onClick={() => setKeyOpen(true)} style={{ ...btn, ...btnBox, marginTop: 8 }}>API 키 등록</button></div>
+          </div>
+        )}
+        {keyOpen && <ApiKey onClose={() => setKeyOpen(false)} onSaved={() => setStatusTick((n) => n + 1)} />}
         {glassesPane}
       </div>
     </div>

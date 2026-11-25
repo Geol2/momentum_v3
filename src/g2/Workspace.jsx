@@ -9,6 +9,7 @@ import { aiApi, aiConversationsApi, ApiError, pcApi, todosApi } from '../lib/api
 import Markdown, { MARKDOWN_CSS } from './Markdown.jsx'
 import ChangePassword from '../components/ChangePassword.jsx'
 import DeviceTokens from '../components/DeviceTokens.jsx'
+import ApiKey from '../components/ApiKey.jsx'
 import { parseChatFiles } from './importChats.js'
 import { dateKey } from '../lib/dates.js'
 import ProjectManager, { useProjects } from './ProjectsPanel.jsx'
@@ -103,6 +104,7 @@ export default function Workspace({
   const [showOlder, setShowOlder] = useState({}) // 묶음별 '이전 세션' 펼침
   const [pwOpen, setPwOpen] = useState(false)
   const [devOpen, setDevOpen] = useState(false)
+  const [keyOpen, setKeyOpen] = useState(false)
   const [pcAgents, setPcAgents] = useState([])
   const [pcJobs, setPcJobs] = useState([])
   // Claude Code 프로젝트 묶음 접기(브라우저에 기억)
@@ -115,9 +117,12 @@ export default function Workspace({
 
   // 누가 답하는지(구독 / 한도라 API). 질문이 끝날 때마다 다시 봅니다.
   const [engine, setEngine] = useState(null)
+  const [aiStatus, setAiStatus] = useState(null) // { owner, key: { hasKey, last4 } }
+  const [keyTick, setKeyTick] = useState(0)
   useEffect(() => {
-    aiApi.status().then((r) => setEngine(r?.engine || null)).catch(() => {})
-  }, [version])
+    aiApi.status().then((r) => { setEngine(r?.engine || null); setAiStatus(r || null) }).catch(() => {})
+  }, [version, keyTick])
+  const isOwner = aiStatus ? aiStatus.owner !== false : true
 
   const loadConversations = useCallback(async () => {
     try {
@@ -366,7 +371,8 @@ export default function Workspace({
                   title="claude.ai 내보내기 zip 또는 Claude Code 세션 .jsonl"
                   onClick={() => { setMoreMenu(false); importRef.current?.click() }}>Claude 대화 가져오기</button>
                 <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); exportAll() }}>전체 대화 내보내기</button>
-                <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setManaging(true) }}>프로젝트 관리</button>
+                {isOwner && <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setManaging(true) }}>프로젝트 관리</button>}
+                {!isOwner && <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setKeyOpen(true) }}>Claude API 키</button>}
                 <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setDevOpen(true) }}>기기 연결 (PC·파이)</button>
                 <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setPwOpen(true) }}>비밀번호 바꾸기</button>
               </div>
@@ -376,6 +382,7 @@ export default function Workspace({
       </div>
       {pwOpen && <ChangePassword onClose={() => setPwOpen(false)} />}
       {devOpen && <DeviceTokens onClose={() => setDevOpen(false)} />}
+      {keyOpen && <ApiKey onClose={() => setKeyOpen(false)} onSaved={() => setKeyTick((n) => n + 1)} />}
       <input ref={importRef} type="file" accept=".zip,.json,.jsonl" multiple hidden onChange={(e) => { importFiles(e.target.files); e.target.value = '' }} />
       {importing && <p className="ws-engine">{importing}</p>}
 
@@ -465,7 +472,8 @@ export default function Workspace({
           ))}
         </>
       )}
-      <EngineInfo engine={engine} />
+      {isOwner ? <EngineInfo engine={engine} />
+        : <p className="ws-engine">{aiStatus?.key?.hasKey ? `내 API 키(…${aiStatus.key.last4})로 답해요` : 'API 키를 등록해야 답할 수 있어요'}</p>}
     </nav>
   )
 
@@ -602,7 +610,7 @@ function EngineInfo({ engine }) {
 }
 
 // 질문·답 한 쌍. 답 = 안경용 요약, 전체 답(코드), 할 일로 저장할 단계
-const ENGINE_KO = { subscription: '구독', api: 'API', 'claude-code': 'Claude Code' }
+const ENGINE_KO = { subscription: '구독', api: 'API', byok: '내 API 키', 'claude-code': 'Claude Code' }
 
 function Turn({ turn, onGlasses, onGlassesNow }) {
   const [save, setSave] = useState({ status: 'idle', done: 0 })
