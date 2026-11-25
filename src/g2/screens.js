@@ -16,9 +16,9 @@ const HOME_ITEMS = [
   { key: 'font', label: '글꼴 테스트' },
 ]
 
-// Claude 메뉴는 서버가 허용한 계정에만 보입니다(비용은 키 주인이 내므로).
-function homeItems(data) {
-  return data?.aiEnabled ? HOME_ITEMS : HOME_ITEMS.filter((it) => it.key !== 'ask')
+// Claude 메뉴는 항상 보여요. 쓸 수 없는 계정(서버 주인도 아니고 내 API 키도 없음)은 들어가면 등록 방법을 안내합니다.
+function homeItems() {
+  return HOME_ITEMS
 }
 
 const SESSION_SIZE = 20
@@ -151,6 +151,9 @@ export function render(state, data) {
     }
 
     case 'ask': {
+      if (!data.aiEnabled) {
+        return frame('Claude', '', 'Claude에게 물으려면\n폰의 모멘텀 G2 화면에서\n⋯ → Claude API 키 를\n등록해 주세요.\n\n등록하면 이 메뉴에서\n바로 물어볼 수 있어요.', '두 번 누르기: 뒤로')
+      }
       const ai = data.ai || {}
       const voice = data.voice || {}
       const mic = !!data.voiceEnabled
@@ -317,6 +320,7 @@ export function reduce(state, gesture, data) {
     }
 
     case 'ask': {
+      if (!data.aiEnabled) return gesture === 'double' ? home(1) : stay(state)
       const ai = data.ai || {}
       const voice = data.voice || {}
       const mic = !!data.voiceEnabled
