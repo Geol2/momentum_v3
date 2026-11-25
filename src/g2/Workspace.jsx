@@ -98,6 +98,7 @@ export default function Workspace({
   const [listTab, setListTab] = useState('chat')
   const [moreMenu, setMoreMenu] = useState(false)
   const [showAll, setShowAll] = useState(false)
+  const [showOlder, setShowOlder] = useState({}) // 묶음별 '이전 세션' 펼침
   const [pcAgents, setPcAgents] = useState([])
   const [pcJobs, setPcJobs] = useState([])
   // Claude Code 프로젝트 묶음 접기(브라우저에 기억)
@@ -258,8 +259,19 @@ export default function Workspace({
     const m = /^\[([^\]]+)\]\s*/.exec(c.title || '')
     const g = m ? m[1] : '기타'
     let grp = codeGroups.find((x) => x.name === g)
-    if (!grp) codeGroups.push(grp = { name: g, items: [] })
-    grp.items.push({ ...c, short: cleanTitle(m ? c.title.slice(m[0].length) : c.title) })
+    if (!grp) codeGroups.push(grp = { name: g, items: [], older: [] })
+    const item = { ...c, short: cleanTitle(m ? c.title.slice(m[0].length) : c.title) }
+    // Claude Code로 이전 세션을 이어 열면(--resume) 앞 내용이 통째로 복사된 새 세션이 생겨 같은 제목이 겹쳐요.
+    // 같은 묶음에 같은 제목이 있으면 가장 최근 것만 보이고, 이전 것은 '이전 세션'으로 접어 둡니다.
+    const same = grp.items.find((x) => x.short === item.short)
+    if (!same) grp.items.push(item)
+    else if (new Date(item.updatedAt) > new Date(same.updatedAt)) { grp.items[grp.items.indexOf(same)] = item; grp.older.push(same) }
+    else grp.older.push(item)
+  }
+  // 지금 보고 있는 대화가 접힌 쪽이면 그 묶음은 펼쳐서 보여 줌
+  for (const g of codeGroups) {
+    g.items.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+    g.older.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
   }
   const curConv = (conversations || []).find((c) => c.id === conv.id) || detail?.conversation
   const codeMode = isCode(curConv)
@@ -423,10 +435,10 @@ export default function Workspace({
                 <span>{folded[g.name] ? '▸' : '▾'} {g.name} <em>{g.items.length}</em></span>
               </button>
               {!folded[g.name] && <ul className="ws-list ws-convs">
-                {g.items.map((c) => (
+                {[...g.items, ...((showOlder[g.name] || g.older.some((o) => o.id === conv.id)) ? g.older.map((o) => ({ ...o, isOlder: true })) : [])].map((c) => (
                   <li key={c.id} className="ws-conv">
                   <button type="button" className={`ws-item${c.id === conv.id ? ' on' : ''}`} onClick={pick(() => onSelectConversation(c))}>
-                    <span className="ws-title">{c.short}</span>
+                    <span className="ws-title">{c.isOlder && <em className="ws-older">이전 · </em>}{c.short}</span>
                     <span className="ws-time">{ago(c.updatedAt)}</span>
                   </button>
                   <span className="ws-actions">
@@ -435,6 +447,11 @@ export default function Workspace({
                   </span>
                 </li>
                 ))}
+                {g.older.length > 0 && (
+                  <li><button type="button" className="ws-showmore" onClick={() => setShowOlder((o) => ({ ...o, [g.name]: !o[g.name] }))}>
+                    {showOlder[g.name] ? '이전 세션 접기' : `같은 대화의 이전 세션 ${g.older.length}개`}
+                  </button></li>
+                )}
               </ul>}
             </div>
           ))}
@@ -966,6 +983,7 @@ const CSS = MARKDOWN_CSS + `
 .ws-send:hover { background:#36a364; }
 .ws-send:disabled { background:#24402f; color:#9fb8a8; cursor:default; }
 .ws-glasses { background:#0e1116; }
+.ws-older { font-style:normal; color:var(--dim); font-size:12px; }
 .ws-pcstat { display:flex; align-items:center; gap:2px; margin:12px 4px 4px; font-size:12px; color:var(--dim); }
 .ws-pcstat.on { color:#8dffaa; }
 .ws-pcstat.on .ws-dot-sw { background:var(--accent); box-shadow:0 0 6px var(--accent); }
