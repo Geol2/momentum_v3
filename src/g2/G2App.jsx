@@ -311,7 +311,8 @@ export default function G2App() {
             else it.silence += ms
             if (it.speaking) { it.seg.push(chunk); it.segMs += ms }
             else { it.pre.push(chunk); if (it.pre.length > 3) it.pre.shift() } // 말 시작 직전 0.3초도 붙임
-            if (it.speaking && (it.silence >= 700 || it.segMs >= 8000)) flush()
+            // 클라우드 인식이 빨라서 짧게 끊어 보내요(0.45초 쉬면, 길어도 5초마다)
+            if (it.speaking && (it.silence >= 450 || it.segMs >= 5000)) flush()
           })
         } catch (e) {
           it.on = false
