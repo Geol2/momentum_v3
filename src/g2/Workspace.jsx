@@ -640,9 +640,8 @@ function detailLabel(detail) {
 // 끝나면 동기화로 Claude Code 목록에 새 대화가 생기고, 여기서 바로 열 수 있어요.
 function NewPcChat({ agents, jobs, codeConvs, onSent, onError, onOpen }) {
   const [open, setOpen] = useState(false)
-  // PC가 켜져 있으면 PC를 먼저, 꺼져 있으면 라즈베리파이(항상 켜진 쪽). 직접 고른 건 기억해 둠.
-  const [agentId, setAgentIdRaw] = useState(() => { try { return localStorage.getItem('g2_pc_agent') || '' } catch { return '' } })
-  const setAgentId = (v) => { setAgentIdRaw(v); try { localStorage.setItem('g2_pc_agent', v) } catch { /* 무시 */ } }
+  // PC가 켜져 있으면 PC를 먼저, 꺼져 있으면 라즈베리파이(항상 켜진 쪽). 고른 건 이 화면에서만 유지.
+  const [agentId, setAgentId] = useState('')
   const [cwd, setCwd] = useState('')
   const [text, setText] = useState('')
   const [mine, setMine] = useState([]) // 여기서 보낸 질문 id
