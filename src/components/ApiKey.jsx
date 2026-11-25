@@ -1,4 +1,4 @@
-// 내 Anthropic API 키 등록 — 서버 주인이 아닌 사용자는 이 키로만 Claude를 씁니다(사용료는 그 키 계정으로).
+// 내 Anthropic API 키 등록 — 주인이 아닌 사용자는 이 키로만 Claude를 씁니다(사용료는 그 키 계정으로). 주인은 통역 같은 빠른 기능에 씁니다.
 // 키는 서버에서 암호화해 저장하고 다시 보여 주지 않아요(끝 4자리만).
 import { useEffect, useState } from 'react'
 import { apiFetch } from '../lib/api.js'

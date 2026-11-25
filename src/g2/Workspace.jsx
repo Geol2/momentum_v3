@@ -416,7 +416,7 @@ export default function Workspace({
                   onClick={() => { setMoreMenu(false); importRef.current?.click() }}>Claude 대화 가져오기</button>
                 <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); exportAll() }}>전체 대화 내보내기</button>
                 {isOwner && <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setManaging(true) }}>프로젝트 관리</button>}
-                {!isOwner && <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setKeyOpen(true) }}>Claude API 키</button>}
+                <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setKeyOpen(true) }}>Claude API 키</button>
                 <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setDevOpen(true) }}>기기 연결 (PC·파이)</button>
                 <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setPwOpen(true) }}>비밀번호 바꾸기</button>
                 <div className="ws-menu-sep" aria-hidden="true" />
