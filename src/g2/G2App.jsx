@@ -414,17 +414,18 @@ export default function G2App() {
           break
         }
         setData((d) => ({ ...d, interp: { ...d.interp, suggestOpen: true, suggesting: true, suggestion: null } }))
-        // 추천을 고르면 통역은 멈춤(더 듣지 않음). 돌아가면 다시 들어요.
+        // 추천 요청을 먼저 보내고(기다리지 않음), 그동안 통역을 멈춰요. 마이크 끄기를 기다렸다 보내면 느려요.
+        const req = aiApi.interpretSuggest(ctx.slice(-8))
         if (it.on) {
           it.on = false
           it.queue = []
           it.live?.close()
           it.live = null
-          await glassesRef.current?.stopMic?.().catch(() => {})
+          glassesRef.current?.stopMic?.().catch(() => {})
           setData((d) => ({ ...d, interp: { ...d.interp, status: 'paused', live: '' } }))
         }
         try {
-          const r = await aiApi.interpretSuggest(ctx.slice(-8))
+          const r = await req
           if (it.suggestSeq !== seq) break // 그사이 닫았거나 다시 눌렀으면 버림
           setData((d) => (d.interp?.suggestOpen ? { ...d, interp: { ...d.interp, suggesting: false, suggestion: r } } : d))
         } catch (e) {
