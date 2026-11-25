@@ -182,8 +182,8 @@ export function render(state, data) {
         const last = (it.lines || []).slice(-1)[0]
         const heard = last ? `상대: ${clip(last.korean || last.original, 40)}\n\n` : ''
         const body = it.suggesting || !sg ? `${heard}대답을 만드는 중...`
-          : `${heard}${sg.english}${sg.korean ? `\n(${sg.korean})` : ''}`
-        return frame('추천 대답', it.suggesting ? '만드는 중' : '', body, '누르기: 돌아가기 · 두 번: 다른 추천')
+          : `${heard}▶ ${sg.english}${sg.korean ? `\n\n뜻: ${sg.korean}` : ''}`
+        return frame('추천 대답', it.suggesting ? '만드는 중' : '통역 멈춤', body, '누르기: 다시 듣기 · 두 번: 다른 추천')
       }
       // 화면 한 장에 들어가게: 최근 번역 2줄(각 46자) + 지금 들리는 말 1줄
       const lines = (it.lines || []).slice(-2).map((l) => `· ${clip(l.korean || l.original, 46)}`)

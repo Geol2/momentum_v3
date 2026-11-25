@@ -414,6 +414,15 @@ export default function G2App() {
           break
         }
         setData((d) => ({ ...d, interp: { ...d.interp, suggestOpen: true, suggesting: true, suggestion: null } }))
+        // 추천을 고르면 통역은 멈춤(더 듣지 않음). 돌아가면 다시 들어요.
+        if (it.on) {
+          it.on = false
+          it.queue = []
+          it.live?.close()
+          it.live = null
+          await glassesRef.current?.stopMic?.().catch(() => {})
+          setData((d) => ({ ...d, interp: { ...d.interp, status: 'paused', live: '' } }))
+        }
         try {
           const r = await aiApi.interpretSuggest(ctx.slice(-8))
           if (it.suggestSeq !== seq) break // 그사이 닫았거나 다시 눌렀으면 버림
@@ -427,6 +436,8 @@ export default function G2App() {
       case 'interpCloseSuggest': {
         interpRef.current.suggestSeq = (interpRef.current.suggestSeq || 0) + 1
         setData((d) => ({ ...d, interp: { ...d.interp, suggestOpen: false, suggesting: false, suggestion: null } }))
+        // 통역 화면으로 돌아가면 다시 듣기
+        if (!interpRef.current.on) runEffectRef.current?.({ type: 'interpStart' })
         break
       }
       case 'interpStop': {
