@@ -35,7 +35,8 @@ export default function ApiKey({ onClose, onSaved }) {
         <h2 style={S.h}>Claude API 키</h2>
         <p style={S.p}>
           모멘텀에서 Claude에게 묻는 데 <b>내 Anthropic API 키</b>를 써요. 사용료는 그 키의 Anthropic 계정으로 청구돼요.
-          키는 <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer noopener" style={S.a}>Anthropic Console → API Keys</a>에서 만들 수 있어요.
+          {/* 안경 앱(Even Hub) 번들에는 허용 목록 밖 주소를 넣을 수 없어 링크 대신 글로 안내 */}
+          키는 <b style={S.a}>console.anthropic.com</b> → Settings → API Keys 에서 만들 수 있어요.
         </p>
         {info?.hasKey && (
           <div style={S.card}>
