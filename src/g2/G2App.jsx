@@ -74,7 +74,8 @@ function errorText(e) {
   if (e instanceof ApiError && e.status === 401) return LOGIN_NEEDED
   // 400/429/503 등은 서버가 사용자에게 보여줄 문장을 message로 보냅니다(예: 오늘 질문 횟수 초과).
   if (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.message && e.message !== 'network') return e.message
-  if (e instanceof ApiError && e.status === 503) return e.message || 'AI 기능이 꺼져 있어요.'
+  // 메시지 없는 503은 대개 서버가 재시작 중(빌드·배포)일 때 터널이 돌려준 것
+  if (e instanceof ApiError && e.status === 503) return e.message || '서버가 잠깐 응답하지 않아요(503). 빌드 중이면 끝난 뒤 다시 해 보세요.'
   // 0: 네트워크 오류, 5xx: 개발 중 백엔드(9090)가 꺼져 있으면 Vite 프록시가 5xx를 돌려줍니다.
   if (e instanceof ApiError && (e.status === 0 || e.status >= 500)) return '서버에 연결할 수 없어요.'
   if (e instanceof ApiError && e.status === 404) return '서버에 이 기능이 아직 없어요(404). 백엔드를 새로 빌드해 주세요.'
