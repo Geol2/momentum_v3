@@ -100,6 +100,22 @@ export default function Workspace({
   const [showGlasses, setShowGlasses] = useState(false)
   const endRef = useRef(null)
   // 대화 목록 탭: 'chat' 모멘텀에서 한 질문 / 'code' PC Claude Code 등 밖에서 가져온 대화
+  // 폰 키보드: 보이는 영역(visualViewport) 높이에 화면을 맞춰 입력창이 키보드 위에 오게 합니다.
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return undefined
+    const root = document.documentElement
+    const fit = () => {
+      root.style.setProperty('--vvh', `${Math.round(vv.height)}px`)
+      // 아이폰은 키보드가 뜰 때 페이지 전체를 위로 밀어 올려서, 다시 맨 위에 붙여 둠
+      if (window.scrollY) window.scrollTo(0, 0)
+    }
+    fit()
+    vv.addEventListener('resize', fit)
+    vv.addEventListener('scroll', fit)
+    return () => { vv.removeEventListener('resize', fit); vv.removeEventListener('scroll', fit); root.style.removeProperty('--vvh') }
+  }, [])
+
   const [listTab, setListTab] = useState('chat')
   const [moreMenu, setMoreMenu] = useState(false)
   const [showAll, setShowAll] = useState(false)
@@ -832,7 +848,8 @@ function Composer({ busy, project, onAsk, speak, onSpeakChange }) {
 
 const CSS = MARKDOWN_CSS + `
 .ws { --bg:#0b0d12; --panel:#11141b; --line:#222831; --text:#e8e8ea; --muted:#b0b6c0; --dim:#8c939e; --accent:#4dff7a;
-  min-height:100vh; height:100dvh; display:flex; flex-direction:column; background:var(--bg); color:var(--text);
+  /* --vvh: 키보드를 뺀 실제 보이는 높이(아이폰은 키보드가 떠도 100vh가 안 줄어서 입력창이 가려졌어요) */
+  height:var(--vvh, 100dvh); display:flex; flex-direction:column; background:var(--bg); color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif; }
 .ws button { font:inherit; }
 .ws-top { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid var(--line); min-height:52px; box-sizing:border-box; }
