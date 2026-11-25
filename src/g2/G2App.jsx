@@ -309,6 +309,7 @@ export default function G2App() {
             setData((d) => ({ ...d, interp: { ...d.interp, lastError: errorText(e) } }))
           }
         }
+        it.translate = translate
         let wordsAt = 0
         let wordsTimer = null
         const showWords = (w) => {
@@ -415,10 +416,11 @@ export default function G2App() {
         }
         setData((d) => ({ ...d, interp: { ...d.interp, suggestOpen: true, suggesting: true, suggestion: null } }))
         // 추천 요청을 먼저 보내고(기다리지 않음), 그동안 통역을 멈춰요. 마이크 끄기를 기다렸다 보내면 느려요.
-        const req = aiApi.interpretSuggest(ctx.slice(-8))
+        const req = aiApi.interpretSuggest(ctx.slice(-30))
         if (it.on) {
           it.on = false
           it.queue = []
+          if (live) it.translate?.(live) // 문장으로 안 끝난 마지막 말도 전체 말에 넣기
           it.live?.close()
           it.live = null
           glassesRef.current?.stopMic?.().catch(() => {})

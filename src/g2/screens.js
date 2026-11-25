@@ -34,6 +34,15 @@ export const initialState = { screen: 'home', cursor: 0 }
 // 통역 기록 한 쪽에 보여 줄 문장 수
 export const INTERP_PER_PAGE = 3
 
+/** 통역 멈춤 화면의 쪽들: 전체 말(오래된 것부터 3개씩) → 요점 → 추천 대답 */
+export function stopPages(lines = []) {
+  const talk = []
+  const of = Math.ceil(lines.length / INTERP_PER_PAGE)
+  for (let k = 0; k < of; k++) talk.push({ kind: 'talk', no: k + 1, of, items: lines.slice(k * INTERP_PER_PAGE, (k + 1) * INTERP_PER_PAGE) })
+  return [...talk, { kind: 'sum' }, { kind: 'reply' }]
+}
+const clampPage = (i, n) => Math.max(0, Math.min(i, n - 1))
+
 function clip(t, n) {
   const v = String(t || '')
   return v.length > n ? `${v.slice(0, n)}…` : v
@@ -180,13 +189,26 @@ export function render(state, data) {
       const right = it.status === 'listening' ? (it.mode === 'live' ? '실시간' : it.busy ? '듣는 중 · 옮기는 중' : '듣는 중') : it.status === 'starting' ? '마이크 켜는 중' : ''
       if (it.status === 'error') return frame('통역', '', it.error || '통역을 시작하지 못했어요.', '두 번 누르기: 뒤로')
       // 추천 대답은 따로 한 화면으로(통역 줄에 덧붙이면 화면이 넘쳐 맨 위로 튀어요)
+      // 통역을 멈추면: 전체 말(쪽 넘기기) → 상대 요점 → 추천 대답. 처음엔 요점 쪽부터 보여요.
       if (it.suggestOpen) {
+        const pages = stopPages(it.lines)
+        const at = clampPage(state.sp ?? pages.length - 2, pages.length)
+        const pg = pages[at]
+        const nav = `${at > 0 ? '위·' : ''}${at < pages.length - 1 ? '아래·' : ''}`.replace(/·$/, '')
+        const hint = `${nav ? `${nav}: 넘기기 · ` : ''}누르기: 다시 듣기 · 두 번: 다른 추천`
         const sg = it.suggestion
-        const last = (it.lines || []).slice(-1)[0]
-        const heard = last ? `상대: ${clip(last.korean || last.original, 40)}\n\n` : ''
-        const body = it.suggesting || !sg ? `${heard}대답을 만드는 중...`
-          : `${heard}▶ ${sg.english}${sg.korean ? `\n\n뜻: ${sg.korean}` : ''}`
-        return frame('추천 대답', it.suggesting ? '만드는 중' : '통역 멈춤', body, '누르기: 다시 듣기 · 두 번: 다른 추천')
+        const wait = it.suggesting || !sg
+        if (pg.kind === 'talk') {
+          const body = pg.items.map((l) => `· ${clip(l.korean || '(번역 중)', 44)}\n  ${clip(l.original, 44)}`).join('\n')
+          return frame('전체 말', `${pg.no}/${pg.of}`, body, hint)
+        }
+        if (pg.kind === 'sum') {
+          const body = wait ? '상대 말을 정리하는 중...'
+            : sg.summary?.length ? sg.summary.map((t) => `• ${clip(t, 40)}`).join('\n') : '정리할 요점이 없어요.'
+          return frame('상대 요점', wait ? '정리 중' : '통역 멈춤', body, hint)
+        }
+        const body = wait ? '대답을 만드는 중...' : `▶ ${sg.english}${sg.korean ? `\n\n뜻: ${sg.korean}` : ''}`
+        return frame('추천 대답', wait ? '만드는 중' : '통역 멈춤', body, hint)
       }
       // 기록 보기: 위로 넘기면 지난 통역을 한 쪽에 3개씩(한국어 + 영어 원문)
       const all = it.lines || []
@@ -396,8 +418,18 @@ export function reduce(state, gesture, data) {
     case 'interp': {
       if (!data.aiEnabled) return stay(state)
       const open = !!data.interp?.suggestOpen
-      if (gesture === 'tap') return { state: { ...state, hist: 0 }, effects: [{ type: open ? 'interpCloseSuggest' : 'interpSuggest' }] }
-      if (open) return stay(state)
+      // 멈출 때는 '요점' 쪽에서 시작(전체 말 쪽 수 = 요점의 자리)
+      if (gesture === 'tap') {
+        const sp = open ? undefined : stopPages(data.interp?.lines).length - 2
+        return { state: { ...state, hist: 0, sp }, effects: [{ type: open ? 'interpCloseSuggest' : 'interpSuggest' }] }
+      }
+      if (open) {
+        const n = stopPages(data.interp?.lines).length
+        const at = clampPage(state.sp ?? n - 2, n)
+        if (gesture === 'up') return stay({ ...state, sp: clampPage(at - 1, n) })
+        if (gesture === 'down') return stay({ ...state, sp: clampPage(at + 1, n) })
+        return stay(state)
+      }
       // 위·아래: 통역 기록 넘기기(0 = 실시간 화면)
       const n = data.interp?.lines?.length || 0
       const pages = Math.ceil(n / INTERP_PER_PAGE)

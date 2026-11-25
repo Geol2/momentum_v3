@@ -110,8 +110,21 @@ test('통역 화면: 최근 번역 2줄, 추천 대답은 따로 한 화면, 키
   const page = JSON.stringify(render({ screen: 'interp' }, { aiEnabled: true, interp: { status: 'listening', lines } }))
   assert.ok(!page.includes('한국어 2') && page.includes('한국어 3') && page.includes('한국어 4'))
   assert.ok(page.includes('듣는 중'))
-  const sug = JSON.stringify(render({ screen: 'interp' }, { aiEnabled: true, interp: { status: 'listening', lines, suggestOpen: true, suggestion: { english: 'Sounds good.', korean: '좋아요.' } } }))
-  assert.ok(sug.includes('추천 대답') && sug.includes('Sounds good.') && sug.includes('한국어 4'))
+  const stopped = { aiEnabled: true, interp: { status: 'paused', lines, suggestOpen: true, suggestion: { english: 'Sounds good.', korean: '좋아요.', summary: ['3시로 옮기자'] } } }
+  // 멈추면 요점 쪽부터
+  const tapped = reduce({ screen: 'interp' }, 'tap', { aiEnabled: true, interp: { lines } })
+  assert.deepEqual(tapped.effects, [{ type: 'interpSuggest' }])
+  let pg = JSON.stringify(render(tapped.state, stopped))
+  assert.ok(pg.includes('상대 요점') && pg.includes('3시로 옮기자'))
+  // 아래 = 추천 대답, 위로 가면 전체 말(쪽 2/2 → 1/2)
+  pg = JSON.stringify(render(reduce(tapped.state, 'down', stopped).state, stopped))
+  assert.ok(pg.includes('추천 대답') && pg.includes('Sounds good.'))
+  let st2 = reduce(tapped.state, 'up', stopped).state
+  pg = JSON.stringify(render(st2, stopped))
+  assert.ok(pg.includes('전체 말') && pg.includes('2/2') && pg.includes('한국어 4'))
+  st2 = reduce(reduce(st2, 'up', stopped).state, 'up', stopped).state
+  pg = JSON.stringify(render(st2, stopped))
+  assert.ok(pg.includes('1/2') && pg.includes('한국어 1'))
   // 추천 화면: 누르면 닫기, 두 번이면 다른 추천(나가지 않음)
   const open = { aiEnabled: true, interp: { suggestOpen: true } }
   assert.deepEqual(reduce({ screen: 'interp' }, 'tap', open).effects, [{ type: 'interpCloseSuggest' }])
