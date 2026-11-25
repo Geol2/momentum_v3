@@ -12,6 +12,12 @@
 // 사용법 (Node 18+, Claude Code 설치·로그인 필요)
 //   node scripts/pc-agent.mjs            # 켜 두기 (Ctrl+C로 끔)
 //   node scripts/pc-agent.mjs --name 회사PC
+//   node scripts/pc-agent.mjs --allow "D:/05_project/momentum_v3,D:/05_project/my-llm"   # 이 폴더들에서만 실행
+//
+// 폴더 허용 목록 — 회사 PC처럼 민감한 코드가 있는 곳에서는 꼭 켜 두세요.
+//   --allow 또는 ~/.momentum.env 의 MOMENTUM_AGENT_ALLOW=폴더1,폴더2 (쉼표·세미콜론으로 구분)
+//   목록이 있으면 그 폴더(와 그 아래)의 세션만 모멘텀에 보여 주고, 다른 폴더로 온 질문은 이 PC에서 거절합니다.
+//   (서버를 믿지 않고 PC 쪽에서 막으므로, 모멘텀 계정·서버가 털려도 목록 밖 코드는 읽히지 않아요.)
 //
 // 로그인 정보는 sync 스크립트와 같은 ~/.momentum.env (MOMENTUM_EMAIL, MOMENTUM_PASSWORD) 를 씁니다.
 
@@ -49,6 +55,15 @@ if (!agentId || !/^[A-Za-z0-9_-]{1,80}$/.test(agentId)) {
   fs.writeFileSync(ID_FILE, JSON.stringify({ id: agentId }))
 }
 const NAME = opt('--name', os.hostname())
+
+// ── 폴더 허용 목록 ──
+const norm = (p) => {
+  let x = path.resolve(String(p || '')).replace(/\\/g, '/').replace(/\/+$/, '')
+  if (process.platform === 'win32') x = x.toLowerCase()
+  return x
+}
+const ALLOW = String(opt('--allow', process.env.MOMENTUM_AGENT_ALLOW || '')).split(/[,;]/).map((x) => x.trim()).filter(Boolean).map(norm)
+const allowed = (cwd) => !ALLOW.length || ALLOW.some((a) => { const c = norm(cwd); return c === a || c.startsWith(`${a}/`) })
 const log = (...a) => console.log(`[${new Date().toLocaleTimeString('ko-KR')}]`, ...a)
 
 // ── 로그인 ──
@@ -103,7 +118,7 @@ function recentSessions() {
     }
   } catch { /* 폴더 없음 */ }
   files.sort((a, b) => b.st.mtimeMs - a.st.mtimeMs)
-  sessions = files.slice(0, 40).map(({ p, st }) => sessionMeta(p, st)).filter((s) => s.cwd && fs.existsSync(s.cwd))
+  sessions = files.slice(0, 80).map(({ p, st }) => sessionMeta(p, st)).filter((s) => s.cwd && fs.existsSync(s.cwd) && allowed(s.cwd)).slice(0, 40)
   sessionsAt = Date.now()
   return sessions
 }
@@ -111,6 +126,7 @@ function recentSessions() {
 // ── Claude Code 실행 (읽기 전용) ──
 function runClaude(job) {
   return new Promise((resolve) => {
+    if (!allowed(job.cwd)) { resolve({ error: '이 PC에서 허용하지 않은 폴더예요(pc-agent 폴더 허용 목록).' }); return }
     if (!fs.existsSync(job.cwd)) { resolve({ error: `폴더가 없어요: ${job.cwd}` }); return }
     if (job.sessionId && !/^[A-Za-z0-9_-]{1,80}$/.test(job.sessionId)) { resolve({ error: '세션 ID 형식이 이상해요.' }); return }
     // 질문은 인자가 아니라 표준 입력으로 넘깁니다(셸이 질문 내용을 해석하지 않도록).
@@ -174,5 +190,6 @@ async function tick() {
 
 log(`pc-agent 시작 — 이름 "${NAME}", 서버 ${API}`)
 log('모멘텀에서 이 PC의 Claude Code 대화를 열면 이어서 물을 수 있어요. (읽기 전용 · Ctrl+C로 종료)')
+log(ALLOW.length ? `허용 폴더: ${ALLOW.join(', ')}` : '허용 폴더 목록 없음 — 이 PC의 모든 Claude Code 폴더에서 실행돼요. 회사 PC라면 --allow 로 제한하세요.')
 tick()
 setInterval(tick, POLL_MS)
