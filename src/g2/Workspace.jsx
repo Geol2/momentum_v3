@@ -673,7 +673,7 @@ function Turn({ turn, onGlasses, onGlassesNow }) {
       await notesApi.create({ text, x: 40 + Math.random() * 120, y: 140 + Math.random() * 120, rot: (Math.random() - 0.5) * 6,
         width: 240, height: Math.min(320, 90 + len / 3), dateKey: todayKey(), ts: Date.now() })
       setMemo('saved')
-    } catch { setMemo('error') }
+    } catch (e) { console.error('[g2] 메모 저장 실패', e); setMemo('error') }
   }
   const steps = turn.steps || []
   const saveSteps = async () => {
@@ -1085,7 +1085,6 @@ const CSS = MARKDOWN_CSS + `
 .ws-glassbtn.on { color:#8dffaa; border-color:rgba(77,255,122,.35); background:rgba(77,255,122,.08); }
 .ws-glassbtn.on .ws-dot-sw { background:var(--accent); box-shadow:0 0 6px var(--accent); }
 .ws-badge { font-size:11px; margin:0; }
-.ws.no-glasses .ws-glassbtn.ws-memo { display:inline-flex; }
 .ws-compose { border-top:0; padding:10px 28px 18px; }
 .ws-compose > * { max-width:720px; margin-left:auto; margin-right:auto; }
 .ws-compose { display:flex; flex-direction:column; }
@@ -1109,7 +1108,8 @@ html.g2-lock, html.g2-lock body { height:100%; overflow:hidden; overscroll-behav
   .ws.no-glasses .ws-glasses.open { display:block; position:fixed; right:16px; top:64px; width:min(380px, calc(100vw - 32px)); max-height:calc(100dvh - 90px); border:1px solid var(--line); border-radius:12px; z-index:40; box-shadow:0 12px 40px rgba(0,0,0,.6); }
 }
 @media (max-width: 760px) { .ws.no-glasses .ws-glasses:not(.open) { display:none; } }
-.ws.no-glasses .ws-glassbtn:not(.on), .ws.no-glasses .ws-pin:not(.on) { display:none; }
+/* 안경 버튼만 숨김 — '메모로 저장'은 안경이 꺼져 있어도 보여야 해요 */
+.ws.no-glasses .ws-glassbtn:not(.on):not(.ws-memo), .ws.no-glasses .ws-pin:not(.on) { display:none; }
 /* 입력창 한 줄: [+] [입력칸] [보내기] */
 .ws-bar { width:100%; display:flex; align-items:flex-end; gap:6px; padding:6px; border:1px solid var(--line); border-radius:18px; background:#11141b; box-sizing:border-box; }
 .ws-compose:focus-within .ws-bar { border-color:#33503f; }
