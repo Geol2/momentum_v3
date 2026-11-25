@@ -471,7 +471,7 @@ export default function Workspace({
           <span className="ws-crumb" aria-hidden="true">/</span>
           <strong title={title}>{title}</strong>
           <span className={`ws-chip${codeMode ? ' cc' : ''}`}>
-            {codeMode ? <>Claude Code{pcAgent ? ` · ${pcAgent.name}` : ' · PC 꺼짐'}</> : conv.project ? conv.project : '일반 질문'}
+            {codeMode ? <>Claude Code{pcAgent ? ` · ${pcAgent.name}` : ' · PC 연결 안 됨'}</> : conv.project ? conv.project : '일반 질문'}
           </span>
         </div>
         <div className="ws-tools">
