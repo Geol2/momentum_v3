@@ -77,6 +77,8 @@ function errorText(e) {
   if (e instanceof ApiError && e.status === 503) return e.message || 'AI 기능이 꺼져 있어요.'
   // 0: 네트워크 오류, 5xx: 개발 중 백엔드(9090)가 꺼져 있으면 Vite 프록시가 5xx를 돌려줍니다.
   if (e instanceof ApiError && (e.status === 0 || e.status >= 500)) return '서버에 연결할 수 없어요.'
+  if (e instanceof ApiError && e.status === 404) return '서버에 이 기능이 아직 없어요(404). 백엔드를 새로 빌드해 주세요.'
+  if (e instanceof ApiError) return `불러오지 못했어요(${e.status}).`
   return '불러오지 못했어요.'
 }
 

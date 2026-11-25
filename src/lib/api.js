@@ -3,7 +3,8 @@ const TOKEN_KEY = 'byeolbit_token'
 
 export class ApiError extends Error {
   constructor(status, message) {
-    super(message)
+    // new Error(null)은 message가 문자열 'null'이 되므로 빈 값은 빈 문자열로
+    super(message ?? '')
     this.status = status
   }
 }
