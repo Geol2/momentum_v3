@@ -107,13 +107,15 @@ export default function Workspace({
     const root = document.documentElement
     const fit = () => {
       root.style.setProperty('--vvh', `${Math.round(vv.height)}px`)
-      // 아이폰은 키보드가 뜰 때 페이지 전체를 위로 밀어 올려서, 다시 맨 위에 붙여 둠
-      if (window.scrollY) window.scrollTo(0, 0)
+      // 아이폰은 키보드가 뜰 때 보이는 영역을 아래로 옮겨서(offsetTop) 위쪽이 화면 밖으로 나가요 → 그 위치에 화면을 붙임
+      root.style.setProperty('--vvtop', `${Math.round(vv.offsetTop)}px`)
+      // 입력 중이면 최근 대화가 보이게 맨 아래로
+      if (document.activeElement?.tagName === 'TEXTAREA') endRef.current?.scrollIntoView({ block: 'end' })
     }
     fit()
     vv.addEventListener('resize', fit)
     vv.addEventListener('scroll', fit)
-    return () => { vv.removeEventListener('resize', fit); vv.removeEventListener('scroll', fit); root.style.removeProperty('--vvh') }
+    return () => { vv.removeEventListener('resize', fit); vv.removeEventListener('scroll', fit); root.style.removeProperty('--vvh'); root.style.removeProperty('--vvtop') }
   }, [])
 
   const [listTab, setListTab] = useState('chat')
@@ -849,7 +851,7 @@ function Composer({ busy, project, onAsk, speak, onSpeakChange }) {
 const CSS = MARKDOWN_CSS + `
 .ws { --bg:#0b0d12; --panel:#11141b; --line:#222831; --text:#e8e8ea; --muted:#b0b6c0; --dim:#8c939e; --accent:#4dff7a;
   /* --vvh: 키보드를 뺀 실제 보이는 높이(아이폰은 키보드가 떠도 100vh가 안 줄어서 입력창이 가려졌어요) */
-  height:var(--vvh, 100dvh); display:flex; flex-direction:column; background:var(--bg); color:var(--text);
+  position:fixed; left:0; right:0; top:var(--vvtop, 0px); height:var(--vvh, 100dvh); display:flex; flex-direction:column; background:var(--bg); color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif; }
 .ws button { font:inherit; }
 .ws-top { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid var(--line); min-height:52px; box-sizing:border-box; }
