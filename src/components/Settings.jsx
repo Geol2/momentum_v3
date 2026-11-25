@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
+import ChangePassword from './ChangePassword.jsx'
 import { BACKGROUNDS } from '../lib/data.js'
 import { pushApi } from '../lib/api.js'
 import { disablePush, enablePush, isSubscribed, isIOS, isStandalone, pushBlockedReason, pushSupported } from '../lib/push.js'
 
 // Gear button + settings popover (name, clock format, seconds, temp unit, quote, 알림).
 export default function Settings({ settings, onChange, user, onLogout, currentBackground }) {
+  const [pwOpen, setPwOpen] = useState(false)
   const [open, setOpen] = useState(false)
   const set = (patch) => onChange({ ...settings, ...patch })
 
@@ -112,6 +114,15 @@ export default function Settings({ settings, onChange, user, onLogout, currentBa
             <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', fontFamily: "'Noto Sans KR', sans-serif", marginBottom: 9 }}>
               {user?.name} · {user?.email}
             </div>
+            <button
+              onClick={() => setPwOpen(true)}
+              style={{
+                width: '100%', padding: '8px 0', borderRadius: 9, cursor: 'pointer', marginBottom: 6,
+                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+                color: 'rgba(255,255,255,0.85)', fontSize: 12, fontFamily: "'Noto Sans KR', sans-serif",
+              }}
+            >비밀번호 바꾸기</button>
+            {pwOpen && <ChangePassword onClose={() => setPwOpen(false)} />}
             <button
               onClick={onLogout}
               style={{
