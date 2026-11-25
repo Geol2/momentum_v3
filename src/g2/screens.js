@@ -31,6 +31,11 @@ export const initialState = { screen: 'home', cursor: 0 }
 
 // ---------- 공통 틀 ----------
 
+function clip(t, n) {
+  const v = String(t || '')
+  return v.length > n ? `${v.slice(0, n)}…` : v
+}
+
 function frame(title, right, body, hint) {
   return {
     texts: [
@@ -171,21 +176,28 @@ export function render(state, data) {
       const it = data.interp || {}
       const right = it.status === 'listening' ? (it.mode === 'live' ? '실시간' : it.busy ? '듣는 중 · 옮기는 중' : '듣는 중') : it.status === 'starting' ? '마이크 켜는 중' : ''
       if (it.status === 'error') return frame('통역', '', it.error || '통역을 시작하지 못했어요.', '두 번 누르기: 뒤로')
-      const lines = (it.lines || []).slice(-3).map((l) => `· ${l.korean || l.original}`)
+      // 추천 대답은 따로 한 화면으로(통역 줄에 덧붙이면 화면이 넘쳐 맨 위로 튀어요)
+      if (it.suggestOpen) {
+        const sg = it.suggestion
+        const last = (it.lines || []).slice(-1)[0]
+        const heard = last ? `상대: ${clip(last.korean || last.original, 40)}\n\n` : ''
+        const body = it.suggesting || !sg ? `${heard}대답을 만드는 중...`
+          : `${heard}${sg.english}${sg.korean ? `\n(${sg.korean})` : ''}`
+        return frame('추천 대답', it.suggesting ? '만드는 중' : '', body, '누르기: 돌아가기 · 두 번: 다른 추천')
+      }
+      // 화면 한 장에 들어가게: 최근 번역 2줄(각 46자) + 지금 들리는 말 1줄
+      const lines = (it.lines || []).slice(-2).map((l) => `· ${clip(l.korean || l.original, 46)}`)
       let body = lines.length ? lines.join('\n') : '상대가 영어로 말하면\n여기에 한국어로 떠요.'
       if (it.status === 'listening' && it.mode === 'live') {
-        // 실시간: 지금 들리는 단어(끝 60자)
         const w = it.live || ''
-        body += `\n\n▸ ${w ? (w.length > 60 ? `…${w.slice(-60)}` : w) : '(듣는 중)'}`
+        body += `\n\n▸ ${w ? (w.length > 50 ? `…${w.slice(-50)}` : w) : '(듣는 중)'}`
       } else if (it.status === 'listening') {
         // 소리 크기: 막대 2칸 이상이면 말로 알아듣고 서버로 보내요.
         const m = it.meter || 0
         body += `\n\n소리 ${'■'.repeat(m)}${'□'.repeat(5 - m)}`
         if (it.missed) body += ` · 못 알아들음 ${it.missed}`
       }
-      if (it.lastError) body += `\n\n오류: ${it.lastError}`
-      if (it.suggesting) body += '\n\n추천 대답 만드는 중...'
-      else if (it.suggestion?.english) body += `\n\n추천: ${it.suggestion.english}${it.suggestion.korean ? `\n(${it.suggestion.korean})` : ''}`
+      if (it.lastError) body += `\n\n오류: ${clip(it.lastError, 60)}`
       return frame('통역', right, body, '누르기: 대답 추천 · 두 번: 끝')
     }
 
@@ -300,6 +312,9 @@ export function reduce(state, gesture, data) {
     return { state, effects: [{ type: 'micCancel' }] }
   }
   // 통역: 두 번 누르면 마이크를 끄고 홈으로
+  if (state.screen === 'interp' && gesture === 'double' && data.interp?.suggestOpen) {
+    return { state, effects: [{ type: 'interpSuggest' }] }
+  }
   if (state.screen === 'interp' && gesture === 'double') {
     const back = homeItems(data).findIndex((it) => it.key === 'interp')
     return { state: home(Math.max(0, back)).state, effects: [{ type: 'interpStop' }] }
@@ -366,7 +381,9 @@ export function reduce(state, gesture, data) {
 
     case 'interp': {
       if (!data.aiEnabled) return stay(state)
-      return gesture === 'tap' ? { state, effects: [{ type: 'interpSuggest' }] } : stay(state)
+      const open = !!data.interp?.suggestOpen
+      if (gesture === 'tap') return { state, effects: [{ type: open ? 'interpCloseSuggest' : 'interpSuggest' }] }
+      return stay(state)
     }
 
     case 'ask': {

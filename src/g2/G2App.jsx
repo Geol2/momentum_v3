@@ -49,7 +49,10 @@ function openLive(token, model, { onWords, onSentence, onClose }) {
     const text = m.channel?.alternatives?.[0]?.transcript || ''
     if (m.is_final) {
       if (text) done += ` ${text}`
-      if (m.speech_final) { flush(); onWords('') } else onWords(done.trim())
+      // 쉬지 않고 계속 말해도 문장이 끝나면(. ? !) 끊고, 너무 길면(25단어) 그냥 끊어서 번역
+      const words = done.trim().split(/\s+/).length
+      const sentenceEnd = /[.?!]["')\]]?$/.test(text.trim()) && words >= 4
+      if (m.speech_final || sentenceEnd || words >= 25) { flush(); onWords('') } else onWords(done.trim())
     } else {
       onWords(`${done} ${text}`.trim())
     }
@@ -294,11 +297,11 @@ export default function G2App() {
         const it = interpRef.current
         if (it.on) break
         Object.assign(it, { on: true, seg: [], segMs: 0, silence: 0, speaking: false, pre: [], queue: [], sending: false, floor: 0, peak: 0, lastLevelAt: 0 })
-        setData((d) => ({ ...d, interp: { status: 'starting', lines: d.interp?.lines || [], suggestion: null } }))
+        setData((d) => ({ ...d, interp: { status: 'starting', lines: d.interp?.lines || [], suggestion: null, suggestOpen: false } }))
         // 실시간(Deepgram)을 먼저 시도하고, 안 되면(키 없음·다른 사용자) 조각 방식으로
         const translate = async (sentence) => {
           const id = Date.now() + Math.random()
-          setData((d) => ({ ...d, interp: { ...d.interp, lines: [...(d.interp?.lines || []), { id, original: sentence, korean: '' }].slice(-20), suggestion: null } }))
+          setData((d) => ({ ...d, interp: { ...d.interp, lines: [...(d.interp?.lines || []), { id, original: sentence, korean: '' }].slice(-20) } }))
           try {
             const r = await aiApi.interpretTranslate(sentence)
             setData((d) => ({ ...d, interp: { ...d.interp, lastError: null, lines: (d.interp?.lines || []).map((l) => (l.id === id ? { ...l, korean: r?.korean || '' } : l)) } }))
@@ -342,7 +345,7 @@ export default function G2App() {
           try {
             const r = await aiApi.interpretChunk(pcm, MIC_RATE)
             if (r?.original) {
-              setData((d) => ({ ...d, interp: { ...d.interp, lastError: null, lines: [...(d.interp?.lines || []), r].slice(-20), suggestion: null } }))
+              setData((d) => ({ ...d, interp: { ...d.interp, lastError: null, lines: [...(d.interp?.lines || []), r].slice(-20) } }))
             } else {
               setData((d) => ({ ...d, interp: { ...d.interp, lastError: null, missed: (d.interp?.missed || 0) + 1 } }))
             }
@@ -400,18 +403,30 @@ export default function G2App() {
         break
       }
       case 'interpSuggest': {
-        const lines = dataRef.current.interp?.lines || []
-        if (!lines.length) {
-          setData((d) => ({ ...d, interp: { ...d.interp, suggestion: { english: '아직 들은 말이 없어요.', korean: '' } } }))
+        const it = interpRef.current
+        const seq = (it.suggestSeq = (it.suggestSeq || 0) + 1)
+        const lines = (dataRef.current.interp?.lines || []).filter((l) => l.original)
+        // 아직 문장으로 안 끝났어도 지금 들리는 말까지 넣어서
+        const live = (dataRef.current.interp?.live || '').trim()
+        const ctx = live ? [...lines, { original: live, korean: '' }] : lines
+        if (!ctx.length) {
+          setData((d) => ({ ...d, interp: { ...d.interp, suggestOpen: true, suggesting: false, suggestion: { english: '아직 들은 말이 없어요.', korean: '' } } }))
           break
         }
-        setData((d) => ({ ...d, interp: { ...d.interp, suggesting: true } }))
+        setData((d) => ({ ...d, interp: { ...d.interp, suggestOpen: true, suggesting: true, suggestion: null } }))
         try {
-          const r = await aiApi.interpretSuggest(lines.slice(-8))
-          setData((d) => ({ ...d, interp: { ...d.interp, suggesting: false, suggestion: r } }))
+          const r = await aiApi.interpretSuggest(ctx.slice(-8))
+          if (it.suggestSeq !== seq) break // 그사이 닫았거나 다시 눌렀으면 버림
+          setData((d) => (d.interp?.suggestOpen ? { ...d, interp: { ...d.interp, suggesting: false, suggestion: r } } : d))
         } catch (e) {
+          if (it.suggestSeq !== seq) break
           setData((d) => ({ ...d, interp: { ...d.interp, suggesting: false, suggestion: { english: errorText(e), korean: '' } } }))
         }
+        break
+      }
+      case 'interpCloseSuggest': {
+        interpRef.current.suggestSeq = (interpRef.current.suggestSeq || 0) + 1
+        setData((d) => ({ ...d, interp: { ...d.interp, suggestOpen: false, suggesting: false, suggestion: null } }))
         break
       }
       case 'interpStop': {
@@ -422,7 +437,7 @@ export default function G2App() {
         it.live?.close()
         it.live = null
         await glassesRef.current?.stopMic?.().catch(() => {})
-        setData((d) => ({ ...d, interp: { ...d.interp, status: 'idle', busy: false } }))
+        setData((d) => ({ ...d, interp: { ...d.interp, status: 'idle', busy: false, suggestOpen: false, live: '' } }))
         break
       }
       case 'micCancel':

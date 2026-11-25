@@ -105,11 +105,19 @@ test('통역: 들어가면 마이크 켜기, 누르면 대답 추천, 두 번 �
   assert.deepEqual(r.effects, [{ type: 'interpStop' }])
 })
 
-test('통역 화면: 최근 번역 3줄과 추천 대답 표시, 키 없는 계정은 안내', () => {
+test('통역 화면: 최근 번역 2줄, 추천 대답은 따로 한 화면, 키 없는 계정은 안내', () => {
   const lines = [1, 2, 3, 4].map((i) => ({ original: `line ${i}`, korean: `한국어 ${i}` }))
-  const page = JSON.stringify(render({ screen: 'interp' }, { aiEnabled: true, interp: { status: 'listening', lines, suggestion: { english: 'Sounds good.', korean: '좋아요.' } } }))
-  assert.ok(!page.includes('한국어 1') && page.includes('한국어 4'))
-  assert.ok(page.includes('Sounds good.') && page.includes('듣는 중'))
+  const page = JSON.stringify(render({ screen: 'interp' }, { aiEnabled: true, interp: { status: 'listening', lines } }))
+  assert.ok(!page.includes('한국어 2') && page.includes('한국어 3') && page.includes('한국어 4'))
+  assert.ok(page.includes('듣는 중'))
+  const sug = JSON.stringify(render({ screen: 'interp' }, { aiEnabled: true, interp: { status: 'listening', lines, suggestOpen: true, suggestion: { english: 'Sounds good.', korean: '좋아요.' } } }))
+  assert.ok(sug.includes('추천 대답') && sug.includes('Sounds good.') && sug.includes('한국어 4'))
+  // 추천 화면: 누르면 닫기, 두 번이면 다른 추천(나가지 않음)
+  const open = { aiEnabled: true, interp: { suggestOpen: true } }
+  assert.deepEqual(reduce({ screen: 'interp' }, 'tap', open).effects, [{ type: 'interpCloseSuggest' }])
+  const again = reduce({ screen: 'interp' }, 'double', open)
+  assert.equal(again.state.screen, 'interp')
+  assert.deepEqual(again.effects, [{ type: 'interpSuggest' }])
   assert.ok(JSON.stringify(render({ screen: 'interp' }, { aiEnabled: false })).includes('API 키'))
   // 키 없는 계정은 들어가도 마이크를 켜지 않음
   let st = reduce(initialState, 'down', { aiEnabled: false }).state
