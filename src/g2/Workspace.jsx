@@ -101,11 +101,15 @@ export default function Workspace({
   const endRef = useRef(null)
   // 대화 목록 탭: 'chat' 모멘텀에서 한 질문 / 'code' PC Claude Code 등 밖에서 가져온 대화
   // 폰 키보드: 보이는 영역(visualViewport) 높이에 화면을 맞춰 입력창이 키보드 위에 오게 합니다.
+  const [kb, setKb] = useState(false) // 폰 키보드가 떠 있는지(그동안 상단 헤더를 숨겨 대화 칸을 넓힘)
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return undefined
     const root = document.documentElement
+    let tallest = vv.height
     const fit = () => {
+      tallest = Math.max(tallest, vv.height)
+      setKb(vv.height < tallest * 0.8 && window.matchMedia('(max-width: 760px)').matches)
       root.style.setProperty('--vvh', `${Math.round(vv.height)}px`)
       // 아이폰은 키보드가 뜰 때 보이는 영역을 아래로 옮겨서(offsetTop) 위쪽이 화면 밖으로 나가요 → 그 위치에 화면을 붙임
       root.style.setProperty('--vvtop', `${Math.round(vv.offsetTop)}px`)
@@ -503,7 +507,7 @@ export default function Workspace({
   )
 
   return (
-    <div className="ws">
+    <div className={`ws${kb ? ' kb' : ''}`}>
       <style>{CSS}</style>
       <header className="ws-top">
         <button type="button" className="ws-menu ws-iconbtn" onClick={() => setDrawer((o) => !o)} aria-expanded={drawer} aria-label="대화 목록"><Icon d={I.menu} /></button>
@@ -782,6 +786,15 @@ function Composer({ busy, project, onAsk, speak, onSpeakChange }) {
   const [photoError, setPhotoError] = useState('')
   const cameraRef = useRef(null)
   const albumRef = useRef(null)
+  const taRef = useRef(null)
+  const [menu, setMenu] = useState(false)
+  // 입력칸은 한 줄로 시작해 쓰는 만큼 자라요(최대 6줄쯤)
+  const grow = () => {
+    const el = taRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 150)}px`
+  }
 
   const addPhotos = async (files) => {
     setPhotoError('')
@@ -808,6 +821,7 @@ function Composer({ busy, project, onAsk, speak, onSpeakChange }) {
     onAsk(text, photos.map(({ mediaType, data }) => ({ mediaType, data })))
     setText('')
     setPhotos([])
+    requestAnimationFrame(grow)
   }
 
   return (
@@ -823,31 +837,49 @@ function Composer({ busy, project, onAsk, speak, onSpeakChange }) {
         </div>
       )}
       {photoError && <p className="ws-err">{photoError}</p>}
-      <textarea
-        id="g2-ask"
-        aria-label="Claude에게 질문"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        // PC: Enter 보내기, Shift+Enter 줄바꿈 (폰 키보드의 줄바꿈은 그대로)
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && window.matchMedia('(pointer: fine)').matches) submit(e)
-        }}
-        rows={2}
-        placeholder={photos.length ? '예: 이 요구사항대로 고치려면? (비우면 기본 질문)'
-          : project ? `${project}에 대해 물어보세요 (예: 로그인 처리는 어디서 해?)` : 'Claude에게 물어보세요'}
-      />
+      <div className="ws-bar">
+        <div className="ws-attach">
+          <button type="button" className={`ws-iconbtn ws-plus${speak ? ' speak' : ''}`} aria-label="사진·읽어주기" aria-expanded={menu}
+            onClick={() => setMenu((m) => !m)} disabled={busy}>
+            <Icon d={<><path d="M12 5v14M5 12h14" /></>} />
+          </button>
+          {menu && (
+            <>
+              <button type="button" className="ws-menu-scrim" aria-label="닫기" onClick={() => setMenu(false)} />
+              <div className="ws-attach-pop" role="menu">
+                <button type="button" role="menuitem" disabled={photos.length >= MAX_PHOTOS} onClick={() => { setMenu(false); cameraRef.current?.click() }}><Icon d={I.camera} />사진 찍기</button>
+                <button type="button" role="menuitem" disabled={photos.length >= MAX_PHOTOS} onClick={() => { setMenu(false); albumRef.current?.click() }}><Icon d={I.image} />앨범에서 고르기</button>
+                <label className="ws-attach-speak">
+                  <input type="checkbox" checked={speak} onChange={(e) => onSpeakChange(e.target.checked)} />
+                  답을 폰으로 읽어주기
+                </label>
+              </div>
+            </>
+          )}
+        </div>
+        <textarea
+          id="g2-ask"
+          ref={taRef}
+          aria-label="Claude에게 질문"
+          value={text}
+          onChange={(e) => { setText(e.target.value); grow() }}
+          // PC: Enter 보내기, Shift+Enter 줄바꿈 (폰 키보드의 줄바꿈은 그대로)
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && window.matchMedia('(pointer: fine)').matches) submit(e)
+          }}
+          rows={1}
+          placeholder={photos.length ? '사진에 대해 물어보세요 (비우면 기본 질문)'
+            : project ? `${project}에 대해 물어보세요` : 'Claude에게 물어보세요'}
+        />
+        <button type="submit" className={`ws-sendbtn${busy ? ' busy' : ''}`} disabled={!canSend} aria-label={busy ? '답을 기다리는 중' : '보내기'} title={busy ? '답을 기다리는 중' : '보내기'}>
+          {busy ? <span className="ws-dot" aria-hidden="true" /> : <Icon d={<><path d="M12 19V5" /><path d="m5 12 7-7 7 7" /></>} size={18} />}
+        </button>
+      </div>
+      {speak && <p className="ws-speak-on">답을 폰으로 읽어줘요</p>}
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden
         onChange={(e) => { addPhotos(e.target.files); e.target.value = '' }} />
       <input ref={albumRef} type="file" accept="image/*" multiple hidden
         onChange={(e) => { addPhotos(e.target.files); e.target.value = '' }} />
-      <div className="ws-compose-row">
-        <button type="button" className="ws-iconbtn" onClick={() => cameraRef.current?.click()} disabled={busy || photos.length >= MAX_PHOTOS} aria-label="사진 찍기" title="사진 찍기"><Icon d={I.camera} /></button>
-        <button type="button" className="ws-iconbtn" onClick={() => albumRef.current?.click()} disabled={busy || photos.length >= MAX_PHOTOS} aria-label="앨범에서 고르기" title="앨범"><Icon d={I.image} /></button>
-        <label className="ws-speak">
-          <input type="checkbox" checked={speak} onChange={(e) => onSpeakChange(e.target.checked)} /> 폰으로 읽어주기
-        </label>
-        <button type="submit" className="ws-send" disabled={!canSend}>{busy ? '답을 기다리는 중...' : '보내기'}</button>
-      </div>
     </form>
   )
 }
@@ -1029,6 +1061,28 @@ const CSS = MARKDOWN_CSS + `
 .ws-send:hover { background:#36a364; }
 .ws-send:disabled { background:#24402f; color:#9fb8a8; cursor:default; }
 .ws-glasses { background:#0e1116; }
+/* 입력창 한 줄: [+] [입력칸] [보내기] */
+.ws-bar { width:100%; display:flex; align-items:flex-end; gap:6px; padding:6px; border:1px solid var(--line); border-radius:18px; background:#11141b; box-sizing:border-box; }
+.ws-compose:focus-within .ws-bar { border-color:#33503f; }
+.ws-bar textarea { flex:1; min-width:0; border:0 !important; border-radius:0 !important; background:none !important; padding:8px 4px !important; min-height:0 !important; max-height:150px; resize:none; line-height:1.45; font-size:14px; color:var(--text); }
+.ws-bar textarea:focus { outline:none; }
+.ws-attach { position:relative; flex:none; }
+.ws-plus { width:36px; height:36px; border-radius:50%; border:1px solid var(--line); }
+.ws-plus.speak { border-color:rgba(77,255,122,.45); color:#8dffaa; }
+.ws-attach-pop { position:absolute; left:0; bottom:44px; z-index:31; min-width:200px; padding:6px; background:#151a22; border:1px solid #2a3140; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.5); display:flex; flex-direction:column; }
+.ws-attach-pop button, .ws-attach-speak { display:flex; align-items:center; gap:10px; text-align:left; background:none; border:0; color:var(--text); font-size:13.5px; padding:9px 10px; border-radius:8px; cursor:pointer; }
+.ws-attach-pop button:hover, .ws-attach-speak:hover { background:#1f2530; }
+.ws-attach-pop button:disabled { opacity:.4; }
+.ws-attach-speak input { width:16px; height:16px; margin:0 2px; accent-color:var(--accent); }
+.ws-sendbtn { flex:none; width:36px; height:36px; border-radius:50%; border:0; background:#2f8f57; color:#fff; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
+.ws-sendbtn:disabled { background:#24402f; color:#7e9a89; cursor:default; }
+.ws-sendbtn.busy { background:#24402f; }
+.ws-speak-on { margin:6px 8px 0; font-size:11.5px; color:#6fd3a0; }
+/* 키보드가 떠 있을 때(폰): 헤더를 숨기고 여백을 줄여 대화를 더 보이게 */
+.ws.kb .ws-top { display:none; }
+.ws.kb .ws-chat { padding-top:10px; }
+.ws.kb .ws-compose { padding-bottom:6px !important; }
+.ws.kb .ws-speak-on { display:none; }
 .ws-older { font-style:normal; color:var(--dim); font-size:12px; }
 .ws-pcstat { display:flex; align-items:center; gap:2px; margin:12px 4px 4px; font-size:12px; color:var(--dim); }
 .ws-pcstat.on { color:#8dffaa; }
@@ -1088,5 +1142,20 @@ const CSS = MARKDOWN_CSS + `
   .ws-compose-row { gap:6px; flex-wrap:wrap; }
   .ws-compose-row .ws-btn { padding:7px 10px; font-size:13px; }
   .ws-turn .ws-pin-one { font-size:12px; }
+}
+/* 폰 마지막 보정(앞의 규칙보다 우선) */
+@media (max-width: 760px) {
+  /* 헤더를 한 줄로: 제목은 말줄임, 안경 스위치는 점만 */
+  .ws .ws-top { flex-wrap:nowrap; padding:8px 10px; min-height:48px; gap:6px; }
+  .ws .ws-head { min-width:0; flex:1; }
+  .ws .ws-head strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .ws .ws-top .ws-tools { flex:none; order:0; width:auto; overflow:visible; gap:2px; }
+  .ws .ws-top .ws-tools .ws-pin { width:32px; padding:0; justify-content:center; font-size:0; }
+  .ws-top .ws-tools .ws-pin .ws-dot-sw { margin:0; }
+  .ws-pin.on .ws-dot-sw { background:var(--accent); box-shadow:0 0 6px var(--accent); }
+  .ws-status, .ws-toast { display:none; }
+  /* 아이폰은 16px보다 작은 입력칸을 누르면 화면을 확대해 버려요 */
+  .ws-bar textarea, .ws-compose textarea, .ws-newpc textarea, .ws-select { font-size:16px !important; }
+  .ws-compose { padding-bottom:calc(10px + env(safe-area-inset-bottom)) !important; }
 }
 `
