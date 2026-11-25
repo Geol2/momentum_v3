@@ -221,6 +221,9 @@ export const aiApi = {
     form.append('rate', String(rate))
     return apiFetch('/api/ai/interpret/chunk', { method: 'POST', body: form })
   },
+  // 실시간 통역: Deepgram 임시 토큰(30초, 연결할 때만 씀)과 끝난 문장 번역
+  interpretLiveToken: () => apiFetch('/api/ai/interpret/live-token', { method: 'POST' }),
+  interpretTranslate: (text) => apiFetch('/api/ai/interpret/translate', { method: 'POST', body: JSON.stringify({ text }) }),
   interpretSuggest: (lines) => apiFetch('/api/ai/interpret/suggest', { method: 'POST', body: JSON.stringify({ lines }) }),
   transcribe: (pcm, rate = 16000) => {
     const form = new FormData()

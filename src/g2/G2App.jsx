@@ -31,6 +31,43 @@ function rms16(bytes) {
   for (let i = 0; i < n; i++) { const x = v.getInt16(i * 2, true); sum += x * x }
   return Math.sqrt(sum / n)
 }
+// 실시간 통역(Deepgram 스트리밍): 들리는 단어를 바로 보여 주고, 문장이 끝나면 번역해요.
+const LIVE_URL = 'wss://api.deepgram.com/v1/listen?language=en&encoding=linear16&sample_rate=16000&channels=1'
+  + '&interim_results=true&smart_format=true&punctuate=true&endpointing=400&utterance_end_ms=1200'
+function openLive(token, model, { onWords, onSentence, onClose }) {
+  const ws = new WebSocket(`${LIVE_URL}&model=${encodeURIComponent(model || 'nova-3')}`, ['bearer', token])
+  ws.binaryType = 'arraybuffer'
+  const pending = [] // 연결되기 전에 들어온 소리
+  let done = '' // 이번 문장에서 확정된 부분
+  const flush = () => { const t = done.trim(); done = ''; if (t) onSentence(t) }
+  ws.onopen = () => { while (pending.length) ws.send(pending.shift()) }
+  ws.onmessage = (ev) => {
+    let m
+    try { m = JSON.parse(ev.data) } catch { return }
+    if (m.type === 'UtteranceEnd') { flush(); onWords(''); return }
+    if (m.type !== 'Results') return
+    const text = m.channel?.alternatives?.[0]?.transcript || ''
+    if (m.is_final) {
+      if (text) done += ` ${text}`
+      if (m.speech_final) { flush(); onWords('') } else onWords(done.trim())
+    } else {
+      onWords(`${done} ${text}`.trim())
+    }
+  }
+  ws.onclose = (ev) => { flush(); onClose?.(ev) }
+  return {
+    send(chunk) {
+      if (ws.readyState === WebSocket.OPEN) ws.send(chunk)
+      else if (ws.readyState === WebSocket.CONNECTING) { pending.push(chunk); if (pending.length > 30) pending.shift() }
+    },
+    close() {
+      try { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'CloseStream' })) } catch { /* 무시 */ }
+      ws.onclose = null
+      setTimeout(() => { try { ws.close() } catch { /* 무시 */ } }, 300)
+    },
+  }
+}
+
 // 한 번에 말할 수 있는 길이. 서버 whisper가 CPU로 받아 적으므로 짧을수록 빨라요.
 const MIC_MAX_SECONDS = 30
 const MIC_RATE = 16000
@@ -258,6 +295,45 @@ export default function G2App() {
         if (it.on) break
         Object.assign(it, { on: true, seg: [], segMs: 0, silence: 0, speaking: false, pre: [], queue: [], sending: false, floor: 0, peak: 0, lastLevelAt: 0 })
         setData((d) => ({ ...d, interp: { status: 'starting', lines: d.interp?.lines || [], suggestion: null } }))
+        // 실시간(Deepgram)을 먼저 시도하고, 안 되면(키 없음·다른 사용자) 조각 방식으로
+        const translate = async (sentence) => {
+          const id = Date.now() + Math.random()
+          setData((d) => ({ ...d, interp: { ...d.interp, lines: [...(d.interp?.lines || []), { id, original: sentence, korean: '' }].slice(-20), suggestion: null } }))
+          try {
+            const r = await aiApi.interpretTranslate(sentence)
+            setData((d) => ({ ...d, interp: { ...d.interp, lastError: null, lines: (d.interp?.lines || []).map((l) => (l.id === id ? { ...l, korean: r?.korean || '' } : l)) } }))
+          } catch (e) {
+            setData((d) => ({ ...d, interp: { ...d.interp, lastError: errorText(e) } }))
+          }
+        }
+        let wordsAt = 0
+        let wordsTimer = null
+        const showWords = (w) => {
+          // 안경 화면은 0.3초에 한 번까지만 바꿔요(블루투스로 그리는 거라 너무 잦으면 밀려요)
+          const apply = () => { wordsAt = Date.now(); wordsTimer = null; setData((d) => ({ ...d, interp: { ...d.interp, live: w } })) }
+          clearTimeout(wordsTimer)
+          if (!w || Date.now() - wordsAt >= 300) apply()
+          else wordsTimer = setTimeout(apply, 300 - (Date.now() - wordsAt))
+        }
+        const connectLive = async () => {
+          const g2 = await aiApi.interpretLiveToken()
+          it.live = openLive(g2.token, g2.model, {
+            onWords: showWords,
+            onSentence: translate,
+            onClose: () => {
+              it.live = null
+              if (!it.on) return
+              // 끊기면 새 토큰으로 다시 붙어요(대화가 길어도 계속)
+              setTimeout(() => { if (it.on && !it.live) connectLive().catch((e) => setData((d) => ({ ...d, interp: { ...d.interp, lastError: errorText(e) } }))) }, 800)
+            },
+          })
+        }
+        try {
+          await connectLive()
+          it.mode = 'live'
+        } catch {
+          it.mode = 'chunk'
+        }
         const send = async () => {
           if (it.sending || !it.queue.length) return
           it.sending = true
@@ -293,6 +369,7 @@ export default function G2App() {
         try {
           await g.startMic((chunk) => {
             if (!it.on) return
+            if (it.mode === 'live') { it.live?.send(chunk); return }
             const ms = (chunk.length / 2 / MIC_RATE) * 1000
             const level = rms16(chunk)
             const limit = Math.max(INTERP_RMS_MIN, it.floor * INTERP_RMS_RATIO)
@@ -319,7 +396,7 @@ export default function G2App() {
           setData((d) => ({ ...d, interp: { status: 'error', error: `${e.message || '마이크를 켜지 못했어요.'}\n다시 들어와 보세요.` } }))
           break
         }
-        setData((d) => ({ ...d, interp: { ...d.interp, status: 'listening' } }))
+        setData((d) => ({ ...d, interp: { ...d.interp, status: 'listening', mode: it.mode } }))
         break
       }
       case 'interpSuggest': {
@@ -342,6 +419,8 @@ export default function G2App() {
         if (!it.on) break
         it.on = false
         it.queue = []
+        it.live?.close()
+        it.live = null
         await glassesRef.current?.stopMic?.().catch(() => {})
         setData((d) => ({ ...d, interp: { ...d.interp, status: 'idle', busy: false } }))
         break

@@ -2,15 +2,16 @@
   "package_id": "com.geol2.momentum",
   "edition": "202601",
   "name": "달빛 서랍",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "min_sdk_version": "0.0.16",
   "entrypoint": "index.html",
   "permissions": [
     {
       "name": "network",
-      "desc": "달빛 서랍 계정의 오늘 할 일·메모·대화를 불러오고 저장하며, 음성 질문을 받아 적어 AI 답변을 받기 위해 달빛 서랍 서버에 접속합니다.",
+      "desc": "달빛 서랍 계정의 오늘 할 일·메모·대화를 불러오고 저장하며, 음성 질문을 받아 적어 AI 답변을 받기 위해 달빛 서랍 서버에 접속합니다. 통역 모드에서는 영어 음성을 실시간으로 받아 적기 위해 Deepgram 음성 인식 서버에 접속합니다.",
       "whitelist": [
-        "https://api.geol2.com"
+        "https://api.geol2.com",
+        "wss://api.deepgram.com"
       ]
     },
     {

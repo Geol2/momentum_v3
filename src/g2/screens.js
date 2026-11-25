@@ -169,11 +169,15 @@ export function render(state, data) {
         return frame('통역', '', '통역을 쓰려면\n폰의 모멘텀 G2 화면에서\n⋯ → Claude API 키 를\n등록해 주세요.', '두 번 누르기: 뒤로')
       }
       const it = data.interp || {}
-      const right = it.status === 'listening' ? (it.busy ? '듣는 중 · 옮기는 중' : '듣는 중') : it.status === 'starting' ? '마이크 켜는 중' : ''
+      const right = it.status === 'listening' ? (it.mode === 'live' ? '실시간' : it.busy ? '듣는 중 · 옮기는 중' : '듣는 중') : it.status === 'starting' ? '마이크 켜는 중' : ''
       if (it.status === 'error') return frame('통역', '', it.error || '통역을 시작하지 못했어요.', '두 번 누르기: 뒤로')
       const lines = (it.lines || []).slice(-3).map((l) => `· ${l.korean || l.original}`)
       let body = lines.length ? lines.join('\n') : '상대가 영어로 말하면\n여기에 한국어로 떠요.'
-      if (it.status === 'listening') {
+      if (it.status === 'listening' && it.mode === 'live') {
+        // 실시간: 지금 들리는 단어(끝 60자)
+        const w = it.live || ''
+        body += `\n\n▸ ${w ? (w.length > 60 ? `…${w.slice(-60)}` : w) : '(듣는 중)'}`
+      } else if (it.status === 'listening') {
         // 소리 크기: 막대 2칸 이상이면 말로 알아듣고 서버로 보내요.
         const m = it.meter || 0
         body += `\n\n소리 ${'■'.repeat(m)}${'□'.repeat(5 - m)}`
