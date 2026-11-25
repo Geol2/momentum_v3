@@ -4,7 +4,7 @@
 //   오른쪽: 안경 화면 미리보기
 // 좁은 화면(폰)에서는 왼쪽이 서랍으로 접히고, 안경 미리보기는 펼침 버튼으로 엽니다.
 // 대화는 서버(DB)에 저장되고, 안경은 '가장 최근 질문'을 따라가므로 어느 화면에서 물어도 같이 보입니다.
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { aiApi, aiConversationsApi, ApiError, pcApi, todosApi } from '../lib/api.js'
 import Markdown, { MARKDOWN_CSS } from './Markdown.jsx'
 import { parseChatFiles } from './importChats.js'
@@ -39,6 +39,34 @@ function ago(iso) {
   return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
+// 작은 선 아이콘(색은 글자색을 따름)
+const Icon = ({ d, size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{d}</svg>
+)
+const I = {
+  copy: <><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></>,
+  share: <><path d="M12 3v12" /><path d="m7 8 5-5 5 5" /><path d="M5 14v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" /></>,
+  camera: <><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></>,
+  image: <><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="2" /><path d="m21 17-5-5-9 8" /></>,
+  glasses: <><circle cx="7" cy="14" r="3.5" /><circle cx="17" cy="14" r="3.5" /><path d="M10.5 14h3" /></>,
+  more: <><circle cx="5" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="19" cy="12" r="1.2" /></>,
+  menu: <><path d="M4 7h16M4 12h16M4 17h16" /></>,
+  eye: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>,
+}
+
+// 대화 목록 날짜 묶음: 오늘 / 어제 / 이번 주 / 이번 달 / 이전
+function dateGroup(iso) {
+  const d = new Date(iso), now = new Date()
+  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const diff = Math.round((day(now) - day(d)) / 86400000)
+  if (diff <= 0) return '오늘'
+  if (diff === 1) return '어제'
+  if (diff < 7) return '이번 주'
+  if (diff < 31) return '이번 달'
+  return '이전'
+}
+const LIST_LIMIT = 10
+
 function todayKey() {
   const d = new Date()
   return dateKey(d.getFullYear(), d.getMonth(), d.getDate())
@@ -64,6 +92,8 @@ export default function Workspace({
   const endRef = useRef(null)
   // 대화 목록 탭: 'chat' 모멘텀에서 한 질문 / 'code' PC Claude Code 등 밖에서 가져온 대화
   const [listTab, setListTab] = useState('chat')
+  const [moreMenu, setMoreMenu] = useState(false)
+  const [showAll, setShowAll] = useState(false)
   const [pcAgents, setPcAgents] = useState([])
   const [pcJobs, setPcJobs] = useState([])
   // Claude Code 프로젝트 묶음 접기(브라우저에 기억)
@@ -276,57 +306,70 @@ export default function Workspace({
 
   const sidebar = (
     <nav className="ws-side" aria-label="프로젝트와 대화">
-      <button type="button" className="ws-new" onClick={pick(() => onNewChat(conv.project))}>+ 새 대화</button>
-      <button type="button" className="ws-link" onClick={() => importRef.current?.click()} disabled={!!importing && !importing.startsWith('대화')}
-        title="claude.ai 내보내기 zip(설정 > 개인정보 > 데이터 내보내기) 또는 Claude Code 세션 .jsonl">
-        Claude 대화 가져오기
-      </button>
-      <button type="button" className="ws-link" onClick={exportAll} title="모든 대화를 JSON·마크다운 파일로">전체 대화 내보내기</button>
+      <div className="ws-newrow">
+        <button type="button" className="ws-new" onClick={pick(() => onNewChat(conv.project))}>+ 새 대화</button>
+        <div className="ws-more">
+          <button type="button" className="ws-iconbtn" aria-label="더 보기" aria-expanded={moreMenu} onClick={() => setMoreMenu((o) => !o)}><Icon d={I.more} /></button>
+          {moreMenu && (
+            <>
+              <button type="button" className="ws-menu-scrim" aria-label="닫기" onClick={() => setMoreMenu(false)} />
+              <div className="ws-menu-pop" role="menu">
+                <button type="button" role="menuitem" disabled={!!importing && !importing.startsWith('대화')}
+                  title="claude.ai 내보내기 zip 또는 Claude Code 세션 .jsonl"
+                  onClick={() => { setMoreMenu(false); importRef.current?.click() }}>Claude 대화 가져오기</button>
+                <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); exportAll() }}>전체 대화 내보내기</button>
+                <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setManaging(true) }}>프로젝트 관리</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
       <input ref={importRef} type="file" accept=".zip,.json,.jsonl" multiple hidden onChange={(e) => { importFiles(e.target.files); e.target.value = '' }} />
       {importing && <p className="ws-engine">{importing}</p>}
 
-      <div className="ws-sec">
-        <span>프로젝트</span>
-        <button type="button" className="ws-link" onClick={() => setManaging(true)}>관리</button>
-      </div>
-      <ul className="ws-list">
-        {[{ name: GENERAL }, ...ready].map((p) => (
-          <li key={p.name || '_'}>
-            <button type="button" className={`ws-item${conv.project === p.name ? ' on' : ''}`}
-              onClick={pick(() => onNewChat(p.name))} title={p.name ? `${p.name} 코드를 읽으며 답해요` : '프로젝트 없이 묻기'}>
-              {p.name || '일반 질문'}
-            </button>
-          </li>
-        ))}
+      <label className="ws-label" htmlFor="ws-project">프로젝트</label>
+      <select id="ws-project" className="ws-select" value={conv.project || GENERAL}
+        onChange={(e) => { setDrawer(false); onNewChat(e.target.value) }}>
+        {[{ name: GENERAL }, ...ready].map((p) => <option key={p.name || '_'} value={p.name}>{p.name || '일반 질문'}</option>)}
         {(projects || []).filter((p) => p.status !== 'ready').map((p) => (
-          <li key={p.name} className="ws-dim">{p.name} · {p.status === 'syncing' ? '받는 중' : '실패'}</li>
+          <option key={p.name} value={p.name} disabled>{p.name} · {p.status === 'syncing' ? '받는 중' : '실패'}</option>
         ))}
-      </ul>
+      </select>
 
       <div className="ws-tabs" role="tablist">
-        <button type="button" role="tab" aria-selected={listTab === 'chat'} className={listTab === 'chat' ? 'on' : ''} onClick={() => setListTab('chat')}>모멘텀 질문</button>
+        <button type="button" role="tab" aria-selected={listTab === 'chat'} className={listTab === 'chat' ? 'on' : ''} onClick={() => setListTab('chat')}>채팅</button>
         <button type="button" role="tab" aria-selected={listTab === 'code'} className={listTab === 'code' ? 'on' : ''} onClick={() => setListTab('code')}>
           Claude Code{codeConvs.length ? ` ${codeConvs.length}` : ''}
         </button>
       </div>
       {listTab === 'chat' ? (
         <>
-      <div className="ws-sec"><span>대화 · {conv.project || '일반 질문'}</span></div>
         <ul className="ws-list ws-convs">
           {conversations === null && <li className="ws-dim">불러오는 중...</li>}
           {conversations && projectConvs.length === 0 && <li className="ws-dim">아직 대화가 없어요.</li>}
-          {projectConvs.map((c) => (
-            <li key={c.id} className="ws-conv">
-              <button type="button" className={`ws-item${c.id === conv.id ? ' on' : ''}`} onClick={pick(() => onSelectConversation(c))}>
-                <span className="ws-title">{c.title}</span>
-                <span className="ws-time">{ago(c.updatedAt)}</span>
-              </button>
-              <span className="ws-actions">
-                <button type="button" aria-label={`${c.title} 이름 바꾸기`} onClick={() => rename(c)}>이름</button>
-                <button type="button" aria-label={`${c.title} 지우기`} onClick={() => remove(c)}>삭제</button>
-              </span>
-            </li>
-          ))}
+          {(showAll ? projectConvs : projectConvs.slice(0, LIST_LIMIT)).map((c, n, arr) => {
+            const g = dateGroup(c.updatedAt)
+            const head = n === 0 || dateGroup(arr[n - 1].updatedAt) !== g
+            return (
+              <Fragment key={c.id}>
+                {head && <li className="ws-group">{g}</li>}
+                <li className="ws-conv">
+                  <button type="button" className={`ws-item${c.id === conv.id ? ' on' : ''}`} onClick={pick(() => onSelectConversation(c))} title={c.title}>
+                    <span className="ws-title">{c.title}</span>
+                  </button>
+                  <span className="ws-actions">
+                    <button type="button" aria-label={`${c.title} 이름 바꾸기`} onClick={() => rename(c)}>이름</button>
+                    <button type="button" aria-label={`${c.title} 지우기`} onClick={() => remove(c)}>삭제</button>
+                  </span>
+                </li>
+              </Fragment>
+            )
+          })}
+          {projectConvs.length > LIST_LIMIT && (
+            <li><button type="button" className="ws-showmore" onClick={() => setShowAll((v) => !v)}>
+              {showAll ? '접기' : `더 보기 · ${projectConvs.length - LIST_LIMIT}개`}
+            </button></li>
+          )}
         </ul>
         </>
       ) : (
@@ -372,28 +415,33 @@ export default function Workspace({
     <div className="ws">
       <style>{CSS}</style>
       <header className="ws-top">
-        <button type="button" className="ws-menu" onClick={() => setDrawer((o) => !o)} aria-expanded={drawer}>☰ 대화</button>
+        <button type="button" className="ws-menu ws-iconbtn" onClick={() => setDrawer((o) => !o)} aria-expanded={drawer} aria-label="대화 목록"><Icon d={I.menu} /></button>
         <div className="ws-head">
-          <strong>{title}</strong>
-          <span>{codeMode ? <><b className="ws-cc">Claude Code</b>{pcAgent ? ` · ${pcAgent.name}에 연결됨` : ' · PC 연결 안 됨'}</> : conv.project ? <>프로젝트 {conv.project}<em className="ws-sub-long"> · Claude가 코드를 직접 읽어요</em></> : '일반 질문'}</span>
+          <span className="ws-brand">모멘텀</span>
+          <span className="ws-crumb" aria-hidden="true">/</span>
+          <strong title={title}>{title}</strong>
+          <span className={`ws-chip${codeMode ? ' cc' : ''}`}>
+            {codeMode ? <>Claude Code{pcAgent ? ` · ${pcAgent.name}` : ' · PC 꺼짐'}</> : conv.project ? conv.project : '일반 질문'}
+          </span>
         </div>
         <div className="ws-tools">
-        {turns.length > 0 && (
-          <span className="ws-export">
-            <button type="button" className="ws-link" onClick={() => exportOne('copy')}>복사</button>
-            <button type="button" className="ws-link" onClick={() => exportOne(navigator.share ? 'share' : 'file')}>{navigator.share ? '공유' : '파일'}</button>
-            {exportMsg && <em>{exportMsg}</em>}
-          </span>
-        )}
-        <button type="button" className={`ws-btn ws-pin${toGlasses ? ' on' : ''}`} onClick={switchGlasses} aria-pressed={toGlasses}
-          title="켜면 지금 보는 대화의 답이 안경에 떠요">
-          <span className="ws-dot-sw" aria-hidden="true" />{toGlasses ? '안경에 띄우는 중' : '안경에 띄우기'}
-        </button>
-        <button type="button" className="ws-glass-toggle" onClick={() => setShowGlasses((o) => !o)} aria-expanded={showGlasses}>
-          미리보기 {showGlasses ? '▲' : '▼'}
-        </button>
+          {exportMsg && <em className="ws-toast">{exportMsg}</em>}
+          {turns.length > 0 && (
+            <>
+              <button type="button" className="ws-iconbtn" onClick={() => exportOne('copy')} aria-label="대화 복사" title="대화 복사"><Icon d={I.copy} /></button>
+              <button type="button" className="ws-iconbtn" onClick={() => exportOne(navigator.share ? 'share' : 'file')}
+                aria-label={navigator.share ? '공유' : '파일로 저장'} title={navigator.share ? '공유' : '파일로 저장'}><Icon d={I.share} /></button>
+            </>
+          )}
+          <span className="ws-vsep" aria-hidden="true" />
+          <button type="button" className={`ws-pin${toGlasses ? ' on' : ''}`} onClick={switchGlasses} aria-pressed={toGlasses}
+            title="켜면 지금 보는 대화의 답이 안경에 떠요">
+            <span className="ws-dot-sw" aria-hidden="true" />{toGlasses ? '안경에 띄우는 중' : '안경 꺼짐'}
+          </button>
+          <button type="button" className="ws-glass-toggle ws-iconbtn" onClick={() => setShowGlasses((o) => !o)} aria-expanded={showGlasses}
+            aria-label="안경 화면 미리보기" title="안경 화면 미리보기"><Icon d={I.eye} /></button>
+          <span className="ws-status">{status}</span>
         </div>
-        <span className="ws-status">{status}</span>
       </header>
 
       <div className={`ws-body${drawer ? ' drawer' : ''}`}>
@@ -510,14 +558,10 @@ function Turn({ turn, onGlasses, onGlassesNow }) {
     <div className="ws-turn">
       <div className="ws-q">{turn.question}{turn.imageCount ? <em> · 사진 {turn.imageCount}장</em> : null}</div>
       <div className="ws-a">
-        {turn.engine && <span className={`ws-badge ${turn.engine}`}>{ENGINE_KO[turn.engine] || turn.engine}</span>}
-        <button type="button" className={`ws-link ws-pin-one${onGlassesNow ? ' on' : ''}`} onClick={onGlasses}>
-          {onGlassesNow ? '안경에 떠 있음' : '안경에'}
-        </button>
         <Markdown text={turn.answer} />
         {turn.detail && (
-          <details open>
-            <summary>전체 답 / 수정 코드</summary>
+          <details className="ws-more-card">
+            <summary>{detailLabel(turn.detail)}</summary>
             <Markdown text={turn.detail} className="ws-detail" />
           </details>
         )}
@@ -530,9 +574,24 @@ function Turn({ turn, onGlasses, onGlassesNow }) {
             </button>
           </div>
         )}
+        <div className="ws-a-foot">
+          <button type="button" className={`ws-glassbtn${onGlassesNow ? ' on' : ''}`} onClick={onGlasses} aria-pressed={!!onGlassesNow}>
+            {onGlassesNow ? <><span className="ws-dot-sw" aria-hidden="true" />안경에 떠 있음</> : <><Icon d={I.glasses} size={15} />안경에</>}
+          </button>
+          {turn.engine && <span className={`ws-badge ${turn.engine}`}>{ENGINE_KO[turn.engine] || turn.engine}</span>}
+        </div>
       </div>
     </div>
   )
+}
+
+// 접힌 "자세히" 카드 제목: 자세한 답의 첫 제목(없으면 첫 줄) + 코드가 있으면 "· 코드"
+function detailLabel(detail) {
+  const t = String(detail || '')
+  const h = /^#{1,4}\s+(.+)$/m.exec(t)
+  let label = (h ? h[1] : t.split('\n').find((l) => l.trim() && !l.trim().startsWith('```')) || '자세히').replace(/[*`#]/g, '').trim()
+  if (label.length > 28) label = `${label.slice(0, 28)}…`
+  return /```/.test(t) ? `${label} · 코드` : label
 }
 
 // 입력칸: 질문 + 사진(모니터를 찍어 보내기)
@@ -609,7 +668,7 @@ function PcComposer({ agent, busy, onAsk }) {
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && window.matchMedia('(pointer: fine)').matches) submit(e)
         }} />
       <div className="ws-compose-row">
-        <button type="submit" className="ws-btn ws-send" disabled={!can}>{busy ? 'PC가 답하는 중...' : agent ? 'PC로 보내기' : 'PC 연결 안 됨'}</button>
+        <button type="submit" className="ws-send" disabled={!can}>{busy ? 'PC가 답하는 중...' : agent ? 'PC로 보내기' : 'PC 연결 안 됨'}</button>
       </div>
     </form>
   )
@@ -680,12 +739,12 @@ function Composer({ busy, project, onAsk, speak, onSpeakChange }) {
       <input ref={albumRef} type="file" accept="image/*" multiple hidden
         onChange={(e) => { addPhotos(e.target.files); e.target.value = '' }} />
       <div className="ws-compose-row">
-        <button type="button" className="ws-btn" onClick={() => cameraRef.current?.click()} disabled={busy || photos.length >= MAX_PHOTOS}>사진 찍기</button>
-        <button type="button" className="ws-btn" onClick={() => albumRef.current?.click()} disabled={busy || photos.length >= MAX_PHOTOS}>앨범</button>
+        <button type="button" className="ws-iconbtn" onClick={() => cameraRef.current?.click()} disabled={busy || photos.length >= MAX_PHOTOS} aria-label="사진 찍기" title="사진 찍기"><Icon d={I.camera} /></button>
+        <button type="button" className="ws-iconbtn" onClick={() => albumRef.current?.click()} disabled={busy || photos.length >= MAX_PHOTOS} aria-label="앨범에서 고르기" title="앨범"><Icon d={I.image} /></button>
         <label className="ws-speak">
-          <input type="checkbox" checked={speak} onChange={(e) => onSpeakChange(e.target.checked)} /> <span className="ws-long">폰으로 </span>읽어 주기
+          <input type="checkbox" checked={speak} onChange={(e) => onSpeakChange(e.target.checked)} /> 폰으로 읽어주기
         </label>
-        <button type="submit" className="ws-btn ws-send" disabled={!canSend}>{busy ? '답을 기다리는 중...' : '보내기'}</button>
+        <button type="submit" className="ws-send" disabled={!canSend}>{busy ? '답을 기다리는 중...' : '보내기'}</button>
       </div>
     </form>
   )
@@ -787,6 +846,80 @@ const CSS = MARKDOWN_CSS + `
 .ws-scrim { display:none; }
 .ws-modal { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:flex-start; justify-content:center; padding:48px 16px; z-index:60; overflow-y:auto; }
 .ws-modal-box { width:100%; max-width:560px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+/* ── 새 화면 구성 (목업 기준) ── 글자는 조금 작게: 본문 14px, 목록 13.5px, 보조 12px */
+.ws { --q:#18231f; --qline:#26352f; font-size:14px; }
+.ws-top { padding:10px 20px; min-height:56px; gap:10px; }
+.ws-head { flex-direction:row; align-items:center; gap:10px; }
+.ws-brand { font-weight:700; font-size:15px; color:#f4f5f7; white-space:nowrap; }
+.ws-crumb { color:var(--dim); }
+.ws-head strong { font-size:14px; font-weight:500; color:#d8dce2; }
+.ws-chip { flex:none; font-size:11.5px; padding:2px 9px; border-radius:999px; border:1px solid #39404c; color:var(--muted); white-space:nowrap; }
+.ws-chip.cc { color:#d8b4fe; border-color:rgba(192,132,252,.45); }
+.ws-tools { gap:4px; margin-left:auto; }
+.ws-iconbtn { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:8px; border:1px solid transparent; background:none; color:var(--muted); cursor:pointer; padding:0; }
+.ws-iconbtn:hover { background:#1a1f28; color:var(--text); }
+.ws-iconbtn:disabled { opacity:.4; cursor:default; }
+.ws-vsep { width:1px; height:18px; background:var(--line); margin:0 6px; }
+.ws-toast { font-style:normal; font-size:12px; color:#6fd3a0; margin-right:6px; }
+.ws-pin { display:inline-flex; align-items:center; height:30px; padding:0 10px; border-radius:999px; border:1px solid var(--line); background:none; color:var(--muted); font-size:12.5px; cursor:pointer; white-space:nowrap; }
+.ws-pin.on { color:#8dffaa; border-color:rgba(77,255,122,.4); background:rgba(77,255,122,.07); }
+.ws-status { font-size:12px; color:var(--dim); margin-left:6px; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ws-top .ws-menu.ws-iconbtn { display:none; }
+.ws-body { grid-template-columns:250px minmax(0,1fr) 340px; }
+.ws-side { padding:14px 12px; background:#0e1116; }
+.ws-newrow { display:flex; gap:8px; }
+.ws-new { flex:1; padding:9px; border-radius:10px; border:1px solid rgba(77,255,122,.3); background:rgba(77,255,122,.08); color:#d9ffe2; font-size:13.5px; font-weight:600; }
+.ws-new:hover { background:rgba(77,255,122,.13); }
+.ws-newrow .ws-iconbtn { width:38px; height:38px; border:1px solid var(--line); border-radius:10px; }
+.ws-more { position:relative; }
+.ws-menu-scrim { position:fixed; inset:0; background:none; border:0; z-index:30; cursor:default; }
+.ws-menu-pop { position:absolute; right:0; top:44px; z-index:31; min-width:190px; padding:6px; background:#151a22; border:1px solid #2a3140; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.5); display:flex; flex-direction:column; }
+.ws-menu-pop button { text-align:left; background:none; border:0; color:var(--text); font-size:13px; padding:8px 10px; border-radius:6px; cursor:pointer; }
+.ws-menu-pop button:hover { background:#1f2530; }
+.ws-label { display:block; margin:16px 2px 6px; font-size:11.5px; color:var(--dim); }
+.ws-select { width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:#11141b; color:var(--text); font:inherit; font-size:13.5px; }
+.ws-tabs { gap:0; margin:16px 0 4px; border-bottom:1px solid var(--line); }
+.ws-tabs button { flex:1; padding:8px 4px; border:0; border-radius:0; background:none; color:var(--dim); font-size:13px; border-bottom:2px solid transparent; margin-bottom:-1px; }
+.ws-tabs button.on { background:none; color:#f4f5f7; border-bottom-color:var(--accent); font-weight:600; }
+.ws-group { margin:14px 6px 4px; font-size:11.5px; color:var(--dim); }
+.ws-item { padding:8px 10px; font-size:13.5px; color:#d8dce2; }
+.ws-item.on { background:#18211d; box-shadow:none; color:#f4f5f7; }
+.ws-showmore { background:none; border:0; color:var(--dim); font-size:12px; padding:10px; cursor:pointer; }
+.ws-showmore:hover { color:var(--text); }
+.ws-sec { font-size:11.5px; }
+.ws-chat { padding:24px 28px; }
+.ws-turn { max-width:720px; margin:0 auto 26px; padding-bottom:0; border-bottom:0; }
+.ws-q { background:var(--q); border:1px solid var(--qline); color:#eef1f4; font-size:14px; line-height:1.6; padding:10px 14px; border-radius:14px 14px 4px 14px; }
+.ws-a { margin-top:16px; padding-left:0; border-left:0; font-size:14px; }
+.md { font-size:14px; line-height:1.75; }
+.md-h1 { font-size:17px; } .md-h2 { font-size:15.5px; } .md-h3, .md-h4 { font-size:14px; }
+.md-code { font-size:12.5px; }
+.md-table table { font-size:13px; }
+.ws-more-card { margin:10px 0 0; border:1px solid var(--line); border-radius:10px; background:#0f1217; }
+.ws-more-card > summary { list-style:none; padding:10px 14px; font-size:13px; color:var(--muted); cursor:pointer; margin:0; }
+.ws-more-card > summary::-webkit-details-marker { display:none; }
+.ws-more-card > summary::before { content:'▸'; display:inline-block; margin-right:8px; transition:transform .15s; }
+.ws-more-card[open] > summary::before { transform:rotate(90deg); }
+.ws-more-card .ws-detail { margin:0; border:0; border-top:1px solid var(--line); border-radius:0 0 10px 10px; background:none; font-size:13.5px; }
+.ws-a-foot { display:flex; align-items:center; gap:10px; margin-top:10px; }
+.ws-glassbtn { display:inline-flex; align-items:center; gap:6px; background:none; border:1px solid transparent; color:var(--dim); font-size:12px; padding:4px 8px; border-radius:999px; cursor:pointer; }
+.ws-glassbtn:hover { color:var(--text); background:#161b23; }
+.ws-glassbtn.on { color:#8dffaa; border-color:rgba(77,255,122,.35); background:rgba(77,255,122,.08); }
+.ws-glassbtn.on .ws-dot-sw { background:var(--accent); box-shadow:0 0 6px var(--accent); }
+.ws-badge { font-size:11px; margin:0; }
+.ws-compose { border-top:0; padding:10px 28px 18px; }
+.ws-compose > * { max-width:720px; margin-left:auto; margin-right:auto; }
+.ws-compose { display:flex; flex-direction:column; }
+.ws-compose textarea, .ws-compose-row { width:100%; }
+.ws-compose textarea { border:1px solid var(--line); border-bottom:0; border-radius:14px 14px 0 0; background:#11141b; padding:14px 16px 6px; font-size:14px; resize:none; min-height:56px; }
+.ws-compose textarea:focus { outline:none; }
+.ws-compose-row { margin-top:0; padding:6px 10px 10px; border:1px solid var(--line); border-top:0; border-radius:0 0 14px 14px; background:#11141b; box-sizing:border-box; gap:4px; }
+.ws-compose:focus-within textarea, .ws-compose:focus-within .ws-compose-row { border-color:#33503f; }
+.ws-speak { font-size:12.5px; margin-left:8px; }
+.ws-send { margin-left:auto; background:#2f8f57; color:#fff; border:0; border-radius:8px; padding:8px 16px; font-size:13.5px; font-weight:600; cursor:pointer; }
+.ws-send:hover { background:#36a364; }
+.ws-send:disabled { background:#24402f; color:#9fb8a8; cursor:default; }
+.ws-glasses { background:#0e1116; }
 @media (max-width: 1180px) {
   .ws-body { grid-template-columns:240px minmax(0,1fr); }
   .ws-glass-toggle { display:inline-block; }
@@ -815,6 +948,14 @@ const CSS = MARKDOWN_CSS + `
   .ws-head strong { font-size:15px; }
   .ws-head span { font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ws-sub-long, .ws-long { display:none; }
+  .ws-brand, .ws-crumb, .ws-vsep { display:none; }
+  .ws-top .ws-menu.ws-iconbtn { display:inline-flex; }
+  .ws-head { gap:8px; }
+  .ws-top .ws-tools .ws-iconbtn { width:32px; height:32px; padding:0; border-radius:8px; background:none; border:0; }
+  .ws-top .ws-tools .ws-pin { height:30px; padding:0 10px; border-radius:999px; }
+  .ws-tools .ws-pin { height:30px; }
+  .ws-chat { padding:16px 14px; }
+  .ws-compose { padding:8px 10px 10px; }
   .ws-tools { order:3; width:100%; gap:6px; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
   .ws-tools::-webkit-scrollbar { display:none; }
   .ws-tools .ws-btn, .ws-tools .ws-glass-toggle, .ws-export .ws-link {

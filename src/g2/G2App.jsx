@@ -75,11 +75,12 @@ const KEYS = {
   l: 'long',
 }
 
+// [제스처, 짧은 이름, 풀어 쓴 설명(마우스 올리면 보임)]
 const BUTTONS = [
-  ['up', '위로 쓸기 ↑'],
-  ['tap', '누르기 (Enter)'],
-  ['double', '두 번 (Esc)'],
-  ['down', '아래로 쓸기 ↓'],
+  ['up', '↑', '위로 쓸기 (↑)'],
+  ['tap', '누르기', '누르기 (Enter)'],
+  ['double', '두 번', '두 번 누르기 (Esc)'],
+  ['down', '↓', '아래로 쓸기 (↓)'],
 ]
 
 export default function G2App() {
@@ -533,7 +534,7 @@ export default function G2App() {
   if (showLogin && auth.status === 'anonymous') {
     return (
       <div>
-        <button type="button" onClick={() => setShowLogin(false)} style={{ ...btn, margin: 16 }}>← G2 화면으로</button>
+        <button type="button" onClick={() => setShowLogin(false)} style={{ ...btn, ...btnBox, margin: 16 }}>← G2 화면으로</button>
         <Login
           onLogin={auth.login}
           onSignup={auth.signup}
@@ -555,7 +556,7 @@ export default function G2App() {
       {auth.status === 'authenticated'
         ? `· ${userName || '로그인됨'}`
         : auth.status === 'anonymous' && (
-          <button type="button" onClick={() => setShowLogin(true)} style={{ ...btn, padding: '2px 8px' }}>로그인</button>
+          <button type="button" onClick={() => setShowLogin(true)} style={{ ...btn, ...btnBox, padding: '2px 8px' }}>로그인</button>
         )}
     </>
   )
@@ -563,12 +564,13 @@ export default function G2App() {
   const glassesPane = (
     <>
       <ScaledPreview page={page} />
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
-        {BUTTONS.map(([g, label]) => (
-          <button key={g} type="button" onClick={() => handleGesture(g)} style={btn}>{label}</button>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', marginTop: 10, border: '1px solid rgba(77,255,122,0.3)', borderRadius: 10, overflow: 'hidden' }}>
+        {BUTTONS.map(([g, label, full], n) => (
+          <button key={g} type="button" onClick={() => handleGesture(g)} title={full} aria-label={full}
+            style={{ ...btn, borderLeft: n ? '1px solid rgba(77,255,122,0.2)' : 0 }}>{label}</button>
         ))}
       </div>
-      <p style={{ fontSize: 12, color: '#6b717c', marginTop: 10 }}>
+      <p style={{ fontSize: 11.5, color: '#8c939e', marginTop: 8, lineHeight: 1.5 }}>
         키보드: ↑/↓ 쓸기 · Enter 누르기 · Esc 두 번 누르기 · L 길게 누르기
         {lastGesture && ` · 마지막 입력: ${lastGesture}`}
       </p>
@@ -619,7 +621,9 @@ function ScaledPreview({ page }) {
 }
 
 const btn = {
-  background: 'rgba(77,255,122,0.08)', color: '#c8ffd6',
-  border: '1px solid rgba(77,255,122,0.35)', borderRadius: 8,
-  padding: '8px 12px', fontSize: 14, cursor: 'pointer',
+  background: 'rgba(77,255,122,0.06)', color: '#c8ffd6',
+  border: 0, borderRadius: 0,
+  padding: '9px 4px', fontSize: 13, cursor: 'pointer',
 }
+// 단독 버튼용 테두리(제스처 버튼 줄은 테두리 없이 이어 붙임)
+const btnBox = { border: '1px solid rgba(77,255,122,0.35)', borderRadius: 8, padding: '8px 12px' }
