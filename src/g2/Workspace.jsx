@@ -5,7 +5,7 @@
 // 좁은 화면(폰)에서는 왼쪽이 서랍으로 접히고, 안경 미리보기는 펼침 버튼으로 엽니다.
 // 대화는 서버(DB)에 저장되고, 안경은 '가장 최근 질문'을 따라가므로 어느 화면에서 물어도 같이 보입니다.
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
-import { aiApi, aiConversationsApi, ApiError, pcApi, todosApi } from '../lib/api.js'
+import { aiApi, aiConversationsApi, ApiError, notesApi, pcApi, todosApi } from '../lib/api.js'
 import Markdown, { MARKDOWN_CSS } from './Markdown.jsx'
 import { isInEvenApp } from './bridge.js'
 import ChangePassword from '../components/ChangePassword.jsx'
@@ -663,6 +663,18 @@ const ENGINE_KO = { subscription: '구독', api: 'API', byok: '내 API 키', 'cl
 
 function Turn({ turn, onGlasses, onGlassesNow }) {
   const [save, setSave] = useState({ status: 'idle', done: 0 })
+  // 이 답을 모멘텀 메모(메인 화면 포스트잇·안경 '메모')로 저장
+  const [memo, setMemo] = useState('idle')
+  const saveMemo = async () => {
+    setMemo('saving')
+    try {
+      const text = [turn.answer, turn.detail].filter(Boolean).join('\n\n').slice(0, 2000)
+      const len = text.length
+      await notesApi.create({ text, x: 40 + Math.random() * 120, y: 140 + Math.random() * 120, rot: (Math.random() - 0.5) * 6,
+        width: 240, height: Math.min(320, 90 + len / 3), dateKey: todayKey(), ts: Date.now() })
+      setMemo('saved')
+    } catch { setMemo('error') }
+  }
   const steps = turn.steps || []
   const saveSteps = async () => {
     setSave((s) => ({ ...s, status: 'saving' }))
@@ -700,6 +712,10 @@ function Turn({ turn, onGlasses, onGlassesNow }) {
         <div className="ws-a-foot">
           <button type="button" className={`ws-glassbtn${onGlassesNow ? ' on' : ''}`} onClick={onGlasses} aria-pressed={!!onGlassesNow}>
             {onGlassesNow ? <><span className="ws-dot-sw" aria-hidden="true" />안경에 떠 있음</> : <><Icon d={I.glasses} size={15} />안경에</>}
+          </button>
+          <button type="button" className={`ws-glassbtn ws-memo${memo === 'saved' ? ' on' : ''}`} onClick={saveMemo} disabled={memo === 'saving' || memo === 'saved'}
+            title="이 답을 모멘텀 메모(포스트잇)로 저장">
+            {memo === 'saved' ? '메모에 저장됨' : memo === 'saving' ? '저장 중...' : memo === 'error' ? '메모 저장 실패 · 다시' : '메모로 저장'}
           </button>
           {turn.engine && <span className={`ws-badge ${turn.engine}`}>{ENGINE_KO[turn.engine] || turn.engine}</span>}
         </div>
@@ -1069,6 +1085,7 @@ const CSS = MARKDOWN_CSS + `
 .ws-glassbtn.on { color:#8dffaa; border-color:rgba(77,255,122,.35); background:rgba(77,255,122,.08); }
 .ws-glassbtn.on .ws-dot-sw { background:var(--accent); box-shadow:0 0 6px var(--accent); }
 .ws-badge { font-size:11px; margin:0; }
+.ws.no-glasses .ws-glassbtn.ws-memo { display:inline-flex; }
 .ws-compose { border-top:0; padding:10px 28px 18px; }
 .ws-compose > * { max-width:720px; margin-left:auto; margin-right:auto; }
 .ws-compose { display:flex; flex-direction:column; }
