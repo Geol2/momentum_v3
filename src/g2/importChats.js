@@ -45,26 +45,57 @@ function deepText(v, depth = 0) {
   return ''
 }
 const msgText = (m) => deepText(m.content) || deepText(m.text) || deepText(m.message) || deepText(m.parts) || ''
+// Claude 답: 도구를 쓰며 일한 답은 중간에 "Backend first." 같은 작업 메모가 끼어 있어서,
+// 마지막 도구 사용 뒤의 글(=사용자에게 한 최종 답)만 씁니다. 도구를 안 썼으면 전부.
+const TOOL_TYPES = /^(tool_use|tool_result|server_tool_use|web_search_tool_result|mcp_tool_use|mcp_tool_result)$/
+function answerText(m) {
+  const c = m.content
+  if (!Array.isArray(c) || !c.length) return msgText(m)
+  let last = -1
+  c.forEach((b, i) => { if (b && typeof b.type === 'string' && TOOL_TYPES.test(b.type)) last = i })
+  const after = deepText(c.slice(last + 1))
+  return after.trim() ? after : msgText(m)
+}
+// 같은 문단이 연달아 두 번 들어간 것(내보내기에서 요약과 본문이 겹친 경우) 하나로
+export function dedupeParagraphs(text) {
+  const out = []
+  for (const p of String(text || '').split(/\n{2,}/)) {
+    const k = p.trim()
+    if (!k) continue
+    if (out.length && out[out.length - 1].trim() === k) continue
+    out.push(p)
+  }
+  return out.join('\n\n')
+}
+// 이어지는 답 조각 합치기: 새 조각이 앞 내용을 포함하면 바꾸고, 이미 들어 있으면 버림
+function mergeAnswer(prev, next) {
+  if (!prev) return next
+  if (!next) return prev
+  if (next.includes(prev)) return next
+  if (prev.includes(next)) return prev
+  return `${prev}\n\n${next}`
+}
 // 내보내기 형식이 바뀌어도 읽히도록: 메시지 배열(chat_messages / messages)과 보낸 쪽(sender / role)을 넓게 받음
 const msgsOf = (c) => c?.chat_messages || c?.messages || c?.chatMessages || null
 const roleOf = (m) => m.sender || m.role || m.author?.role || m.author || m.message?.role || m.type
 const isHuman = (m) => ['human', 'user'].includes(roleOf(m))
 const isConv = (c) => c && typeof c === 'object' && Array.isArray(msgsOf(c))
-function fromClaudeAi(list) {
+export function fromClaudeAi(list) {
   const out = []
   for (const c of list || []) {
     if (!isConv(c)) continue
     const turns = []
     let cur = null
     for (const m of msgsOf(c)) {
-      const t = msgText(m).trim()
+      const t = (isHuman(m) ? msgText(m) : answerText(m)).trim()
       // 도구 결과·자동 알림처럼 사람이 쓴 게 아닌 '사용자' 메시지는 새 질문으로 치지 않음
       const onlyTool = Array.isArray(m.content) && m.content.length && m.content.every((b) => b && (b.type === 'tool_result' || b.type === 'tool_use'))
       if (isHuman(m) && (onlyTool || (t && isNoise(t)))) continue
       if (isHuman(m)) { if (cur) turns.push(cur); cur = { question: t || '(파일만 첨부)', answer: '', at: m.created_at || m.createdAt || null } }
-      else if (cur) cur.answer = (cur.answer ? cur.answer + '\n\n' : '') + t
+      else if (cur) cur.answer = mergeAnswer(cur.answer, t)
     }
     if (cur) turns.push(cur)
+    for (const tn of turns) tn.answer = dedupeParagraphs(tn.answer)
     const id = c.uuid || c.id || `${c.name || ''}-${turns[0].at || ''}`
     if (turns.length) out.push({ externalId: `claude-ai:${id}`.slice(0, 80), title: `[claude.ai] ${c.name || c.title || turns[0].question.slice(0, 50)}`, turns })
   }
