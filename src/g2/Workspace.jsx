@@ -122,19 +122,24 @@ export default function Workspace({
     if (!vv) return undefined
     const root = document.documentElement
     let tallest = vv.height
+    // 페이지 자체는 스크롤되지 않게(아이폰에서 끌면 화면 전체가 출렁이던 문제) — 스크롤은 대화·목록 칸 안에서만
+    root.classList.add('g2-lock')
     const fit = () => {
       tallest = Math.max(tallest, vv.height)
-      setKb(vv.height < tallest * 0.8 && window.matchMedia('(max-width: 760px)').matches)
+      const open = vv.height < tallest * 0.8 && window.matchMedia('(max-width: 760px)').matches
+      setKb(open)
       root.style.setProperty('--vvh', `${Math.round(vv.height)}px`)
-      // 아이폰은 키보드가 뜰 때 보이는 영역을 아래로 옮겨서(offsetTop) 위쪽이 화면 밖으로 나가요 → 그 위치에 화면을 붙임
-      root.style.setProperty('--vvtop', `${Math.round(vv.offsetTop)}px`)
+      // 아이폰은 키보드가 뜰 때 보이는 영역을 아래로 옮겨서(offsetTop) 위쪽이 화면 밖으로 나가요 → 키보드가 떠 있을 때만 그 위치에 붙임
+      // (평소에도 따라가면 끌어당길 때마다 화면 전체가 같이 움직였어요)
+      root.style.setProperty('--vvtop', `${open ? Math.round(vv.offsetTop) : 0}px`)
+      if (!open && window.scrollY) window.scrollTo(0, 0)
       // 입력 중이면 최근 대화가 보이게 맨 아래로
       if (document.activeElement?.tagName === 'TEXTAREA') endRef.current?.scrollIntoView({ block: 'end' })
     }
     fit()
     vv.addEventListener('resize', fit)
     vv.addEventListener('scroll', fit)
-    return () => { vv.removeEventListener('resize', fit); vv.removeEventListener('scroll', fit); root.style.removeProperty('--vvh'); root.style.removeProperty('--vvtop') }
+    return () => { vv.removeEventListener('resize', fit); vv.removeEventListener('scroll', fit); root.style.removeProperty('--vvh'); root.style.removeProperty('--vvtop'); root.classList.remove('g2-lock') }
   }, [])
 
   const [listTab, setListTab] = useState('chat')
@@ -1077,6 +1082,9 @@ const CSS = MARKDOWN_CSS + `
 .ws-send:hover { background:#36a364; }
 .ws-send:disabled { background:#24402f; color:#9fb8a8; cursor:default; }
 .ws-glasses { background:#0e1116; }
+/* 페이지 출렁임 막기: 문서 전체는 고정, 끝까지 스크롤해도 바깥이 끌려오지 않게 */
+html.g2-lock, html.g2-lock body { height:100%; overflow:hidden; overscroll-behavior:none; }
+.ws-chat, .ws-side, .ws-glasses { overscroll-behavior:contain; -webkit-overflow-scrolling:touch; }
 /* 안경이 꺼져 있으면: 오른쪽 칸을 없애 대화를 넓게, 안경 관련 버튼 숨김(눈 아이콘으로 미리보기는 가능) */
 @media (min-width: 761px) {
   .ws.no-glasses .ws-body { grid-template-columns:250px minmax(0,1fr); }
