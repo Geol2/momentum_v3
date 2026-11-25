@@ -45,7 +45,7 @@ export default function ChangePassword({ onClose }) {
             <p style={S.p}>바꿨어요. 이 기기는 그대로 로그인돼 있고, <b>다른 기기는 모두 로그아웃</b>됐어요.</p>
             <ul style={S.ul}>
               <li>안경(Even 앱)은 새 비밀번호로 다시 로그인</li>
-              <li>PC·파이의 <code>~/.momentum.env</code> 비밀번호를 새것으로 고치고 pc-agent 다시 켜기</li>
+              <li>PC·파이가 비밀번호로 연결돼 있다면 <code>~/.momentum.env</code> 를 고치고 pc-agent 다시 켜기 — <b>기기 연결</b> 토큰을 쓰면 이 단계가 필요 없어요</li>
               <li>claude.ai 모멘텀 커넥터는 다시 연결</li>
             </ul>
             <button type="button" style={S.primary} onClick={onClose}>닫기</button>

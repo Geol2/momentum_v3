@@ -8,6 +8,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { aiApi, aiConversationsApi, ApiError, pcApi, todosApi } from '../lib/api.js'
 import Markdown, { MARKDOWN_CSS } from './Markdown.jsx'
 import ChangePassword from '../components/ChangePassword.jsx'
+import DeviceTokens from '../components/DeviceTokens.jsx'
 import { parseChatFiles } from './importChats.js'
 import { dateKey } from '../lib/dates.js'
 import ProjectManager, { useProjects } from './ProjectsPanel.jsx'
@@ -101,6 +102,7 @@ export default function Workspace({
   const [showAll, setShowAll] = useState(false)
   const [showOlder, setShowOlder] = useState({}) // 묶음별 '이전 세션' 펼침
   const [pwOpen, setPwOpen] = useState(false)
+  const [devOpen, setDevOpen] = useState(false)
   const [pcAgents, setPcAgents] = useState([])
   const [pcJobs, setPcJobs] = useState([])
   // Claude Code 프로젝트 묶음 접기(브라우저에 기억)
@@ -365,6 +367,7 @@ export default function Workspace({
                   onClick={() => { setMoreMenu(false); importRef.current?.click() }}>Claude 대화 가져오기</button>
                 <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); exportAll() }}>전체 대화 내보내기</button>
                 <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setManaging(true) }}>프로젝트 관리</button>
+                <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setDevOpen(true) }}>기기 연결 (PC·파이)</button>
                 <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setPwOpen(true) }}>비밀번호 바꾸기</button>
               </div>
             </>
@@ -372,6 +375,7 @@ export default function Workspace({
         </div>
       </div>
       {pwOpen && <ChangePassword onClose={() => setPwOpen(false)} />}
+      {devOpen && <DeviceTokens onClose={() => setDevOpen(false)} />}
       <input ref={importRef} type="file" accept=".zip,.json,.jsonl" multiple hidden onChange={(e) => { importFiles(e.target.files); e.target.value = '' }} />
       {importing && <p className="ws-engine">{importing}</p>}
 

@@ -19,7 +19,9 @@
 //   목록이 있으면 그 폴더(와 그 아래)의 세션만 모멘텀에 보여 주고, 다른 폴더로 온 질문은 이 PC에서 거절합니다.
 //   (서버를 믿지 않고 PC 쪽에서 막으므로, 모멘텀 계정·서버가 털려도 목록 밖 코드는 읽히지 않아요.)
 //
-// 로그인 정보는 sync 스크립트와 같은 ~/.momentum.env (MOMENTUM_EMAIL, MOMENTUM_PASSWORD) 를 씁니다.
+// 로그인 정보는 sync 스크립트와 같은 ~/.momentum.env 를 씁니다.
+//   추천: MOMENTUM_TOKEN=기기용토큰 (모멘텀 ⋯ → 기기 연결에서 발급 — 비밀번호를 바꿔도 끊기지 않음)
+//   또는 MOMENTUM_EMAIL·MOMENTUM_PASSWORD
 
 import fs from 'node:fs'
 import os from 'node:os'
@@ -136,6 +138,7 @@ function runClaude(job) {
     const env = { ...process.env }
     delete env.ANTHROPIC_API_KEY // 구독 로그인으로 실행
     delete env.MOMENTUM_PASSWORD
+    delete env.MOMENTUM_TOKEN
     // Windows는 claude 가 .cmd 라 셸로 실행해야 해요. 인자는 위에서 검사한 고정 값뿐이라 한 줄로 이어 붙여도 안전합니다
     // (질문은 표준 입력으로 가므로 셸에 닿지 않음).
     const child = process.platform === 'win32'
