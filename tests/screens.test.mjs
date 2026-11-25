@@ -90,3 +90,29 @@ test('홈: 카드 덱 메뉴로 들어가면 카드 화면', () => {
   const r = reduce(st, 'tap', data)
   assert.ok(r.state.deckId === 'it-en' || r.state.screen !== 'home')
 })
+
+test('통역: 들어가면 마이크 켜기, 누르면 대답 추천, 두 번 누르면 마이크 끄고 홈', () => {
+  const data = { aiEnabled: true }
+  let st = reduce(initialState, 'down', data).state // Claude에게 묻기
+  st = reduce(st, 'down', data).state // 통역
+  let r = reduce(st, 'tap', data)
+  assert.equal(r.state.screen, 'interp')
+  assert.deepEqual(r.effects, [{ type: 'interpStart' }])
+  r = reduce(r.state, 'tap', data)
+  assert.deepEqual(r.effects, [{ type: 'interpSuggest' }])
+  r = reduce(r.state, 'double', data)
+  assert.equal(r.state.screen, 'home')
+  assert.deepEqual(r.effects, [{ type: 'interpStop' }])
+})
+
+test('통역 화면: 최근 번역 3줄과 추천 대답 표시, 키 없는 계정은 안내', () => {
+  const lines = [1, 2, 3, 4].map((i) => ({ original: `line ${i}`, korean: `한국어 ${i}` }))
+  const page = JSON.stringify(render({ screen: 'interp' }, { aiEnabled: true, interp: { status: 'listening', lines, suggestion: { english: 'Sounds good.', korean: '좋아요.' } } }))
+  assert.ok(!page.includes('한국어 1') && page.includes('한국어 4'))
+  assert.ok(page.includes('Sounds good.') && page.includes('듣는 중'))
+  assert.ok(JSON.stringify(render({ screen: 'interp' }, { aiEnabled: false })).includes('API 키'))
+  // 키 없는 계정은 들어가도 마이크를 켜지 않음
+  let st = reduce(initialState, 'down', { aiEnabled: false }).state
+  st = reduce(st, 'down', { aiEnabled: false }).state
+  assert.deepEqual(reduce(st, 'tap', { aiEnabled: false }).effects, [])
+})

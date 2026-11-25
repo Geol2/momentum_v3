@@ -213,6 +213,14 @@ export const aiApi = {
   // 새 대화 — 모든 화면 공통
   resetConversation: () => apiFetch('/api/ai/conversation/reset', { method: 'POST' }),
   // 안경 마이크 음성(PCM 16bit 모노) → 텍스트. 서버의 whisper가 받아 적습니다. { text }
+  // 통역 모드: 영어 음성 조각 → { original, korean } / 최근 들은 말 → 추천 대답 { english, korean }
+  interpretChunk: (pcm, rate = 16000) => {
+    const form = new FormData()
+    form.append('audio', new Blob([pcm], { type: 'application/octet-stream' }), 'audio.pcm')
+    form.append('rate', String(rate))
+    return apiFetch('/api/ai/interpret/chunk', { method: 'POST', body: form })
+  },
+  interpretSuggest: (lines) => apiFetch('/api/ai/interpret/suggest', { method: 'POST', body: JSON.stringify({ lines }) }),
   transcribe: (pcm, rate = 16000) => {
     const form = new FormData()
     form.append('audio', new Blob([pcm], { type: 'application/octet-stream' }), 'audio.pcm')

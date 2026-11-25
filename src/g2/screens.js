@@ -11,6 +11,7 @@ import { SCREEN_W, text, windowAround } from './layout.js'
 const HOME_ITEMS = [
   { key: 'todos', label: '오늘 할 일' },
   { key: 'ask', label: 'Claude에게 묻기' },
+  { key: 'interp', label: '통역 (영어→한국어)' },
   ...DECKS.map((d) => ({ key: `deck:${d.id}`, label: `${d.name} 카드` })),
   { key: 'memo', label: '메모' },
   { key: 'font', label: '글꼴 테스트' },
@@ -163,6 +164,20 @@ export function render(state, data) {
       return frame('오늘 할 일', `${done}/${todos.length} 완료`, body, '누르기: 완료 표시 · 두 번: 뒤로')
     }
 
+    case 'interp': {
+      if (!data.aiEnabled) {
+        return frame('통역', '', '통역을 쓰려면\n폰의 모멘텀 G2 화면에서\n⋯ → Claude API 키 를\n등록해 주세요.', '두 번 누르기: 뒤로')
+      }
+      const it = data.interp || {}
+      const right = it.status === 'listening' ? (it.busy ? '듣는 중 · 옮기는 중' : '듣는 중') : it.status === 'starting' ? '마이크 켜는 중' : ''
+      if (it.status === 'error') return frame('통역', '', it.error || '통역을 시작하지 못했어요.', '두 번 누르기: 뒤로')
+      const lines = (it.lines || []).slice(-3).map((l) => `· ${l.korean || l.original}`)
+      let body = lines.length ? lines.join('\n') : '상대가 영어로 말하면\n여기에 한국어로 떠요.'
+      if (it.suggesting) body += '\n\n추천 대답 만드는 중...'
+      else if (it.suggestion?.english) body += `\n\n추천: ${it.suggestion.english}${it.suggestion.korean ? `\n(${it.suggestion.korean})` : ''}`
+      return frame('통역', right, body, '누르기: 대답 추천 · 두 번: 끝')
+    }
+
     case 'ask': {
       if (!data.aiEnabled) {
         return frame('Claude', '', 'Claude에게 물으려면\n폰의 모멘텀 G2 화면에서\n⋯ → Claude API 키 를\n등록해 주세요.\n\n등록하면 이 메뉴에서\n바로 물어볼 수 있어요.', '두 번 누르기: 뒤로')
@@ -273,6 +288,11 @@ export function reduce(state, gesture, data) {
   if (state.screen === 'ask' && data.voice?.status === 'recording' && gesture === 'double') {
     return { state, effects: [{ type: 'micCancel' }] }
   }
+  // 통역: 두 번 누르면 마이크를 끄고 홈으로
+  if (state.screen === 'interp' && gesture === 'double') {
+    const back = homeItems(data).findIndex((it) => it.key === 'interp')
+    return { state: home(Math.max(0, back)).state, effects: [{ type: 'interpStop' }] }
+  }
   if (state.screen !== 'home' && gesture === 'double') {
     const back = homeItems(data).findIndex((it) =>
       it.key === state.screen || it.key === `deck:${state.deckId}`)
@@ -292,6 +312,7 @@ export function reduce(state, gesture, data) {
       if (item.key.startsWith('deck:')) return stay(startDeck(item.key.slice(5), data.progress))
       if (item.key === 'todos') return { state: { screen: 'todos', cursor: 0 }, effects: [{ type: 'loadTodos' }] }
       if (item.key === 'ask') return stay({ screen: 'ask', page: 0 })
+      if (item.key === 'interp') return data.aiEnabled ? { state: { screen: 'interp' }, effects: [{ type: 'interpStart' }] } : stay({ screen: 'interp' })
       if (item.key === 'memo') return { state: { screen: 'memo', idx: 0 }, effects: [{ type: 'loadNotes' }] }
       return stay({ screen: item.key })
     }
@@ -330,6 +351,11 @@ export function reduce(state, gesture, data) {
         },
         effects: [{ type: 'grade', cardId, known }],
       }
+    }
+
+    case 'interp': {
+      if (!data.aiEnabled) return stay(state)
+      return gesture === 'tap' ? { state, effects: [{ type: 'interpSuggest' }] } : stay(state)
     }
 
     case 'ask': {

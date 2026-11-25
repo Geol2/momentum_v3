@@ -19,6 +19,16 @@ const CONV_KEY = 'g2_ai_conv'       // 지금 대화 { id, project }
 // 최근 질문 확인 간격: 답을 기다리는 중이면 자주, 아니면 가끔(다른 화면에서 새로 물었는지)
 const POLL_RUNNING_MS = 1500
 const POLL_IDLE_MS = 3000
+// 통역: 이 크기(16bit 진폭 RMS)보다 크면 말하는 중으로 봄
+const INTERP_RMS = 450
+function rms16(bytes) {
+  const n = Math.floor(bytes.length / 2)
+  if (!n) return 0
+  const v = new DataView(bytes.buffer, bytes.byteOffset, n * 2)
+  let sum = 0
+  for (let i = 0; i < n; i++) { const x = v.getInt16(i * 2, true); sum += x * x }
+  return Math.sqrt(sum / n)
+}
 // 한 번에 말할 수 있는 길이. 서버 whisper가 CPU로 받아 적으므로 짧을수록 빨라요.
 const MIC_MAX_SECONDS = 30
 const MIC_RATE = 16000
@@ -109,6 +119,7 @@ export default function G2App() {
   const speakRef = useRef(speak)
   speakRef.current = speak
   // 녹음 중인 소리 조각들
+  const interpRef = useRef({ on: false })
   const micRef = useRef({ chunks: [], bytes: 0, timer: null })
   const [glasses, setGlasses] = useState(null)
   const [lastGesture, setLastGesture] = useState('')
@@ -229,6 +240,90 @@ export default function G2App() {
           // 너무 길면 알아서 끝냅니다.
           if (seconds >= MIC_MAX_SECONDS) runEffectRef.current({ type: 'micStop' })
         }, 500)
+        break
+      }
+      // ── 통역: 안경 마이크를 켠 채로 말이 끊기는 곳(조용 0.7초 또는 8초)마다 잘라 보내 한국어로 받음 ──
+      case 'interpStart': {
+        const g = glassesRef.current
+        if (!g?.startMic) {
+          setData((d) => ({ ...d, interp: { status: 'error', error: '통역은 안경 마이크에서만 돼요.\nEven 앱에서 열어 주세요.' } }))
+          break
+        }
+        const it = interpRef.current
+        if (it.on) break
+        Object.assign(it, { on: true, seg: [], segMs: 0, silence: 0, speaking: false, pre: [], queue: [], sending: false })
+        setData((d) => ({ ...d, interp: { status: 'starting', lines: d.interp?.lines || [], suggestion: null } }))
+        const send = async () => {
+          if (it.sending || !it.queue.length) return
+          it.sending = true
+          setData((d) => ({ ...d, interp: { ...d.interp, busy: true } }))
+          const pcm = it.queue.shift()
+          try {
+            const r = await aiApi.interpretChunk(pcm, MIC_RATE)
+            if (r?.original) {
+              setData((d) => ({ ...d, interp: { ...d.interp, lines: [...(d.interp?.lines || []), r].slice(-20), suggestion: null } }))
+            }
+          } catch (e) {
+            setData((d) => ({ ...d, interp: { ...d.interp, lastError: errorText(e) } }))
+          } finally {
+            it.sending = false
+            setData((d) => ({ ...d, interp: { ...d.interp, busy: it.queue.length > 0 } }))
+            if (it.queue.length) send()
+          }
+        }
+        const flush = () => {
+          if (it.segMs >= 600) {
+            const total = it.seg.reduce((n, c) => n + c.length, 0)
+            const pcm = new Uint8Array(total)
+            let off = 0
+            for (const c of it.seg) { pcm.set(c, off); off += c.length }
+            it.queue.push(pcm)
+            if (it.queue.length > 3) it.queue.shift() // 밀리면 오래된 조각은 버림(지금 말이 더 중요)
+            send()
+          }
+          it.seg = []; it.segMs = 0; it.silence = 0; it.speaking = false
+        }
+        try {
+          await g.startMic((chunk) => {
+            if (!it.on) return
+            const ms = (chunk.length / 2 / MIC_RATE) * 1000
+            const loud = rms16(chunk) > INTERP_RMS
+            if (loud) { it.silence = 0; if (!it.speaking) { it.speaking = true; it.seg = [...it.pre]; it.segMs = it.pre.length * ms } }
+            else it.silence += ms
+            if (it.speaking) { it.seg.push(chunk); it.segMs += ms }
+            else { it.pre.push(chunk); if (it.pre.length > 3) it.pre.shift() } // 말 시작 직전 0.3초도 붙임
+            if (it.speaking && (it.silence >= 700 || it.segMs >= 8000)) flush()
+          })
+        } catch (e) {
+          it.on = false
+          setData((d) => ({ ...d, interp: { status: 'error', error: `${e.message || '마이크를 켜지 못했어요.'}\n다시 들어와 보세요.` } }))
+          break
+        }
+        setData((d) => ({ ...d, interp: { ...d.interp, status: 'listening' } }))
+        break
+      }
+      case 'interpSuggest': {
+        const lines = dataRef.current.interp?.lines || []
+        if (!lines.length) {
+          setData((d) => ({ ...d, interp: { ...d.interp, suggestion: { english: '아직 들은 말이 없어요.', korean: '' } } }))
+          break
+        }
+        setData((d) => ({ ...d, interp: { ...d.interp, suggesting: true } }))
+        try {
+          const r = await aiApi.interpretSuggest(lines.slice(-8))
+          setData((d) => ({ ...d, interp: { ...d.interp, suggesting: false, suggestion: r } }))
+        } catch (e) {
+          setData((d) => ({ ...d, interp: { ...d.interp, suggesting: false, suggestion: { english: errorText(e), korean: '' } } }))
+        }
+        break
+      }
+      case 'interpStop': {
+        const it = interpRef.current
+        if (!it.on) break
+        it.on = false
+        it.queue = []
+        await glassesRef.current?.stopMic?.().catch(() => {})
+        setData((d) => ({ ...d, interp: { ...d.interp, status: 'idle', busy: false } }))
         break
       }
       case 'micCancel':
