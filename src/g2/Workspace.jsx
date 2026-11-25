@@ -473,7 +473,8 @@ export default function Workspace({
         </>
       )}
       {isOwner ? <EngineInfo engine={engine} />
-        : <p className="ws-engine">{aiStatus?.key?.hasKey ? `내 API 키(…${aiStatus.key.last4})로 답해요` : 'API 키를 등록해야 답할 수 있어요'}</p>}
+        : <p className="ws-engine">{aiStatus?.key?.hasKey ? `내 API 키(…${aiStatus.key.last4})로 답해요`
+          : <>Claude에게 물으려면 <button type="button" className="ws-link" onClick={() => setKeyOpen(true)}>내 API 키 등록</button></>}</p>}
     </nav>
   )
 

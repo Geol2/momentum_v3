@@ -582,7 +582,9 @@ export default function G2App() {
   )
 
   // Claude를 쓸 수 있는 계정: 클로드 데스크톱 같은 작업 공간(프로젝트·대화 목록 / 대화 / 안경 화면)
-  if (data.aiEnabled) {
+  // 로그인했으면 작업 공간을 보여 줌. Claude에게 묻기는 서버 주인이거나 내 API 키를 등록했을 때만 답이 와요
+  // (대화 목록·안경 띄우기·PC 중계·커넥터로 저장한 대화 보기는 키 없이도 됨).
+  if (auth.status === 'authenticated') {
     return (
       <Workspace
         conv={conv}
