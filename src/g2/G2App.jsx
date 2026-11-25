@@ -410,8 +410,10 @@ export default function G2App() {
     if (P && !String(dataRef.current.ai?.jobId || '').startsWith('pin:') && seenRef.current.id === P.jobAtPin) showPin(0, false)
   }, [showPin])
 
+  // 안경에 띄운 답·최근 질문 확인: 로그인했으면 키가 없어도(커넥터로 저장한 대화를 안경에 띄울 수 있게)
+  const loggedIn = auth.status === 'authenticated'
   useEffect(() => {
-    if (!data.aiEnabled) return undefined
+    if (!loggedIn) return undefined
     let stop = false
     ;(async () => {
       while (!stop) {
@@ -423,7 +425,7 @@ export default function G2App() {
       }
     })()
     return () => { stop = true }
-  }, [data.aiEnabled, pollLatest, pollPin])
+  }, [loggedIn, pollLatest, pollPin])
 
   // 이 화면에서 입력한 질문(+사진)을 보냅니다. 답은 위의 '최근 질문 따라가기'가 받아서
   // 이 화면과 안경(그리고 열려 있는 다른 화면)에 함께 띄웁니다.
