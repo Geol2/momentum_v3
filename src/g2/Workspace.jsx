@@ -55,6 +55,7 @@ const I = {
 }
 
 // Claude Code가 긴 대화를 요약하고 이어 간 세션은 첫 질문이 요약문이라 제목이 "This session is being continued…" 로 붙어요.
+const clip = (t, n) => { const x = String(t || '').replace(/\s+\n/g, '\n').trim(); return x.length > n ? `${x.slice(0, n)}…` : x }
 const cleanTitle = (t) => (/^this session is being continued/i.test(t || '') ? '이어서 한 세션' : (t || '(제목 없음)'))
 
 // 대화 목록 날짜 묶음: 오늘 / 어제 / 이번 주 / 이번 달 / 이전
@@ -523,6 +524,14 @@ export default function Workspace({
             <PcComposer agent={pcAgent} busy={myPcJobs.some((j) => j.status === 'queued' || j.status === 'running')}
               onAsk={async (q) => {
                 try { await pcApi.ask(pcAgent.id, sessionId, q); loadPc() } catch (e) { setError(errMsg(e)) }
+              }}
+              onAskOffline={async (q) => {
+                // PC가 꺼져 있을 때: 이 대화의 최근 내용을 붙여 '채팅'에 새 대화로 묻기(코드는 못 읽음)
+                const recent = turns.slice(-3).map((t, i) => `Q${i + 1}. ${clip(t.question, 400)}\nA${i + 1}. ${clip(t.answer, 900)}`).join('\n\n')
+                const prompt = `${q}\n\n---\n(참고: PC Claude Code 대화 "${cleanTitle(title)}"에서 이어지는 질문이에요. 지금은 코드를 열어 볼 수 없으니 아래 최근 대화 내용을 바탕으로 답해 주세요.)\n\n${recent}`
+                await onNewChat(GENERAL)
+                setListTab('chat')
+                onAsk(prompt)
               }} />
           ) : (
             <Composer busy={ai.status === 'loading'} project={conv.project} onAsk={onAsk} speak={speak} onSpeakChange={onSpeakChange} />
@@ -682,25 +691,25 @@ function NewPcChat({ agents, jobs, codeConvs, onSent, onError, onOpen }) {
 
 // PC Claude Code 대화에서 쓰는 입력창: 질문이 그 PC의 같은 세션으로 가요(읽기 전용).
 // 모멘텀 Claude로 물으면 세션 기록과 순서가 어긋나므로, 이 대화에서는 PC로만 보냅니다.
-function PcComposer({ agent, busy, onAsk }) {
+function PcComposer({ agent, busy, onAsk, onAskOffline }) {
   const [text, setText] = useState('')
-  const can = !!agent && !busy && text.trim()
+  const can = !busy && !!text.trim()
   const submit = (e) => {
     e.preventDefault()
     if (!can) return
-    onAsk(text.trim())
+    if (agent) onAsk(text.trim())
+    else onAskOffline(text.trim())
     setText('')
   }
   return (
     <form className="ws-compose" onSubmit={submit}>
       <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2}
-        placeholder={agent ? `${agent.name}의 Claude Code에게 이어서 묻기 (코드 읽기만 해요)` : 'PC에서 pc-agent를 켜면 여기서 이어 물을 수 있어요'}
-        disabled={!agent}
+        placeholder={agent ? `${agent.name}의 Claude Code에게 이어서 묻기 (코드 읽기만 해요)` : 'PC가 꺼져 있어요 — 이 대화 내용을 바탕으로 코드 없이 이어 물을 수 있어요'}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && window.matchMedia('(pointer: fine)').matches) submit(e)
         }} />
       <div className="ws-compose-row">
-        <button type="submit" className="ws-send" disabled={!can}>{busy ? 'PC가 답하는 중...' : agent ? 'PC로 보내기' : 'PC 연결 안 됨'}</button>
+        <button type="submit" className="ws-send" disabled={!can}>{busy ? 'PC가 답하는 중...' : agent ? 'PC로 보내기' : '코드 없이 이어 묻기'}</button>
       </div>
     </form>
   )
