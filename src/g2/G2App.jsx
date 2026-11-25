@@ -301,7 +301,7 @@ export default function G2App() {
         // 실시간(Deepgram)을 먼저 시도하고, 안 되면(키 없음·다른 사용자) 조각 방식으로
         const translate = async (sentence) => {
           const id = Date.now() + Math.random()
-          setData((d) => ({ ...d, interp: { ...d.interp, lines: [...(d.interp?.lines || []), { id, original: sentence, korean: '' }].slice(-20) } }))
+          setData((d) => ({ ...d, interp: { ...d.interp, lines: [...(d.interp?.lines || []), { id, original: sentence, korean: '' }].slice(-300) } }))
           try {
             const r = await aiApi.interpretTranslate(sentence)
             setData((d) => ({ ...d, interp: { ...d.interp, lastError: null, lines: (d.interp?.lines || []).map((l) => (l.id === id ? { ...l, korean: r?.korean || '' } : l)) } }))
@@ -345,7 +345,7 @@ export default function G2App() {
           try {
             const r = await aiApi.interpretChunk(pcm, MIC_RATE)
             if (r?.original) {
-              setData((d) => ({ ...d, interp: { ...d.interp, lastError: null, lines: [...(d.interp?.lines || []), r].slice(-20) } }))
+              setData((d) => ({ ...d, interp: { ...d.interp, lastError: null, lines: [...(d.interp?.lines || []), r].slice(-300) } }))
             } else {
               setData((d) => ({ ...d, interp: { ...d.interp, lastError: null, missed: (d.interp?.missed || 0) + 1 } }))
             }

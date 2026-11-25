@@ -124,3 +124,19 @@ test('통역 화면: 최근 번역 2줄, 추천 대답은 따로 한 화면, 키
   st = reduce(st, 'down', { aiEnabled: false }).state
   assert.deepEqual(reduce(st, 'tap', { aiEnabled: false }).effects, [])
 })
+
+test('통역 기록: 위로 넘기면 지난 통역을 3개씩, 아래로 끝까지 오면 실시간', () => {
+  const lines = [1, 2, 3, 4, 5, 6, 7].map((i) => ({ original: `line ${i}`, korean: `한국어 ${i}` }))
+  const data = { aiEnabled: true, interp: { status: 'listening', lines } }
+  let st = { screen: 'interp' }
+  st = reduce(st, 'up', data).state
+  let page = JSON.stringify(render(st, data))
+  assert.ok(page.includes('통역 기록') && page.includes('3/3') && page.includes('한국어 7') && page.includes('line 5') && !page.includes('한국어 4'))
+  st = reduce(reduce(st, 'up', data).state, 'up', data).state
+  st = reduce(st, 'up', data).state // 맨 처음에서 더 위로 가도 그대로
+  page = JSON.stringify(render(st, data))
+  assert.ok(page.includes('1/3') && page.includes('한국어 1') && !page.includes('한국어 2'))
+  st = reduce(reduce(reduce(st, 'down', data).state, 'down', data).state, 'down', data).state
+  assert.equal(st.hist, 0)
+  assert.ok(JSON.stringify(render(st, data)).includes('위: 기록'))
+})

@@ -31,6 +31,9 @@ export const initialState = { screen: 'home', cursor: 0 }
 
 // ---------- 공통 틀 ----------
 
+// 통역 기록 한 쪽에 보여 줄 문장 수
+export const INTERP_PER_PAGE = 3
+
 function clip(t, n) {
   const v = String(t || '')
   return v.length > n ? `${v.slice(0, n)}…` : v
@@ -185,6 +188,17 @@ export function render(state, data) {
           : `${heard}▶ ${sg.english}${sg.korean ? `\n\n뜻: ${sg.korean}` : ''}`
         return frame('추천 대답', it.suggesting ? '만드는 중' : '통역 멈춤', body, '누르기: 다시 듣기 · 두 번: 다른 추천')
       }
+      // 기록 보기: 위로 넘기면 지난 통역을 한 쪽에 3개씩(한국어 + 영어 원문)
+      const all = it.lines || []
+      const pages = Math.max(1, Math.ceil(all.length / INTERP_PER_PAGE))
+      const hist = Math.min(state.hist || 0, pages)
+      if (hist > 0 && all.length) {
+        const end = all.length - (hist - 1) * INTERP_PER_PAGE
+        const items = all.slice(Math.max(0, end - INTERP_PER_PAGE), end)
+        const body = items.map((l) => `· ${clip(l.korean || '(번역 중)', 44)}\n  ${clip(l.original, 44)}`).join('\n')
+        const hintNav = `위: 이전${hist > 1 ? ' · 아래: 다음' : ' · 아래: 실시간'}`
+        return frame('통역 기록', `${pages - hist + 1}/${pages}`, body, `${hintNav} · 두 번: 끝`)
+      }
       // 화면 한 장에 들어가게: 최근 번역 2줄(각 46자) + 지금 들리는 말 1줄
       const lines = (it.lines || []).slice(-2).map((l) => `· ${clip(l.korean || l.original, 46)}`)
       let body = lines.length ? lines.join('\n') : '상대가 영어로 말하면\n여기에 한국어로 떠요.'
@@ -198,7 +212,7 @@ export function render(state, data) {
         if (it.missed) body += ` · 못 알아들음 ${it.missed}`
       }
       if (it.lastError) body += `\n\n오류: ${clip(it.lastError, 60)}`
-      return frame('통역', right, body, '누르기: 대답 추천 · 두 번: 끝')
+      return frame('통역', right, body, `누르기: 대답 추천${all.length ? ' · 위: 기록' : ''} · 두 번: 끝`)
     }
 
     case 'ask': {
@@ -382,7 +396,14 @@ export function reduce(state, gesture, data) {
     case 'interp': {
       if (!data.aiEnabled) return stay(state)
       const open = !!data.interp?.suggestOpen
-      if (gesture === 'tap') return { state, effects: [{ type: open ? 'interpCloseSuggest' : 'interpSuggest' }] }
+      if (gesture === 'tap') return { state: { ...state, hist: 0 }, effects: [{ type: open ? 'interpCloseSuggest' : 'interpSuggest' }] }
+      if (open) return stay(state)
+      // 위·아래: 통역 기록 넘기기(0 = 실시간 화면)
+      const n = data.interp?.lines?.length || 0
+      const pages = Math.ceil(n / INTERP_PER_PAGE)
+      const hist = state.hist || 0
+      if (gesture === 'up') return stay({ ...state, hist: Math.min(hist + 1, pages) })
+      if (gesture === 'down') return stay({ ...state, hist: Math.max(hist - 1, 0) })
       return stay(state)
     }
 
