@@ -243,6 +243,9 @@ export const aiConversationsApi = {
   // 밖에서 가져온 대화: { externalId, title, turns: [{ question, answer, at }] } → { conversation, added }
   // 안경에 띄우기(켤 때만): 폰·PC에서 보는 대화의 답 하나를 안경이 따라 보여 줍니다
   glassesPin: () => apiFetch('/api/ai/glasses'),
+  // 안경 앱이 켜져 있다는 신호(Even 앱에서만 보냄) / 웹에서 켜져 있는지 확인
+  glassesHeartbeat: () => apiFetch('/api/ai/glasses/heartbeat', { method: 'PUT' }),
+  glassesOnline: () => apiFetch('/api/ai/glasses/online'),
   pinToGlasses: (conversationId, turnId) => apiFetch('/api/ai/glasses', { method: 'PUT', body: JSON.stringify({ conversationId, turnId: turnId ?? null }) }),
   unpinGlasses: () => apiFetch('/api/ai/glasses', { method: 'DELETE' }),
   importChat: (c) => apiFetch('/api/ai/conversations/import', { method: 'POST', body: JSON.stringify(c) }),

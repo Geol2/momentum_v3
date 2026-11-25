@@ -412,6 +412,7 @@ export default function G2App() {
 
   // 안경에 띄운 답·최근 질문 확인: 로그인했으면 키가 없어도(커넥터로 저장한 대화를 안경에 띄울 수 있게)
   const loggedIn = auth.status === 'authenticated'
+  const beatRef = useRef(0)
   useEffect(() => {
     if (!loggedIn) return undefined
     let stop = false
@@ -421,6 +422,11 @@ export default function G2App() {
         // 최근 질문을 먼저 보고, 그다음 '안경에 띄우기'로 고른 답을 봅니다.
         // (반대 순서면 앱을 연 직후 최근 질문이 고른 답을 덮어써서 안경에 안 떴어요)
         if (isInEvenApp() || !document.hidden) { await pollLatest(); await pollPin() }
+        // 안경 앱이 켜져 있다고 서버에 알림(웹은 이걸 보고 오른쪽 안경 화면을 보여 줌)
+        if (isInEvenApp() && Date.now() - beatRef.current > 10000) {
+          beatRef.current = Date.now()
+          aiConversationsApi.glassesHeartbeat().catch(() => {})
+        }
         await wakeableSleep(dataRef.current.ai.status === 'loading' ? POLL_RUNNING_MS : POLL_IDLE_MS, wakeRef)
       }
     })()

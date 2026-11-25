@@ -7,6 +7,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { aiApi, aiConversationsApi, ApiError, pcApi, todosApi } from '../lib/api.js'
 import Markdown, { MARKDOWN_CSS } from './Markdown.jsx'
+import { isInEvenApp } from './bridge.js'
 import ChangePassword from '../components/ChangePassword.jsx'
 import DeviceTokens from '../components/DeviceTokens.jsx'
 import ApiKey from '../components/ApiKey.jsx'
@@ -98,6 +99,20 @@ export default function Workspace({
   const [drawer, setDrawer] = useState(false)
   const [managing, setManaging] = useState(false)
   const [showGlasses, setShowGlasses] = useState(false)
+  // 안경 앱이 켜져 있을 때만 오른쪽 안경 화면과 '안경에' 버튼을 보여요(안경 없는 사람은 화면이 넓게).
+  // Even 앱 안이면 그 자체로 켜진 것. 눈 아이콘으로 언제든 미리보기는 열 수 있어요.
+  const [glassesOnline, setGlassesOnline] = useState(() => isInEvenApp())
+  useEffect(() => {
+    if (isInEvenApp()) return undefined
+    let stop = false
+    const check = async () => {
+      if (document.hidden) return
+      try { const r = await aiConversationsApi.glassesOnline(); if (!stop) setGlassesOnline(!!r?.online) } catch { /* 그대로 */ }
+    }
+    check()
+    const t = setInterval(check, 15000)
+    return () => { stop = true; clearInterval(t) }
+  }, [])
   const endRef = useRef(null)
   // 대화 목록 탭: 'chat' 모멘텀에서 한 질문 / 'code' PC Claude Code 등 밖에서 가져온 대화
   // 폰 키보드: 보이는 영역(visualViewport) 높이에 화면을 맞춰 입력창이 키보드 위에 오게 합니다.
@@ -507,7 +522,7 @@ export default function Workspace({
   )
 
   return (
-    <div className={`ws${kb ? ' kb' : ''}`}>
+    <div className={`ws${kb ? ' kb' : ''}${glassesOnline ? '' : ' no-glasses'}`}>
       <style>{CSS}</style>
       <header className="ws-top">
         <button type="button" className="ws-menu ws-iconbtn" onClick={() => setDrawer((o) => !o)} aria-expanded={drawer} aria-label="대화 목록"><Icon d={I.menu} /></button>
@@ -1062,6 +1077,14 @@ const CSS = MARKDOWN_CSS + `
 .ws-send:hover { background:#36a364; }
 .ws-send:disabled { background:#24402f; color:#9fb8a8; cursor:default; }
 .ws-glasses { background:#0e1116; }
+/* 안경이 꺼져 있으면: 오른쪽 칸을 없애 대화를 넓게, 안경 관련 버튼 숨김(눈 아이콘으로 미리보기는 가능) */
+@media (min-width: 761px) {
+  .ws.no-glasses .ws-body { grid-template-columns:250px minmax(0,1fr); }
+  .ws.no-glasses .ws-glasses { display:none; }
+  .ws.no-glasses .ws-glasses.open { display:block; position:fixed; right:16px; top:64px; width:min(380px, calc(100vw - 32px)); max-height:calc(100dvh - 90px); border:1px solid var(--line); border-radius:12px; z-index:40; box-shadow:0 12px 40px rgba(0,0,0,.6); }
+}
+@media (max-width: 760px) { .ws.no-glasses .ws-glasses:not(.open) { display:none; } }
+.ws.no-glasses .ws-glassbtn:not(.on), .ws.no-glasses .ws-pin:not(.on) { display:none; }
 /* 입력창 한 줄: [+] [입력칸] [보내기] */
 .ws-bar { width:100%; display:flex; align-items:flex-end; gap:6px; padding:6px; border:1px solid var(--line); border-radius:18px; background:#11141b; box-sizing:border-box; }
 .ws-compose:focus-within .ws-bar { border-color:#33503f; }
