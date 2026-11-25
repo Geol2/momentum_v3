@@ -89,7 +89,7 @@ const errMsg = (e) => (e instanceof ApiError && e.message && e.message !== 'netw
  * version: 질문이 시작·끝날 때마다 늘어나는 수 — 목록·내역을 다시 불러오는 신호
  */
 export default function Workspace({
-  conv, onSelectConversation, onNewChat, version, ai, onAsk, speak, onSpeakChange, glassesPane, status,
+  conv, onSelectConversation, onNewChat, version, ai, onAsk, speak, onSpeakChange, glassesPane, status, user, onLogout,
 }) {
   const { projects, load: loadProjects } = useProjects()
   const [conversations, setConversations] = useState(null)
@@ -395,6 +395,10 @@ export default function Workspace({
                 {!isOwner && <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setKeyOpen(true) }}>Claude API 키</button>}
                 <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setDevOpen(true) }}>기기 연결 (PC·파이)</button>
                 <button type="button" role="menuitem" onClick={() => { setMoreMenu(false); setPwOpen(true) }}>비밀번호 바꾸기</button>
+                <div className="ws-menu-sep" aria-hidden="true" />
+                {user?.email && <div className="ws-menu-who" title={user.email}>{user.name ? `${user.name} · ` : ''}{user.email}</div>}
+                <button type="button" role="menuitem" className="ws-menu-danger"
+                  onClick={() => { setMoreMenu(false); if (window.confirm('로그아웃할까요?')) onLogout?.() }}>로그아웃</button>
               </div>
             </>
           )}
@@ -978,6 +982,9 @@ const CSS = MARKDOWN_CSS + `
 .ws-menu-pop { position:absolute; right:0; top:44px; z-index:31; min-width:190px; padding:6px; background:#151a22; border:1px solid #2a3140; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.5); display:flex; flex-direction:column; }
 .ws-menu-pop button { text-align:left; background:none; border:0; color:var(--text); font-size:13px; padding:8px 10px; border-radius:6px; cursor:pointer; }
 .ws-menu-pop button:hover { background:#1f2530; }
+.ws-menu-sep { height:1px; background:#262c36; margin:6px 4px; }
+.ws-menu-who { padding:4px 10px 6px; font-size:11.5px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ws-menu-pop button.ws-menu-danger { color:#ff9a9a; }
 .ws-label { display:block; margin:16px 2px 6px; font-size:11.5px; color:var(--dim); }
 .ws-select { width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:#11141b; color:var(--text); font:inherit; font-size:13.5px; }
 .ws-tabs { gap:0; margin:16px 0 4px; border-bottom:1px solid var(--line); }

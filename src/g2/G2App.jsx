@@ -599,6 +599,8 @@ export default function G2App() {
         onSpeakChange={setSpeak}
         glassesPane={glassesPane}
         status={statusLine}
+        user={auth.user}
+        onLogout={auth.logout}
       />
     )
   }
