@@ -21,17 +21,26 @@ export function getToken() {
     return memoryToken
   }
 }
+// 토큰이 바뀔 때 다른 저장소에도 같이 적고 싶을 때(예: Even 앱 — WebView 주소의 포트가 실행마다 바뀌어
+// localStorage 가 매번 비므로, 앱 쪽 저장소에도 남겨 둠). 받는 쪽 실패는 무시합니다.
+let tokenMirror = null
+export function setTokenMirror(fn) { tokenMirror = fn }
+const mirror = (t) => { try { tokenMirror?.(t) } catch { /* 무시 */ } }
+export const TOKEN_STORAGE_KEY = TOKEN_KEY
+
 export function setToken(token) {
   memoryToken = token
   try {
     localStorage.setItem(TOKEN_KEY, token)
   } catch { /* storage blocked — memoryToken carries the session */ }
+  mirror(token)
 }
 export function clearToken() {
   memoryToken = null
   try {
     localStorage.removeItem(TOKEN_KEY)
   } catch { /* ignore */ }
+  mirror('')
 }
 
 // 세션이 만료되면 이 이벤트가 발생합니다. useAuth가 듣고 로그인 화면으로 되돌립니다.
