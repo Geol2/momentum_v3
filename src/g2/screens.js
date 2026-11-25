@@ -112,12 +112,25 @@ function askPages(state, ai) {
 
 // ---------- 카드 복습 (라이트너) ----------
 
-export function buildQueue(deck, progress, now = Date.now()) {
-  const withBox = deck.cards.map((c) => ({ id: c.id, box: progress[c.id]?.box ?? 0, due: progress[c.id]?.due ?? 0 }))
+// 섞기(Fisher–Yates). rand 는 테스트에서 고정값을 넣을 수 있게 받습니다.
+export function shuffle(list, rand = Math.random) {
+  const a = [...list]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
+// 이번에 볼 카드: 복습할 때가 된 카드 중 덜 외운 상자부터 SESSION_SIZE장 고르고, 순서는 매번 섞어요.
+// (같은 상자 안에서는 무작위로 골라서, 카드가 많아도 매번 같은 카드만 나오지 않게)
+export function buildQueue(deck, progress, now = Date.now(), rand = Math.random) {
+  const withBox = deck.cards.map((c) => ({ id: c.id, box: progress[c.id]?.box ?? 0, due: progress[c.id]?.due ?? 0, r: rand() }))
   const due = withBox.filter((c) => c.due <= now)
   // 복습할 카드가 없으면 전체를 낮은 상자(덜 외운 것)부터 다시 돕니다.
   const pool = due.length ? due : withBox
-  return pool.sort((a, b) => a.box - b.box || a.due - b.due).slice(0, SESSION_SIZE).map((c) => c.id)
+  const picked = pool.sort((a, b) => a.box - b.box || a.r - b.r).slice(0, SESSION_SIZE)
+  return shuffle(picked, rand).map((c) => c.id)
 }
 
 export function gradeCard(prev, known, now = Date.now()) {
