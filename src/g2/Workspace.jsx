@@ -6,6 +6,7 @@
 // 대화는 서버(DB)에 저장되고, 안경은 '가장 최근 질문'을 따라가므로 어느 화면에서 물어도 같이 보입니다.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { aiApi, aiConversationsApi, ApiError, pcApi, todosApi } from '../lib/api.js'
+import Markdown, { MARKDOWN_CSS } from './Markdown.jsx'
 import { parseChatFiles } from './importChats.js'
 import { dateKey } from '../lib/dates.js'
 import ProjectManager, { useProjects } from './ProjectsPanel.jsx'
@@ -433,7 +434,7 @@ export default function Workspace({
                 {j.status === 'queued' || j.status === 'running' ? (
                   <div className="ws-a ws-progress"><span className="ws-dot" aria-hidden="true" /> {j.status === 'queued' ? 'PC로 보내는 중...' : 'PC의 Claude Code가 답하는 중...'}</div>
                 ) : j.status === 'error' ? <div className="ws-a ws-err">{j.error}</div>
-                  : <div className="ws-a" style={{ whiteSpace: 'pre-wrap' }}>{j.answer}</div>}
+                  : <div className="ws-a"><Markdown text={j.answer} /></div>}
               </div>
             ))}
             <div ref={endRef} />
@@ -513,11 +514,11 @@ function Turn({ turn, onGlasses, onGlassesNow }) {
         <button type="button" className={`ws-link ws-pin-one${onGlassesNow ? ' on' : ''}`} onClick={onGlasses}>
           {onGlassesNow ? '안경에 떠 있음' : '안경에'}
         </button>
-        <pre>{turn.answer}</pre>
+        <Markdown text={turn.answer} />
         {turn.detail && (
           <details open>
             <summary>전체 답 / 수정 코드</summary>
-            <pre className="ws-code">{turn.detail}</pre>
+            <Markdown text={turn.detail} className="ws-detail" />
           </details>
         )}
         {steps.length > 0 && (
@@ -690,8 +691,8 @@ function Composer({ busy, project, onAsk, speak, onSpeakChange }) {
   )
 }
 
-const CSS = `
-.ws { --bg:#0b0d12; --panel:#11141b; --line:#222831; --text:#e8e8ea; --muted:#9aa0aa; --dim:#6b717c; --accent:#4dff7a;
+const CSS = MARKDOWN_CSS + `
+.ws { --bg:#0b0d12; --panel:#11141b; --line:#222831; --text:#e8e8ea; --muted:#b0b6c0; --dim:#8c939e; --accent:#4dff7a;
   min-height:100vh; height:100dvh; display:flex; flex-direction:column; background:var(--bg); color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif; }
 .ws button { font:inherit; }
@@ -720,11 +721,11 @@ const CSS = `
 .ws-body { flex:1; min-height:0; display:grid; grid-template-columns:260px minmax(0,1fr) 360px; }
 .ws-side { border-right:1px solid var(--line); padding:12px; overflow-y:auto; background:var(--panel); }
 .ws-new { width:100%; padding:10px; border-radius:10px; border:1px solid rgba(77,255,122,.35); background:rgba(77,255,122,.08); color:#c8ffd6; cursor:pointer; font-size:14px; }
-.ws-sec { display:flex; justify-content:space-between; align-items:center; margin:18px 4px 6px; font-size:12px; color:var(--muted); }
+.ws-sec { display:flex; justify-content:space-between; align-items:center; margin:18px 4px 6px; font-size:12px; color:var(--muted); font-weight:600; letter-spacing:.02em; }
 .ws-link { background:none; border:none; color:#c8ffd6; cursor:pointer; font-size:12px; padding:2px 4px; }
 .ws-list { list-style:none; margin:0; padding:0; }
 .ws-item { width:100%; display:flex; justify-content:space-between; gap:8px; text-align:left; background:none; border:none; color:var(--text);
-  padding:8px 10px; border-radius:8px; cursor:pointer; font-size:14px; }
+  padding:9px 10px; border-radius:8px; cursor:pointer; font-size:14px; }
 .ws-item:hover { background:#1a1e26; }
 .ws-item.on { background:#1d2430; box-shadow:inset 2px 0 0 var(--accent); }
 .ws-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -738,13 +739,16 @@ const CSS = `
 .ws-main { display:flex; flex-direction:column; min-width:0; min-height:0; }
 .ws-chat { flex:1; overflow-y:auto; padding:20px 24px; }
 .ws-empty { color:var(--muted); font-size:14px; margin:48px auto; max-width:520px; text-align:center; line-height:1.7; }
-.ws-turn { max-width:760px; margin:0 auto 22px; }
-.ws-q { margin-left:auto; width:fit-content; max-width:85%; background:#1d2430; border-radius:14px 14px 4px 14px; padding:10px 14px; white-space:pre-wrap; word-break:break-word; font-size:15px; line-height:1.55; }
+.ws-turn { max-width:780px; margin:0 auto 28px; padding-bottom:22px; border-bottom:1px solid #1a1f28; }
+.ws-turn:last-of-type { border-bottom:0; }
+.ws-q { margin-left:auto; width:fit-content; max-width:85%; background:#1f2a3a; border:1px solid #2b3a50; color:#f2f5f9; border-radius:14px 14px 4px 14px; padding:10px 14px; white-space:pre-wrap; word-break:break-word; font-size:15px; line-height:1.55; }
 .ws-q em { color:var(--muted); font-style:normal; font-size:13px; }
-.ws-a { margin-top:10px; font-size:15px; line-height:1.65; }
+.ws-a { margin-top:14px; padding-left:14px; border-left:2px solid rgba(77,255,122,.28); font-size:15px; line-height:1.7; }
+.ws-a::after { content:''; display:block; clear:both; }
 .ws-a pre { margin:0; white-space:pre-wrap; word-break:break-word; font:inherit; }
 .ws-a details { margin-top:10px; }
-.ws-a summary { cursor:pointer; color:var(--muted); font-size:13px; }
+.ws-a summary { cursor:pointer; color:var(--muted); font-size:13px; margin-bottom:8px; }
+.ws-detail { padding:12px 14px; background:var(--panel); border:1px solid var(--line); border-radius:10px; font-size:14px; }
 .ws-code { margin-top:8px !important; padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px;
   font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"D2Coding",monospace !important; font-size:13px !important; line-height:1.55; overflow-x:auto; }
 .ws-steps { margin-top:10px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; }
@@ -801,6 +805,8 @@ const CSS = `
   .ws-chat { padding:16px; }
   .ws-compose { padding:10px 12px 12px; }
   .ws-q { max-width:92%; }
+  .ws-a { padding-left:10px; }
+  .md { font-size:15.5px; }
   .ws-actions { display:flex; position:static; transform:none; background:none; justify-content:flex-end; }
   .ws-glasses { position:static; width:auto; max-height:45dvh; flex:none; border:0; border-bottom:1px solid var(--line); border-radius:0; box-shadow:none; order:-1; }
   /* 폰: 1줄 = 메뉴·제목, 2줄 = 버튼 줄(가로로 밀어 보기) */
