@@ -2,6 +2,7 @@
 //  - 일반 브라우저: 576×288 미리보기 + 키보드/버튼으로 제스처 흉내
 //  - Even 앱 WebView: 같은 화면을 SDK로 안경에 보내고, 안경 제스처를 받습니다.
 //    (이때 폰 화면에는 이 미리보기가 그대로 보입니다)
+import { createSentenceSplitter } from './liveText.js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Login from '../components/Login.jsx'
 import { aiApi, aiConversationsApi, ApiError, getToken, notesApi, todosApi } from '../lib/api.js'
@@ -38,35 +39,37 @@ function openLive(token, model, { onWords, onSentence, onClose }) {
   const ws = new WebSocket(`${LIVE_URL}&model=${encodeURIComponent(model || 'nova-3')}`, ['bearer', token])
   ws.binaryType = 'arraybuffer'
   const pending = [] // 연결되기 전에 들어온 소리
-  let done = '' // 이번 문장에서 확정된 부분
-  const flush = () => { const t = done.trim(); done = ''; if (t) onSentence(t) }
+  const sp = createSentenceSplitter(30)
+  const emit = (list) => list.forEach(onSentence)
   ws.onopen = () => { while (pending.length) ws.send(pending.shift()) }
   ws.onmessage = (ev) => {
     let m
     try { m = JSON.parse(ev.data) } catch { return }
-    if (m.type === 'UtteranceEnd') { flush(); onWords(''); return }
+    if (m.type === 'UtteranceEnd') { emit(sp.push('', true)); onWords(''); return }
     if (m.type !== 'Results') return
     const text = m.channel?.alternatives?.[0]?.transcript || ''
     if (m.is_final) {
-      if (text) done += ` ${text}`
-      // 쉬지 않고 계속 말해도 문장이 끝나면(. ? !) 끊고, 너무 길면(25단어) 그냥 끊어서 번역
-      const words = done.trim().split(/\s+/).length
-      const sentenceEnd = /[.?!]["')\]]?$/.test(text.trim()) && words >= 4
-      if (m.speech_final || sentenceEnd || words >= 25) { flush(); onWords('') } else onWords(done.trim())
+      // 확정된 글자만 문장 나누기에 넣어요(온점·물음표에서 끊기, 말이 멈추면 남은 것도)
+      emit(sp.push(text, !!m.speech_final))
+      onWords(sp.pending())
     } else {
-      onWords(`${done} ${text}`.trim())
+      onWords(`${sp.pending()} ${text}`.trim())
     }
   }
-  ws.onclose = (ev) => { flush(); onClose?.(ev) }
+  ws.onclose = (ev) => { emit(sp.flush()); onClose?.(ev) }
   return {
     send(chunk) {
       if (ws.readyState === WebSocket.OPEN) ws.send(chunk)
       else if (ws.readyState === WebSocket.CONNECTING) { pending.push(chunk); if (pending.length > 30) pending.shift() }
     },
+    /** 멈출 때: 끝나지 않은 말을 돌려주고, 이후 오는 결과는 버려요(멈춘 뒤 같은 문장이 또 들어와 중복되던 것). */
     close() {
-      try { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'CloseStream' })) } catch { /* 무시 */ }
+      const rest = sp.pending()
+      ws.onmessage = null
       ws.onclose = null
+      try { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'CloseStream' })) } catch { /* 무시 */ }
       setTimeout(() => { try { ws.close() } catch { /* 무시 */ } }, 300)
+      return rest
     },
   }
 }
@@ -416,12 +419,12 @@ export default function G2App() {
         }
         setData((d) => ({ ...d, interp: { ...d.interp, suggestOpen: true, suggesting: true, suggestion: null } }))
         // 추천 요청을 먼저 보내고(기다리지 않음), 그동안 통역을 멈춰요. 마이크 끄기를 기다렸다 보내면 느려요.
-        const req = aiApi.interpretSuggest(ctx.slice(-30))
+        const req = aiApi.interpretSuggest(ctx.slice(-60))
         if (it.on) {
           it.on = false
           it.queue = []
-          if (live) it.translate?.(live) // 문장으로 안 끝난 마지막 말도 전체 말에 넣기
-          it.live?.close()
+          const rest = it.live?.close() // 문장으로 안 끝난 마지막 말도 전체 말에 넣기
+          if (rest) it.translate?.(rest)
           it.live = null
           glassesRef.current?.stopMic?.().catch(() => {})
           setData((d) => ({ ...d, interp: { ...d.interp, status: 'paused', live: '' } }))
@@ -438,7 +441,8 @@ export default function G2App() {
       }
       case 'interpCloseSuggest': {
         interpRef.current.suggestSeq = (interpRef.current.suggestSeq || 0) + 1
-        setData((d) => ({ ...d, interp: { ...d.interp, suggestOpen: false, suggesting: false, suggestion: null } }))
+        // 다시 듣기 = 새로 시작(지난 말은 지워서 다음에 멈출 때 새 말로만 요점을 찾아요)
+        setData((d) => ({ ...d, interp: { ...d.interp, suggestOpen: false, suggesting: false, suggestion: null, lines: [], live: '' } }))
         // 통역 화면으로 돌아가면 다시 듣기
         if (!interpRef.current.on) runEffectRef.current?.({ type: 'interpStart' })
         break
