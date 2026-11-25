@@ -640,11 +640,15 @@ function detailLabel(detail) {
 // 끝나면 동기화로 Claude Code 목록에 새 대화가 생기고, 여기서 바로 열 수 있어요.
 function NewPcChat({ agents, jobs, codeConvs, onSent, onError, onOpen }) {
   const [open, setOpen] = useState(false)
-  const [agentId, setAgentId] = useState('')
+  // PC가 켜져 있으면 PC를 먼저, 꺼져 있으면 라즈베리파이(항상 켜진 쪽). 직접 고른 건 기억해 둠.
+  const [agentId, setAgentIdRaw] = useState(() => { try { return localStorage.getItem('g2_pc_agent') || '' } catch { return '' } })
+  const setAgentId = (v) => { setAgentIdRaw(v); try { localStorage.setItem('g2_pc_agent', v) } catch { /* 무시 */ } }
   const [cwd, setCwd] = useState('')
   const [text, setText] = useState('')
   const [mine, setMine] = useState([]) // 여기서 보낸 질문 id
-  const agent = agents.find((a) => a.id === agentId) || agents[0]
+  const isPi = (a) => /raspberry|라즈베리|\bpi\b/i.test(`${a.name} ${a.id}`)
+  const ordered = [...agents].sort((a, b) => Number(isPi(a)) - Number(isPi(b)))
+  const agent = ordered.find((a) => a.id === agentId) || ordered[0]
   const dirs = [...new Set((agent?.sessions || []).map((x) => x.cwd))]
   const dir = dirs.includes(cwd) ? cwd : dirs[0] || ''
   const base = (d) => d.split(/[\\/]/).filter(Boolean).pop() || d
@@ -662,7 +666,7 @@ function NewPcChat({ agents, jobs, codeConvs, onSent, onError, onOpen }) {
     <form className="ws-newpc" onSubmit={send}>
       {agents.length > 1 && (
         <select value={agent?.id || ''} onChange={(e) => setAgentId(e.target.value)} aria-label="PC">
-          {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          {ordered.map((a) => <option key={a.id} value={a.id}>{a.name}{isPi(a) ? ' (항상 켜짐)' : ''}</option>)}
         </select>
       )}
       <select value={dir} onChange={(e) => setCwd(e.target.value)} aria-label="프로젝트 폴더" title={dir}>
